@@ -486,9 +486,11 @@ function cellsToValues(e){
    Phase 2 (Google sign-in + lead allowlist), so create/update/remove throw for
    now. References stay on the mock holiday overlays until Hebcal wiring (later).
    Phase 2 will point reads at the real planning table via codaRowToEvent. */
-const PROXY_BASE = '';   // ← paste your deployed Worker URL to go live, e.g.
-                         //   https://est-planning-proxy.<subdomain>.workers.dev
-                         //   Leave '' to keep running on in-memory mock data.
+const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
+                         // ← deployed Worker (read-only, doc-scoped token server-side).
+                         //   Set '' to fall back to in-memory mock data.
+                         //   NOTE: the Worker's CORS is locked to https://plan.eastsidetribe.org,
+                         //   so the live app only works when served from that domain.
 
 /* EST Events SRC row (Coda simpleWithArrays + useColumnNames) -> normalized event.
    Relation cells arrive as arrays of display strings (or objects); datetimes as
