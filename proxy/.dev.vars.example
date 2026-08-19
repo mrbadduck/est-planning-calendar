@@ -1,7 +1,8 @@
 # Copy to .dev.vars (gitignored) for local `npm run dev`.
-CODA_API_TOKEN=paste-a-doc-scoped-read-write-token
-CODA_DOC_ID=your-mission-control-doc-id
-CODA_TABLE_ID=your-planning-table-id
+CODA_API_TOKEN=paste-a-READ-scoped-doc-scoped-token
+CODA_DOC_ID=DYAz_wCVfv
+CODA_TABLE_ID=grid-9TAt5vMMKH
 CODA_API_BASE=https://coda.io/apis/v1
-# ALLOWED_ORIGIN=https://your-username.github.io
-# APP_KEY=optional-shared-secret
+ALLOWED_ORIGIN=https://plan.eastsidetribe.org
+# ALLOW_WRITES=true   # Phase 2 only — enables POST/PUT/DELETE
+# APP_KEY=optional-shared-secret   # unused in the phased plan

@@ -479,17 +479,62 @@ function cellsToValues(e){
     'Created by':e.createdBy,'Edited by':e.editedBy,'Eventbrite URL':e.eventbriteUrl||'','GCal ID':e.gcalId||'',
     'Scheduling':cap(e.scheduling||'exact'),'Window start':e.rangeStart||'','Window end':e.rangeEnd||'','Target month':e.targetMonth||''};
 }
-/* CodaSource (live) would look like:
-   const CodaSource = {
-     base:'/api',  // your proxy; holds the doc-scoped token server-side
-     async listPlanning(){ const r=await fetch(`${this.base}/rows`); const j=await r.json(); return j.items.map(codaRowToEvent); },
-     async create(e){ await fetch(`${this.base}/rows`,{method:'POST',body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); },
-     async update(e){ await fetch(`${this.base}/rows/${e.id}`,{method:'PUT',body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); },
-     async remove(id){ await fetch(`${this.base}/rows/${id}`,{method:'DELETE'}); },
-     async listReferences(){ ... Hebcal JSON + Coda-synced ref tables ... },
-   };
-*/
-const DB = MockSource;
+/* ---- CodaSource (live, via the proxy) ------------------------------------
+   PHASE 1 = READ-ONLY. Reads `EST Events SRC` through the Worker proxy and maps
+   its real columns to our normalized event shape (see eventsSrcRowToEvent). The
+   proxy holds the read-scoped, doc-scoped token server-side. Writes land in
+   Phase 2 (Google sign-in + lead allowlist), so create/update/remove throw for
+   now. References stay on the mock holiday overlays until Hebcal wiring (later).
+   Phase 2 will point reads at the real planning table via codaRowToEvent. */
+const PROXY_BASE = '';   // ← paste your deployed Worker URL to go live, e.g.
+                         //   https://est-planning-proxy.<subdomain>.workers.dev
+                         //   Leave '' to keep running on in-memory mock data.
+
+/* EST Events SRC row (Coda simpleWithArrays + useColumnNames) -> normalized event.
+   Relation cells arrive as arrays of display strings (or objects); datetimes as
+   ISO-ish strings carrying the doc's tz offset, so we read the wall-clock parts
+   literally. (Verify against live proxy output on first deploy.) */
+const _nameOf = x => typeof x === 'string' ? x : (x && x.name) || '';
+const _asList = v => (v == null || v === '') ? [] : (Array.isArray(v) ? v : [v]).map(_nameOf).filter(Boolean);
+function _splitDT(iso){
+  const m = iso && String(iso).match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/);
+  return m ? { date:m[1], time:m[2] || '' } : { date:'', time:'' };
+}
+function eventsSrcRowToEvent(r){
+  const v = r.values || {};
+  const s = _splitDT(v['Event Start']), e = _splitDT(v['Event End']);
+  const title = String(v['Event Name'] || '').replace(/\s*\(\d{1,2}\/\d{1,2}\/\d{4}\)\s*$/, '');
+  const prog = _asList(v['Program(s)'])[0] || '';
+  return {
+    id: r.id, source:'planning', program: progIdByName[prog] || 'oth',
+    title, leads: _asList(v['Leads']), date: s.date,
+    start: s.time, end: e.time, allDay: !s.time,
+    location: _asList(v['Venue']).join(', '),
+    status: 'approved', description: String(v['Event Description'] || ''),
+    createdBy:'', editedBy:'',
+    eventbriteUrl: v['Eventbrite Event URL'] || '', gcalId: v['gCal Event Id'] || '',
+    readOnly: true, scheduling:'exact', rangeStart:'', rangeEnd:'', targetMonth:''
+  };
+}
+const READONLY_MSG = 'This calendar is read-only in Phase 1 — editing goes live in Phase 2 (Google sign-in + lead allowlist).';
+const CodaSource = {
+  base: PROXY_BASE,
+  async listPlanning(){
+    const r = await fetch(`${this.base}/rows`, { headers:{ 'Accept':'application/json' } });
+    if(!r.ok) throw new Error(`proxy ${r.status}: ${await r.text()}`);
+    const j = await r.json();
+    return (j.items || [])
+      .filter(row => !(row.values && row.values['Cancelled?'] === true))
+      .map(eventsSrcRowToEvent)
+      .filter(ev => ev.date);          // drop undated/malformed rows for now
+  },
+  async listReferences(){ return MOCK_REFS.slice(); },
+  async create(){ alert(READONLY_MSG); throw new Error(READONLY_MSG); },
+  async update(){ alert(READONLY_MSG); throw new Error(READONLY_MSG); },
+  async remove(){ alert(READONLY_MSG); throw new Error(READONLY_MSG); },
+};
+
+const DB = PROXY_BASE ? CodaSource : MockSource;
 
 /* =========================================================================
    STATE + RENDER
