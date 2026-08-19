@@ -7,19 +7,21 @@ way they are; the docs cover deeper detail.
 ## What this is
 
 A full-year program-planning calendar for **East Side Tribe (EST)**, a lay-led
-Jewish community org. It embeds into EST's **Mission Control** doc in
-**Superhuman Docs** (this is Coda — renamed July 8, 2026; `docs.superhuman.com`,
-`coda.io` links redirect, API still resolves at `coda.io/apis/v1`). Program leads
-draft events in a low-commitment space *before* anything is published; approved
-events later flow downstream to Eventbrite / Google Calendar / Mailchimp — but
-that push happens in **Superhuman Docs automations, not this app.**
+Jewish community org. It is **deployed standalone** at `plan.eastsidetribe.org`
+(GitHub Pages) and reads/writes EST's **Mission Control** doc in **Superhuman
+Docs** through a proxy (this is Coda — renamed July 8, 2026; `docs.superhuman.com`,
+`coda.io` links redirect, API still resolves at `coda.io/apis/v1`). Embedding the
+app inside Mission Control is a possible later option, **not** the current path.
+Program leads draft events in a low-commitment space *before* anything is
+published; approved events later flow downstream to Eventbrite / Google Calendar /
+Mailchimp — but that push happens in **Superhuman Docs automations, not this app.**
 
 ## Repo map
 
 | Path | What | Deploys to |
 |------|------|-----------|
 | `web/index.html` | The calendar app — self-contained, vanilla JS, **no build step** | GitHub Pages |
-| `web/embed-test/index.html` | "Did JS run in the embed?" validator | GitHub Pages |
+| `web/embed-test/index.html` | "Did JS run in the embed?" validator — **deferred** (standalone is the current path) | GitHub Pages |
 | `proxy/` | Cloudflare Worker holding the Superhuman Docs token server-side | Cloudflare Workers |
 | `docs/` | architecture + deployment notes | — |
 | `.github/workflows/` | auto-deploy web→Pages, proxy→Workers | — |
@@ -29,10 +31,19 @@ that push happens in **Superhuman Docs automations, not this app.**
 - **App: complete and working on in-memory mock data.** Open `web/index.html`
   in a browser to run it — no server, no build. Uses real EST programs/leads as
   sample rows. Edits reset on reload (mock has no persistence yet).
-- **Proxy: skeleton only.** Not configured or deployed. Needs real doc/table IDs
-  and a token.
-- **Embed: not yet validated** in a real Superhuman Docs embed.
-- **Not yet wired to live data.** The whole point of the next phase.
+- **Deployment plan set (Aug 2026):** standalone at `plan.eastsidetribe.org` via
+  GitHub Pages, with a **phased auth** model — see `docs/architecture.md`. Not yet
+  deployed.
+- **Proxy: skeleton only.** Not configured or deployed. Phase 1 points it at a
+  real table **read-only**, CORS-locked to the app origin, with a **read-scoped**
+  token.
+- **Mission Control doc identified:** doc id `DYAz_wCVfv`
+  (`superhuman://docs/DYAz_wCVfv`). Real source tables: `EST Events SRC`
+  (`grid-9TAt5vMMKH`), `EST Programs SRC` (`grid-g87NFbtqN8`), `EST People SRC`
+  (`grid-X316Eql8dE`). **No dedicated planning table exists yet** — a page named
+  "Planning Calendar" exists but holds no planning table. Where planning rows live
+  (a new table vs. a status field on `EST Events SRC`) is a Phase 2 decision.
+- **Not yet wired to live data.** Phase 1 lights up the read path end-to-end.
 
 ## Non-negotiable architecture decisions (don't relitigate without reason)
 
@@ -41,20 +52,36 @@ that push happens in **Superhuman Docs automations, not this app.**
    app is a **thin view layer that owns no data** — it reads/writes only through
    the proxy.
 2. **The token never reaches the browser.** Coda uses bearer-token auth; anything
-   in a client-side embed is readable. So the token lives in the **proxy**. Use a
-   **doc/table-scoped** token to limit blast radius.
+   in client-side JS is readable (embed or standalone). So the token lives in the
+   **proxy**. Use a **doc/table-scoped** token — **read-scoped** until writes are
+   turned on — to limit blast radius.
 3. **Downstream lives in Superhuman Docs, not here.** The app's scope ends at
    "approved." Eventbrite/gCal/Mailchimp/socials are Superhuman Docs automations.
 4. **Keep the data-layer seam clean.** The app normalizes every event to one
    shape and converts Coda rows via `codaRowToEvent` / `eventToCodaCells`. Going
    live = swap `MockSource` for `CodaSource` (a commented template is in the file).
    **The UI must not change when the data source changes.**
+5. **Deploy standalone, keep DNS at Hover.** The app ships to GitHub Pages at
+   `plan.eastsidetribe.org` via a single `plan CNAME mrbadduck.github.io` record.
+   `eastsidetribe.org` also carries the Strikingly marketing site (apex/`www`) and
+   **Google Workspace email** (`MX`, DKIM) — so we **never move nameservers**;
+   adding a subdomain record can't disturb those. This is exactly why Cloudflare
+   Access (which needs the whole zone on Cloudflare) was rejected.
+6. **Auth is phased.** Phase 1: read-only proxy + CORS lock — no user login, near
+   zero code, enough to confirm the flow. Phase 2 (before create/edit/approve go
+   live): in-app **Google Sign-In**; the app sends the signed ID token to the
+   Worker, which **verifies the JWT and checks an email allowlist** before any
+   write. Writes are what needs gating; reads of planning data are low-stakes.
 
 ## Hard technical constraints (learned the hard way — verify before assuming)
 
-- **Superhuman Docs embeds are sandboxed and block scripts by default.** A custom
-  JS app won't run unless the embed uses **Compatibility mode**. Validate with
-  `web/embed-test/` *before* building more embed-dependent work.
+- **DNS stays at Hover — never move the nameservers.** `eastsidetribe.org` carries
+  the Strikingly site (apex/`www`) and live Google email (`MX`, DKIM); only ever
+  *add* the `plan` subdomain record. (This is why Cloudflare Access is off the
+  table — it would require the zone on Cloudflare.)
+- **If we ever embed** (not the current path): Superhuman Docs embeds are sandboxed
+  and block scripts by default — a custom JS app needs **Compatibility mode**, and
+  `web/embed-test/` validates that *before* investing in embed-dependent work.
 - **The Coda API does not expose row-layout definitions.** You can't "render the
   doc's layout" in the app. Build the edit form from column metadata + our own
   layout config, and deep-link to the doc for rich editing (ticketing, banner).
@@ -78,7 +105,7 @@ Single file. All logic in one `<script>`. Key pieces, top to bottom:
   (detailed month grids with a left "Ideas" gutter). `applyView()` toggles them.
 - **Editor**: `openEditor()` + `readForm()`; status lifecycle
   idea→draft→confirmed→approved; approve is VP-only (`state.role` is hardcoded
-  `'vp'` in the mock — real gating comes with proxy auth).
+  `'vp'` in the mock — real gating comes with **Phase 2** Google auth + allowlist).
 - **`openInfo()`**: the legend/key modal (the round "i" button).
 - **`layoutSticky()`**: measures header heights into `--bar-h`/`--wh-h` so the
   sticky weekday row + month headers stack correctly; self-corrects on load,
@@ -100,31 +127,50 @@ Single file. All logic in one `<script>`. Key pieces, top to bottom:
 
 ## Next steps (priority order)
 
-1. **[USER] Real schema.** Get the Mission Control **doc ID**, planning **table
-   ID**, and **column list** — names, which columns are relations (Program→Programs,
-   Leads→People), and which are downstream fields (ticketing, banner, Eventbrite/
-   gCal IDs). Or connect the Superhuman Docs MCP so it can be read directly. This
-   blocks the live swap.
-2. **Validate the embed.** Deploy `web/`, drop `…/embed-test/` into a Mission
-   Control full-page embed in Compatibility mode, confirm the green line renders.
-3. **Configure + deploy the proxy.** `proxy/`: `wrangler secret put
-   CODA_API_TOKEN`; set `CODA_DOC_ID` / `CODA_TABLE_ID` / `ALLOWED_ORIGIN`;
-   `npm run deploy`.
-4. **Swap `MockSource → CodaSource`** in `web/index.html` (base = Worker URL) and
-   reshape `MOCK_CODA_ROWS` column names to match the real table.
-5. **References live:** Hebcal JSON for Jewish holidays; shared Google Calendars
+**Phase 1 — stand up the spine (deploy + confirm the flow, read-only):**
+
+1. **Deploy the app to GitHub Pages at `plan.eastsidetribe.org`.** Add a
+   `web/CNAME` file = `plan.eastsidetribe.org`, set the custom domain in repo
+   Settings → Pages, and add `plan CNAME mrbadduck.github.io` at Hover. Do **not**
+   touch apex/`www`/`MX`.
+2. **Configure + deploy the proxy** (`proxy/`, Cloudflare Worker on `*.workers.dev`):
+   `wrangler secret put CODA_API_TOKEN` (a **read-scoped**, doc-scoped token); set
+   `CODA_DOC_ID=DYAz_wCVfv`, `CODA_TABLE_ID` (the Phase-1 read table), and
+   `ALLOWED_ORIGIN=https://plan.eastsidetribe.org`; `npm run deploy`.
+3. **Wire the app to the proxy, read path only.** Swap `MockSource → CodaSource`
+   (`base` = Worker URL) and reshape reads to the real table's columns. **Success:**
+   a lead opens `plan.eastsidetribe.org` and sees real EST data.
+
+**Phase 2 — writes + auth (before create/edit/approve go live):**
+
+4. **Decide where planning rows live** — a new dedicated planning table vs. a
+   status field on `EST Events SRC` — then map the real schema to
+   `codaRowToEvent` / `eventToCodaCells` and switch the token to read+write.
+5. **Add Google Sign-In + Worker JWT allowlist.** In-app Google Identity Services;
+   the Worker verifies the Google-signed ID token and checks an EST-leads email
+   allowlist before any write. Replace the hardcoded `state.role` with real
+   identity (VP-only approve).
+
+**Later:**
+
+6. **References live:** Hebcal JSON for Jewish holidays; shared Google Calendars
    synced into Superhuman Docs and read via the proxy.
-6. **Downstream automations** in Superhuman Docs (approved → Eventbrite/gCal/
+7. **Downstream automations** in Superhuman Docs (approved → Eventbrite/gCal/
    Mailchimp/socials).
-7. **Polish:** real mobile layout; active conflict warnings (overlaps / holiday
+8. **Polish:** real mobile layout; active conflict warnings (overlaps / holiday
    collisions at save time); per-person layer-toggle persistence.
+9. **(Optional) Embed** inside Mission Control if ever desired — validate
+   `web/embed-test/` in Compatibility mode first.
 
 ## Open decisions
 
 - Weeknight/weekend grain in Overview vs. splitting Friday out from the weekend.
-- Auth on the proxy: shared `APP_KEY` (quick) vs. Google-login allowlist (real
-  per-lead gating + attribution).
-- Hosting: GitHub Pages (wired) vs. Cloudflare Pages (would unify with the Worker).
+- **Where planning rows live:** a new dedicated planning table vs. a status field
+  on `EST Events SRC` (Phase 2 — see next steps).
+
+Resolved (Aug 2026): standalone hosting on **GitHub Pages** at
+`plan.eastsidetribe.org` (not Cloudflare Pages/Access — keeps DNS at Hover); auth
+is **phased** (read-only + CORS now, in-app Google login + allowlist for writes).
 
 ## Conventions
 
