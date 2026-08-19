@@ -1,0 +1,26 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Embed test</title>
+<style>
+ body{font-family:system-ui,-apple-system,sans-serif;margin:0;padding:24px;background:#FBFAF7;color:#1C1B22}
+ .card{max-width:560px;margin:0 auto;border:1px solid #E7E4DC;border-radius:12px;padding:20px;background:#fff}
+ h1{font-size:18px;margin:0 0 6px} .ok{color:#2E7D46;font-weight:600} .k{color:#6B6A76;font-size:13px}
+ code{background:#F2F1EC;padding:1px 5px;border-radius:4px}
+</style></head><body><div class="card">
+ <h1>Superhuman Docs embed test</h1>
+ <p class="k">If the line below is green, JavaScript executed inside this embed.</p>
+ <p id="status">JavaScript did <b>not</b> run (this text should have been replaced).</p>
+ <ul class="k">
+  <li>Rendered at: <code id="ts">-</code></li>
+  <li>Inside an iframe: <code id="framed">-</code></li>
+  <li>This page's origin: <code id="origin">-</code></li>
+  <li>Parent origin: <code id="parent">-</code></li>
+ </ul>
+ <p class="k">Purpose: confirm the embed runs scripts (Compatibility mode) before wiring the real app + proxy.</p>
+</div><script>
+ document.getElementById('status').innerHTML='<span class="ok">\u2713 JavaScript is running in this embed.</span>';
+ document.getElementById('ts').textContent=new Date().toISOString();
+ document.getElementById('framed').textContent=(window.top!==window.self)?'yes':'no (opened directly)';
+ document.getElementById('origin').textContent=location.origin;
+ try{document.getElementById('parent').textContent=window.parent.location.origin;}
+ catch(e){document.getElementById('parent').textContent='blocked (cross-origin) \u2014 expected in an embed';}
+</script></body></html>

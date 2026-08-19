@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# secrets / local env  (NEVER commit tokens)
+.env
+.env.*
+.dev.vars
+*.local
+
+# cloudflare
+.wrangler/
+
+# build output
+dist/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

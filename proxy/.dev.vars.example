@@ -1,0 +1,7 @@
+# Copy to .dev.vars (gitignored) for local `npm run dev`.
+CODA_API_TOKEN=paste-a-doc-scoped-read-write-token
+CODA_DOC_ID=your-mission-control-doc-id
+CODA_TABLE_ID=your-planning-table-id
+CODA_API_BASE=https://coda.io/apis/v1
+# ALLOWED_ORIGIN=https://your-username.github.io
+# APP_KEY=optional-shared-secret

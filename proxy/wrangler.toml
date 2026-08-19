@@ -1,0 +1,14 @@
+name = "est-planning-proxy"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+CODA_API_BASE = "https://coda.io/apis/v1"
+# Fill in (non-secret config) here or in the Cloudflare dashboard:
+# CODA_DOC_ID    = ""
+# CODA_TABLE_ID  = ""
+# ALLOWED_ORIGIN = "https://<your-username>.github.io"
+
+# Secrets are NOT stored here. Set them once with:
+#   npx wrangler secret put CODA_API_TOKEN
+#   npx wrangler secret put APP_KEY        # optional
