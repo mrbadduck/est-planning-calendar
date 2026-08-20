@@ -149,9 +149,14 @@ App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
    email→`EST People SRC` match + role gate (write = Program Lead/Tribal Council;
    approve = Tribal Council); role-gated writes inject person attribution; scalar
    create/edit/approve persist. See `docs/phase2-plan-2b-i-auth-writes.md`.
-7. **Plan 2b-ii — NEXT:** editor relation pickers (multi-program; venue-type→venue
-   cascade; Planning Notes template); source the program palette from
-   `/ref/programs`; crossover coloring; full create-with-relations.
+7. **Plan 2b-ii — editor relation pickers + full create-with-relations:**
+   - **2b-ii-a — ✅ DONE (Aug 2026):** real program palette + generated colors from
+     `/ref/programs`; multi-program editor picker (writes the `Program(s)`
+     relation); crossover `+N` marker.
+   - **2b-ii-b — NEXT:** leads picker (typeahead over `EST People SRC`) +
+     venue-type→venue cascade + Planning Notes template; a lightweight `/ref`
+     projection (id+name) so the 1128-person list is cheap; full
+     create-with-relations.
 
 **Later:**
 
