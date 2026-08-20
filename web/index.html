@@ -345,7 +345,7 @@
    codaRowToEvent / eventToCodaCells verbatim.
    ========================================================================= */
 
-const PROGRAMS = [
+let PROGRAMS = [
   {id:'kab', name:'Kabbalat Shabbat',      color:'var(--p-kab)'},
   {id:'din', name:'Shabbat dinner',        color:'var(--p-din)'},
   {id:'tot', name:'East Side Tribelings',  color:'var(--p-tot)'}, // tot Shabbat
@@ -355,7 +355,7 @@ const PROGRAMS = [
   {id:'sho', name:'Shoresh',               color:'var(--p-sho)'},
   {id:'oth', name:'Other / one-off',       color:'var(--p-oth)'},
 ];
-const PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
+let PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
 const PEOPLE = ['Eric','Laura','Kaitlyn','Emma','Erika','Sophie','Jesse','Brigid','Robby','Anna'];
 const STATUSES = ['idea','draft','confirmed','approved'];
 
@@ -417,7 +417,24 @@ function roughRow(title,prog,type,a,b,status,leads,desc){
     'Target month': type==='month'?a:''
   }};
 }
-const progIdByName = Object.fromEntries(PROGRAMS.map(p=>[p.name,p.id]));
+let progIdByName = Object.fromEntries(PROGRAMS.map(p=>[p.name,p.id]));
+/* live programs: replace the built-in palette with the real EST Programs SRC set */
+function genColor(i,n){ return `hsl(${Math.round(i*360/Math.max(n,1))}, 50%, 55%)`; }
+function rebuildPrograms(list){
+  PROGRAMS = list.concat([{id:'oth', name:'Other', color:'#888'}]);
+  PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
+  progIdByName = Object.fromEntries(PROGRAMS.map(p=>[p.name,p.id]));
+}
+async function loadPrograms(){
+  if(!PROXY_BASE) return;                          // mock mode keeps the built-in palette
+  try{
+    const r = await fetch(`${PROXY_BASE}/ref/programs`);
+    if(!r.ok) return;
+    const items = (await r.json()).items || [];
+    const list = items.filter(x=>x && x.name).map((x,i,a)=>({ id:x.id, name:x.name, color:genColor(i,a.length) }));
+    if(list.length) rebuildPrograms(list);
+  }catch(_){}
+}
 function codaRowToEvent(r){
   const v=r.values;
   return {
@@ -440,6 +457,7 @@ function eventToCodaCells(e){
                 : sched==='exact' ? (e.date||'') : '';
   return [
     {column:'Title',           value:e.title||''},
+    {column:'Program(s)',      value:(e.programs||[]).filter(id=>id&&id!=='oth')},
     {column:'Status',          value:cap(e.status||'idea')},
     {column:'Scheduling',      value:cap(sched)},
     {column:'Date',            value:dateVal},
@@ -622,6 +640,8 @@ function buildWeekHead(){
   wh.innerHTML='<div class="corner">Ideas</div>'+WD.map((d,i)=>`<div class="wd ${i===0||i===6?'we':''}">${d}</div>`).join('');
 }
 
+function progNames(e){ return (e.programs&&e.programs.length?e.programs:[e.program]).map(id=>(PROG[id]||{}).name).filter(Boolean); }
+function xMark(e){ return (e.programs&&e.programs.length>1) ? ` <span style="font-size:9px;font-weight:700;opacity:.65" title="${esc(progNames(e).join(' + '))}">+${e.programs.length-1}</span>` : ''; }
 function chipHTML(e){
   if(e.source==='ref'){
     const c=REF[e.refLayer].color;
@@ -630,7 +650,7 @@ function chipHTML(e){
   const c=PROG[e.program].color;
   const t = (!e.allDay && e.start) ? `<span class="time">${e.start}</span>` : '';
   const lock = e.status==='approved' ? '<span class="lock">🔒</span>' : '';
-  return `<div class="chip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${t}<span class="t">${esc(e.title)}</span>${lock}</div>`;
+  return `<div class="chip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${t}<span class="t">${esc(e.title)}</span>${xMark(e)}${lock}</div>`;
 }
 
 function weekRowOf(startWd, day){ return Math.floor((startWd + day - 1) / 7); }
@@ -650,7 +670,7 @@ function gchipHTML(e, mk){
     const ed = (en && en.slice(0,7)===mk) ? Number(en.slice(8,10)) : (en?Number(en.slice(8,10)):'');
     tag = ed ? `${sd}–${ed}` : `${sd}+`;
   }
-  return `<div class="gchip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)} · date TBD"><span class="gt">${esc(e.title)}</span><span class="gr">${tag}</span></div>`;
+  return `<div class="gchip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)} · date TBD"><span class="gt">${esc(e.title)}</span>${xMark(e)}<span class="gr">${tag}</span></div>`;
 }
 
 function renderMonths(){
@@ -706,7 +726,7 @@ function renderMonths(){
 function qchipHTML(e){
   if(e.source==='ref') return `<div class="qchip ref" style="--c:${REF[e.refLayer].color}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}</div>`;
   const c=PROG[e.program].color;
-  return `<div class="qchip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${esc(e.title)}</div>`;
+  return `<div class="qchip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${esc(e.title)}${xMark(e)}</div>`;
 }
 function weekAddDate(y,m,dayNums,zone){
   const want = zone==='wknd' ? d=>isWeekend(new Date(y,m,d).getDay()) : d=>!isWeekend(new Date(y,m,d).getDay());
@@ -743,7 +763,7 @@ function renderOverview(){
     const rough=(roughMap[mk]||[]);
     const ftr = rough.length ? `<div class="qtbd"><span class="lbl">date TBD</span>${rough.map(e=>{
       const r = e.scheduling==='range' ? ` <span style="opacity:.6;font-size:9px">(${e.rangeStart.slice(8,10)}–${e.rangeEnd.slice(8,10)})</span>` : '';
-      return `<div class="qchip ${e.status}" style="--c:${PROG[e.program].color}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}${r}</div>`;
+      return `<div class="qchip ${e.status}" style="--c:${(PROG[e.program]||{}).color}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}${xMark(e)}${r}</div>`;
     }).join('')}</div>` : '';
     cols += `<div class="qcol" data-mk="${mk}"><div class="qhead"><span>${MONTHS[m]}</span><span class="qy">${y}</span></div><div>${weeks}</div>${ftr}</div>`;
   }
@@ -856,7 +876,7 @@ function openEditor(ev){
   const sched = ev.scheduling || 'exact';
   body.innerHTML = `
     <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
-    <div class="fld"><label>Program / series</label><select id="f_prog" disabled>${PROGRAMS.map(p=>`<option value="${p.id}" ${p.id===ev.program?'selected':''}>${p.name}</option>`).join('')}</select></div>
+    <div class="fld full"><label>Program(s)</label><div class="leadchips" id="f_progs">${PROGRAMS.filter(p=>p.id!=='oth').map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.programs&&ev.programs.length?ev.programs:[ev.program]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('')}</div></div>
     <div class="fld"><label>Status</label><select id="f_status" ${dis}>${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select></div>
     <div class="fld full"><label>When</label>
       <div class="whenseg" id="f_when">
@@ -873,7 +893,7 @@ function openEditor(ev){
     <div class="fld full"><label>Leads</label><div class="leadchips" id="f_leads">${PEOPLE.map(p=>`<button type="button" class="leadchip" data-p="${p}" aria-pressed="${ev.leads.includes(p)}" disabled>${p}</button>`).join('')}</div></div>
     <div class="fld full"><label>Description</label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
-    ${(canEdit&&!locked)?`<div class="locknote">Program &amp; leads: set in Coda for now — pickers arrive next.</div>`:``}
+    ${(canEdit&&!locked)?`<div class="locknote">Leads &amp; venue: set in Coda for now — pickers arrive next.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
     ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
 
@@ -915,9 +935,10 @@ function openEditor(ev){
 function readForm(){
   const g=id=>document.getElementById(id);
   const leads=[...document.querySelectorAll('#f_leads .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
+  const programs=[...document.querySelectorAll('#f_progs .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
   const w=collectWhen();
   const o={
-    program:g('f_prog').value, status:g('f_status').value, title:g('f_title').value.trim()||'Untitled',
+    program:programs[0]||'oth', programs, status:g('f_status').value, title:g('f_title').value.trim()||'Untitled',
     allDay:g('f_allday').checked, start:g('f_start').value, end:g('f_end').value,
     location:g('f_loc').value.trim(), description:g('f_desc').value.trim(), leads,
     scheduling:whenType, date:'', rangeStart:'', rangeEnd:'', targetMonth:''
@@ -1105,6 +1126,7 @@ async function refresh(){
 }
 async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
+  await loadPrograms();
   await loadEvents(); applyView(); layoutSticky();
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
   document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); }); // refetch on tab focus
