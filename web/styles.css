@@ -230,8 +230,12 @@
   }
   .modal .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:10px;flex-shrink:0}
   .modal .mhead .stripe{width:5px;height:34px;border-radius:3px;background:var(--c,var(--accent))}
-  .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;flex:1}
+  .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .modal .mhead .badge{font-size:10px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;padding:3px 7px;border-radius:20px}
+  .mhead-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+  .statussel{font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--ink);background:#fff;border:1px solid var(--hair-strong);border-radius:6px;padding:5px 7px;cursor:pointer}
+  .statussel:focus{outline:2px solid var(--accent-tint);border-color:var(--accent)}
+  .btn.sm{padding:5px 10px;font-size:11.5px}
   .badge.b-idea{background:#F0F0F3;color:#75747F}
   .badge.b-draft{background:#FBF3E4;color:#9A7B2E}
   .badge.b-confirmed{background:#E7F1EA;color:#3C7A55}
@@ -276,7 +280,7 @@
   .timerow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:11px}
   .whenhint{font-size:11px;color:var(--muted);margin-top:6px}
   /* venue picker: selected pill / editable "other" field / New-venue option */
-  .venuepick .venue-other-wrap{display:flex;align-items:center;gap:6px;flex:1}
+  .venuepick .venue-other-wrap:not([hidden]){display:flex;align-items:center;gap:6px;flex:1}
   .venue-other{flex:1;border:0!important;padding:2px 4px!important;font:inherit;font-size:12px;background:transparent!important}
   .venue-other:focus{outline:none!important}
   .venue-clear{border:0;background:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0 2px;flex:0 0 auto}
@@ -331,6 +335,10 @@
   .whenseg button{font:inherit;font-size:11px;border:0;background:transparent;padding:5px 10px;cursor:pointer;color:var(--muted)}
   .whenseg button[aria-pressed="true"]{background:var(--accent);color:#fff}
   .whenseg button:disabled{cursor:not-allowed;opacity:.5}
+  /* venue-type switcher: same idea as .whenseg but wraps (more options) */
+  .whenseg.typeseg{flex-wrap:wrap;width:auto;max-width:100%;border:0;overflow:visible;background:transparent;gap:5px}
+  .whenseg.typeseg button{flex:0 0 auto;border:1px solid var(--hair-strong);border-radius:6px;color:var(--muted)}
+  .whenseg.typeseg button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:#fff}
 
   @media (max-width:820px){ .qgrid{grid-template-columns:1fr} }
 

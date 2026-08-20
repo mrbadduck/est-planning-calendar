@@ -163,14 +163,16 @@ function initVenuePicker(container, ev){
   const otherWrap = container.querySelector('.venue-other-wrap');
   const otherInput = container.querySelector('.venue-other');
   const disabled = input.disabled;
-  const typeName = () => { const t=document.getElementById('f_vtype'); const id=t?t.value:''; return (VENUE_TYPES.find(x=>x.id===id)||{}).name; };
+  const selTypeId = () => { const b=document.querySelector('#f_vtype_seg button[aria-pressed="true"]'); return b?b.dataset.vtype:''; };
+  const typeName = () => (VENUE_TYPES.find(x=>x.id===selTypeId())||{}).name;
   const pool = () => { const tn=typeName(); return VENUES.filter(v=>!v.closed && (!tn || v.type===tn)).slice().sort((a,b)=>a.name.localeCompare(b.name)); };
   let active = -1;
   const clearPill = () => [...container.querySelectorAll('.ta-chip')].forEach(c=>c.remove());
   function showSelect(){ container.dataset.venueId=''; clearPill(); otherWrap.hidden=true; otherInput.value=''; input.hidden=false; input.value=''; menu.hidden=true; if(!disabled) input.focus(); }
   function selectVenue(v){
     container.dataset.venueId=v.id; clearPill(); otherWrap.hidden=true; input.hidden=true; menu.hidden=true;
-    const t=document.getElementById('f_vtype'), tid=venueTypeIdByName[v.type]; if(t && tid) t.value=tid;   // sync type filter to the venue
+    const tid=venueTypeIdByName[v.type], seg=document.getElementById('f_vtype_seg');   // sync the type switcher to the venue
+    if(seg && tid) [...seg.children].forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.vtype===tid)));
     const chip=document.createElement('span'); chip.className='ta-chip venue-pick';
     chip.innerHTML=esc(v.name)+(disabled?'':' <button type="button" aria-label="Clear" tabindex="-1">×</button>');
     if(!disabled) chip.querySelector('button').addEventListener('click', showSelect);
@@ -589,7 +591,7 @@ function openInfo(){
   editing={id:'__info__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent='Legend & key';
-  const badge=document.getElementById('mBadge'); badge.className='badge'; badge.textContent='';
+  document.getElementById('mActions').innerHTML='';
   document.getElementById('mBody').innerHTML=legendHTML();
   document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
   show();
@@ -641,12 +643,10 @@ function openEditor(ev){
   const c = isRef ? REF[ev.refLayer].color : progColor(ev.program);
   document.getElementById('mStripe').style.setProperty('--c',c);
   document.getElementById('mTitle').textContent = ev.id ? (isRef?'Reference event':'Edit event') : 'New event';
-  const badge=document.getElementById('mBadge');
-  badge.className='badge '+(isRef?'b-ref':'b-'+ev.status);
-  badge.textContent = isRef ? REF[ev.refLayer].name : cap(ev.status);
-
+  const actions=document.getElementById('mActions');
   const body=document.getElementById('mBody');
   if(isRef){
+    actions.innerHTML = `<span class="badge b-ref">${esc(REF[ev.refLayer].name)}</span>`;
     body.innerHTML = `
       <div class="fld full"><label>Title</label><input value="${esc(ev.title)}" disabled></div>
       <div class="fld"><label>Date</label><input value="${fmtDate(ev.date)}" disabled></div>
@@ -658,12 +658,21 @@ function openEditor(ev){
 
   const dis = (!canEdit || locked) ? 'disabled' : '';
   const sched = ev.scheduling || 'exact';
+
+  // header (top-right): status control + approve / reopen
+  let head = (canEdit && !locked)
+    ? `<select id="f_status" class="statussel" aria-label="Status">${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select>`
+    : `<span class="badge b-${ev.status}">${cap(ev.status)}</span>`;
+  if(canApprove) head += (ev.status==='approved')
+    ? `<button class="btn sm" data-act="reopen">Reopen</button>`
+    : `<button class="btn primary sm" data-act="approve">Approve${ev.id?'':' & save'}</button>`;
+  actions.innerHTML = head;
+
   body.innerHTML = `
     <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
+    <div class="fld full"><label>Description <span class="hint">(public promo)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
     <div class="fld full"><label>Program(s)</label><div class="leadchips" id="f_progs">${PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id)))).map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.programs&&ev.programs.length?ev.programs:[ev.program]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('')}</div></div>
     <div class="fld full"><label>Leads <span class="hint">(program leads auto-added)</span></label><div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
-    <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
-    <div class="fld"><label>Status</label><select id="f_status" ${dis}>${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select></div>
     <div class="fld full"><label>When</label>
       <div class="whenseg" id="f_when">
         <button type="button" data-when="exact" aria-pressed="${sched==='exact'}" ${dis}>Exact date</button>
@@ -672,24 +681,25 @@ function openEditor(ev){
       </div>
     </div>
     <div class="fld full" id="whenFields"></div>
-    <div class="fld"><label>Venue type <span class="hint">(filter)</span></label><select id="f_vtype" ${dis}><option value="">Any</option>${VENUE_TYPES.map(t=>`<option value="${t.id}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
-    <div class="fld"><label>Venue</label><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
-    <div class="fld full"><label>Description <span class="hint">(public promo)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
+    <div class="fld full"><label>Where</label>
+      <div class="whenseg typeseg" id="f_vtype_seg">
+        <button type="button" data-vtype="" aria-pressed="${!ev.venueType}" ${dis}>Any</button>
+        ${VENUE_TYPES.map(t=>`<button type="button" data-vtype="${t.id}" aria-pressed="${t.id===ev.venueType}" ${dis}>${esc(t.name)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
+    <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
     <div class="fld full"><label>Planning notes <span class="hint">(internal)</span></label><textarea id="f_notes" ${dis} placeholder="Internal planning checklist">${esc(ev.planningNotes || (!ev.id ? NOTES_TEMPLATE : ''))}</textarea></div>
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
     ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
 
-  // footer actions
+  // footer: Delete / Cancel / Save (approve + reopen live in the header now)
   const foot=document.getElementById('mFoot');
   let acts='';
   if(ev.id && canEdit && !locked) acts+=`<button class="btn danger" data-act="delete">Delete</button>`;
   acts+=`<span class="push"></span>`;
   acts+=`<button class="btn" data-act="close">${canEdit&&!locked?'Cancel':'Close'}</button>`;
-  if(canApprove){
-    if(ev.status==='approved') acts+=`<button class="btn" data-act="reopen">Reopen</button>`;
-    else acts+=`<button class="btn" data-act="approve">Approve${ev.id?'':' & save'}</button>`;
-  }
   if(canEdit && !locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
   foot.innerHTML=acts;
 
@@ -708,6 +718,11 @@ function openEditor(ev){
         const prog=PROG[b.dataset.p];
         (prog && prog.currentLeadNames || []).forEach(nm=>{ const id=peopleIdByName[nm]; if(id) leadsBox.addPerson(id); });
       }
+    });
+    // Where: venue-type switcher (single-select) — filters the venue typeahead pool
+    document.getElementById('f_vtype_seg').addEventListener('click', e=>{
+      const b=e.target.closest('button[data-vtype]'); if(!b) return;
+      [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
     });
   }
 
@@ -742,7 +757,8 @@ function readForm(){
   const venBox=g('f_venue_box'), venOther=venBox && venBox.querySelector('.venue-other-wrap');
   const venue=venBox ? (venBox.dataset.venueId||'') : '';
   const venueOther=(venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '';
-  const venueType=g('f_vtype')?g('f_vtype').value:'';
+  const vtBtn=document.querySelector('#f_vtype_seg button[aria-pressed="true"]');
+  const venueType=vtBtn ? (vtBtn.dataset.vtype||'') : '';
   const w=collectWhen();
   const exact=whenType==='exact', allDay= exact ? !!w.allDay : true;   // range/month are all-day
   const o={
@@ -841,6 +857,12 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   else if(act==='reopen'){ reopenEditor(); }
   else if(act==='delete') deleteEditor();
 });
+// header actions (status live in the select; approve/reopen buttons)
+document.getElementById('mActions').addEventListener('click',e=>{
+  const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
+  if(act==='approve') saveEditor(true);
+  else if(act==='reopen') reopenEditor();
+});
 document.getElementById('mBody').addEventListener('click',e=>{
   if(e.target.closest('[data-act="coda"]')){ e.preventDefault(); alert('Live version: deep-links to this row in the Mission Control Coda doc for full editing (ticketing, banner, promotion).'); }
 });
@@ -881,7 +903,7 @@ function openDayPicker(ds,list){
   editing={id:'__picker__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent=fmtDate(ds);
-  const badge=document.getElementById('mBadge'); badge.className='badge b-ref'; badge.textContent=list.length+' events';
+  document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
   document.getElementById('mBody').innerHTML=`<div class="fld full"><div class="chips" id="dp">${list.map(chipHTML).join('')}</div></div>`;
   document.getElementById('mFoot').innerHTML=`<button class="btn primary" data-act="newhere">+ New on this day</button><span class="push"></span><button class="btn" data-act="close">Close</button>`;
   document.getElementById('dp').addEventListener('click',ev=>{ const c=ev.target.closest('.chip'); if(!c) return; const item=state.events.find(x=>x.id===c.dataset.id); if(item) openEditor(item); });
