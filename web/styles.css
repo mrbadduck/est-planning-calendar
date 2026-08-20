@@ -172,7 +172,7 @@
   .scrim{position:fixed;inset:0;background:rgba(28,27,34,.34);z-index:60;display:none;align-items:flex-start;justify-content:center;padding:48px 16px;overflow:auto}
   .scrim.open{display:flex}
   .modal{
-    background:#fff;border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:440px;
+    background:#fff;border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:640px;
     border:1px solid var(--hair-strong);overflow:hidden;
     display:flex;flex-direction:column;max-height:calc(100dvh - 96px);
   }
