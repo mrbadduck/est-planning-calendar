@@ -186,25 +186,33 @@ async function verifyGoogleIdToken(token, clientId) {
 
 // --- email -> EST People SRC person + role (Program Lead/Tribal Council) ---
 const PEOPLE_TABLE = 'grid-X316Eql8dE';
-const ALL_EMAILS_COL = 'c-6HV3jKCecV';
 const WRITE_STATUSES = ['Program Lead', 'Tribal Council'];
 const APPROVE_STATUSES = ['Tribal Council'];
+// Coda's `query` param doesn't match formula columns like `All Emails`, so we
+// fetch the People table (cached per isolate) and filter in the Worker.
+let _people = null, _peopleExp = 0;
+async function peopleRows(base, docId, auth) {
+  if (_people && Date.now() < _peopleExp) return _people;
+  const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth);
+  _people = out.ok ? out.items : [];
+  _peopleExp = Date.now() + 300_000;                 // 5-min cache
+  return _people;
+}
 async function resolvePerson(email, base, docId, auth) {
-  const u = new URL(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`);
-  u.searchParams.set('useColumnNames', 'true');
-  u.searchParams.set('valueFormat', 'simpleWithArrays');
-  u.searchParams.set('query', `${ALL_EMAILS_COL}:"${email}"`);
-  const r = await fetch(u.toString(), { headers: auth });
-  if (!r.ok) return null;
-  const row = ((await r.json()).items || [])[0];
+  const rows = await peopleRows(base, docId, auth);
+  const row = rows.find(r => {
+    const em = r.values['All Emails'];
+    const list = (em == null || em === '') ? [] : (Array.isArray(em) ? em : [em]);
+    return list.some(x => String(x).toLowerCase() === email);
+  });
   if (!row) return null;
   const st = row.values['Leadership Status'];
-  const list = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
+  const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
   return {
     personId: row.id,
     name: row.values['Full Name'] || email,
-    canWrite: list.some(s => WRITE_STATUSES.includes(s)),
-    canApprove: list.some(s => APPROVE_STATUSES.includes(s)),
+    canWrite: roles.some(s => WRITE_STATUSES.includes(s)),
+    canApprove: roles.some(s => APPROVE_STATUSES.includes(s)),
   };
 }
 // null = no Bearer token; throws = invalid token (-> 401); else identity object.
