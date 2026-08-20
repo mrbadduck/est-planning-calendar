@@ -28,9 +28,13 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 
 ## Current status
 
-- **App: complete and working on in-memory mock data.** Open `web/index.html`
-  in a browser to run it — no server, no build. Uses real EST programs/leads as
-  sample rows. Edits reset on reload (mock has no persistence yet).
+- **App: complete and working on in-memory mock data.** For local dev with hot
+  reload: `npx -y live-server web --port=8080 --no-browser`, then open
+  `http://localhost:8080` — no build step (see `docs/deployment.md` → *Local
+  development*). On `localhost`/`127.0.0.1` the app runs on `MockSource` (real EST
+  programs/leads as sample rows); deployed builds use the live proxy. Local can't
+  reach live data/sign-in — proxy CORS + Google origins are locked to the deploy
+  origin. Edits reset on reload (mock has no persistence yet).
 - **LIVE at `plan.eastsidetribe.org`** (GitHub Pages). Phase 1 + Phase 2 **Plans
   1, 2a & 2b-i shipped** (Aug 2026): leaders **sign in with Google** and
   create/edit/approve planning events that persist to `EST Planning Events SRC`,

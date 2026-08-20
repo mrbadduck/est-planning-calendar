@@ -236,7 +236,11 @@ const CodaSource = {
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
 };
 
-const DB = PROXY_BASE ? CodaSource : MockSource;
+// Local dev (localhost / 127.0.0.1) runs on MockSource so the app renders
+// without the live proxy — the proxy's CORS is locked to the deploy origin.
+// Deployed builds use the live proxy. See CLAUDE.md "Current status".
+const IS_LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const DB = (PROXY_BASE && !IS_LOCAL) ? CodaSource : MockSource;
 
 /* =========================================================================
    STATE + RENDER

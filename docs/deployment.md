@@ -5,6 +5,34 @@ proxy runs as a Cloudflare Worker. Auth is **phased** — Phase 1 is read-only w
 no user login, Phase 2 adds in-app Google Sign-In before writes go live. See
 `docs/architecture.md` for the *why*.
 
+## Local development (hot reload, no build step)
+
+The app is buildless — three static files in `web/` (`index.html`, `styles.css`,
+`app.js`). To edit with live reload:
+
+    npx -y live-server web --port=8080 --no-browser
+
+Then open `http://localhost:8080`. Saving any file in `web/` auto-reloads the page.
+`live-server` is fetched on demand by `npx` — nothing is added to the repo, no
+`package.json`, no build. (A `.claude/launch.json` config is checked in so the
+in-editor preview can start the same server.)
+
+**Local runs on mock data, on purpose.** `web/app.js` uses `MockSource` (real EST
+programs/leads as sample rows) whenever the hostname is `localhost`/`127.0.0.1`, and
+the live proxy (`CodaSource`) otherwise. This is because the proxy's CORS and the
+Google sign-in origins are both locked to `https://plan.eastsidetribe.org`, so live
+data and sign-in **cannot** work from `localhost` as configured. Local dev is for
+UI/layout work against representative data; edits reset on reload (mock has no
+persistence).
+
+To exercise **live** data/auth locally (rarely needed), you'd have to add
+`http://localhost:8080` to the Worker's `ALLOWED_ORIGIN` and to the Google OAuth
+client's authorized origins — do this only in a throwaway/dev context, never weaken
+the production origin lock.
+
+Opening `web/index.html` directly with `file://` also works for a quick look, but
+use the server for hot reload.
+
 ## DNS — the one record to add (do NOT move nameservers)
 
 `eastsidetribe.org` keeps its nameservers at **Hover**. It carries the Strikingly
