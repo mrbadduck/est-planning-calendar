@@ -31,12 +31,12 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 - **App: complete and working on in-memory mock data.** Open `web/index.html`
   in a browser to run it — no server, no build. Uses real EST programs/leads as
   sample rows. Edits reset on reload (mock has no persistence yet).
-- **Deployment plan set (Aug 2026):** standalone at `plan.eastsidetribe.org` via
-  GitHub Pages, with a **phased auth** model — see `docs/architecture.md`. Not yet
-  deployed.
-- **Proxy: skeleton only.** Not configured or deployed. Phase 1 points it at a
-  real table **read-only**, CORS-locked to the app origin, with a **read-scoped**
-  token.
+- **LIVE (read-only) at `plan.eastsidetribe.org`** (GitHub Pages). Phased auth —
+  see `docs/architecture.md`. Phase 1 deployed; Phase 2 **Plan 1 shipped** (Aug
+  2026): the app reads the new `EST Planning Events SRC` table read-only.
+- **Proxy: deployed** at `est-planning-proxy.eastsidetribe.workers.dev` —
+  read-only (read-scoped token, CORS locked to the app origin, `ALLOW_WRITES`
+  unset), pointed at `EST Planning Events SRC` (`grid--gYIvdD-cE`).
 - **Mission Control doc identified:** doc id `DYAz_wCVfv`
   (`superhuman://docs/DYAz_wCVfv`). Real source tables: `EST Events SRC`
   (`grid-9TAt5vMMKH`), `EST Programs SRC` (`grid-g87NFbtqN8`), `EST People SRC`
@@ -127,29 +127,23 @@ Single file. All logic in one `<script>`. Key pieces, top to bottom:
 
 ## Next steps (priority order)
 
-**Phase 1 — stand up the spine (deploy + confirm the flow, read-only):**
+**Phase 1 — stand up the spine (deploy + read-only) — ✅ DONE (Aug 2026).**
+App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
+`est-planning-proxy.eastsidetribe.workers.dev` (read-only) → Coda. See
+`docs/deployment.md`.
 
-1. **Deploy the app to GitHub Pages at `plan.eastsidetribe.org`.** Add a
-   `web/CNAME` file = `plan.eastsidetribe.org`, set the custom domain in repo
-   Settings → Pages, and add `plan CNAME mrbadduck.github.io` at Hover. Do **not**
-   touch apex/`www`/`MX`.
-2. **Configure + deploy the proxy** (`proxy/`, Cloudflare Worker on `*.workers.dev`):
-   `wrangler secret put CODA_API_TOKEN` (a **read-scoped**, doc-scoped token); set
-   `CODA_DOC_ID=DYAz_wCVfv`, `CODA_TABLE_ID` (the Phase-1 read table), and
-   `ALLOWED_ORIGIN=https://plan.eastsidetribe.org`; `npm run deploy`.
-3. **Wire the app to the proxy, read path only.** Swap `MockSource → CodaSource`
-   (`base` = Worker URL) and reshape reads to the real table's columns. **Success:**
-   a lead opens `plan.eastsidetribe.org` and sees real EST data.
+**Phase 2 — writes + auth. Resolved: planning rows live in a NEW table,
+`EST Planning Events SRC` (`grid--gYIvdD-cE`) — the app originates events
+(inverting the old Eventbrite-first flow). See `docs/phase2-planning-table.md`.**
 
-**Phase 2 — writes + auth (before create/edit/approve go live):**
-
-4. **Decide where planning rows live** — a new dedicated planning table vs. a
-   status field on `EST Events SRC` — then map the real schema to
-   `codaRowToEvent` / `eventToCodaCells` and switch the token to read+write.
-5. **Add Google Sign-In + Worker JWT allowlist.** In-app Google Identity Services;
-   the Worker verifies the Google-signed ID token and checks an EST-leads email
-   allowlist before any write. Replace the hardcoded `state.role` with real
-   identity (VP-only approve).
+4. **Plan 1 — ✅ DONE (Aug 2026):** table created + seeded; proxy repointed; app
+   reads it read-only via `planningRowToEvent`. See
+   `docs/phase2-plan-1-table-and-read.md`.
+5. **Plan 2 — NEXT:** editor UX (multi-program; venue-type→venue cascade; split
+   **Event Description** / templated **Planning Notes**); reference-read proxy
+   endpoints (Programs/People/Venues/Venue Types) for the pickers; **Google
+   Sign-In + Worker JWT allowlist**; `ALLOW_WRITES=true` + read+write token; map
+   writes via `eventToCodaCells`; VP-only approve from real identity.
 
 **Later:**
 
@@ -165,12 +159,14 @@ Single file. All logic in one `<script>`. Key pieces, top to bottom:
 ## Open decisions
 
 - Weeknight/weekend grain in Overview vs. splitting Friday out from the weekend.
-- **Where planning rows live:** a new dedicated planning table vs. a status field
-  on `EST Events SRC` (Phase 2 — see next steps).
+- Endpoint of the inversion: eventually replace `EST Events SRC` vs. coexist
+  (deferred — "design the table first"; see `docs/phase2-planning-table.md`).
 
 Resolved (Aug 2026): standalone hosting on **GitHub Pages** at
 `plan.eastsidetribe.org` (not Cloudflare Pages/Access — keeps DNS at Hover); auth
-is **phased** (read-only + CORS now, in-app Google login + allowlist for writes).
+is **phased** (read-only + CORS now, Google login + allowlist for writes);
+planning rows live in a **new table** `EST Planning Events SRC` (not a status
+field on `EST Events SRC`) — the app originates events, inverting the flow.
 
 ## Conventions
 
