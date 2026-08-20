@@ -93,7 +93,21 @@ export default {
         const refTable = REF[parts[1]];
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
         const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
-        return out.ok ? json({ items: out.items }, 200, cors) : pass(out.resp, cors);
+        if (!out.ok) return pass(out.resp, cors);
+        // People is ~1128 rows x ~50 cols — project to just what the editor's
+        // pickers need: {id, name, lead}. `lead` = write-authorized leadership,
+        // so one fetch powers both the Leads chip list and the Volunteers
+        // typeahead. Other ref tables (small) pass through whole.
+        if (parts[1] === 'people') {
+          const items = out.items.map(r => {
+            const v = r.values || {};
+            const st = v['Leadership Status'];
+            const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
+            return { id: r.id, name: r.name || v['Full Name'] || '', lead: roles.some(s => WRITE_STATUSES.includes(s)) };
+          }).filter(p => p.name);
+          return json({ items }, 200, cors);
+        }
+        return json({ items: out.items }, 200, cors);
       }
       if (parts[0] === 'me' && request.method === 'GET') {
         let id = null;

@@ -160,10 +160,13 @@ App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
    - **2b-ii-a — ✅ DONE (Aug 2026):** real program palette + generated colors from
      `/ref/programs`; multi-program editor picker (writes the `Program(s)`
      relation); crossover `+N` marker.
-   - **2b-ii-b — NEXT:** leads picker (typeahead over `EST People SRC`) +
-     venue-type→venue cascade + Planning Notes template; a lightweight `/ref`
-     projection (id+name) so the 1128-person list is cheap; full
-     create-with-relations.
+   - **2b-ii-b — ✅ DONE (Aug 2026):** slim `/ref/people` `{id,name,lead}`
+     projection (1128 rows → ~100KB); **Leads** chip list (write-authorized only:
+     Program Lead/Tribal Council); **Volunteers** typeahead over all people (new
+     `Volunteers` relation column added to the planning table); **Venue** cascade
+     (Venue Type → filtered Venue, hides closed) + `Venue (other)`; **Planning
+     Notes** template seeded on new events. All persist as relations. See
+     `docs/phase2-plan-2b-ii-b-relations.md`.
 
 **Later:**
 

@@ -19,8 +19,16 @@ let PROGRAMS = [
   {id:'oth', name:'Other / one-off',       color:'var(--p-oth)'},
 ];
 let PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
-const PEOPLE = ['Eric','Laura','Kaitlyn','Emma','Erika','Sophie','Jesse','Brigid','Robby','Anna'];
 const STATUSES = ['idea','draft','confirmed','approved'];
+// Internal Planning Notes seed for NEW events (from docs/phase2-planning-table.md).
+const NOTES_TEMPLATE = [
+  'Supplies needed? What?',
+  'Hiring vendors? Who / budget?',
+  'Volunteer support needed?',
+  'Budget needed / already approved?',
+  'Collaborators / partner orgs?',
+  'Marketing plan (email, socials)?',
+].map(q => '• ' + q).join('\n');
 
 /* reference layers — muted context, read-only */
 const REF_LAYERS = [
@@ -53,9 +61,106 @@ async function loadPrograms(){
     if(list.length) rebuildPrograms(list);
   }catch(_){}
 }
-/* Scalar write cells for EST Planning Events SRC (Plan 2b-i). Program(s)/Leads/
-   Venue relations are edited in Plan 2b-ii; attribution is injected by the Worker.
-   Month scheduling stores Date=1st. */
+
+/* live people (Leads chip list + Volunteers typeahead) — /ref/people is a slim
+   {id,name,lead} projection; `lead` = write-authorized leadership. */
+let PEOPLE_LIST = [];     // all people {id,name,lead}
+let LEADS_LIST = [];      // write-authorized subset (the Leads chip list)
+let peopleById = {};      // id -> name
+let peopleIdByName = {};  // name -> id (pre-select existing relations by name)
+function rebuildPeople(list){
+  PEOPLE_LIST = list;
+  LEADS_LIST = list.filter(p=>p.lead);
+  peopleById = Object.fromEntries(list.map(p=>[p.id,p.name]));
+  peopleIdByName = Object.fromEntries(list.map(p=>[p.name,p.id]));
+}
+async function loadPeople(){
+  if(!PROXY_BASE) return;
+  try{
+    const r = await fetch(`${PROXY_BASE}/ref/people`); if(!r.ok) return;
+    const items = (await r.json()).items || [];
+    if(items.length) rebuildPeople(items.map(x=>({ id:x.id, name:x.name, lead:!!x.lead })));
+  }catch(_){}
+}
+
+/* live venues + venue types for the cascade (small tables — full rows) */
+let VENUES = [];          // {id,name,type,closed}
+let VENUE_TYPES = [];     // {id,name}
+let venueIdByName = {}, venueTypeIdByName = {};
+async function loadVenues(){
+  if(!PROXY_BASE) return;
+  try{
+    const [rv, rt] = await Promise.all([ fetch(`${PROXY_BASE}/ref/venues`), fetch(`${PROXY_BASE}/ref/venue-types`) ]);
+    if(rv && rv.ok){
+      const items = (await rv.json()).items || [];
+      VENUES = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
+        type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true) }));
+      venueIdByName = Object.fromEntries(VENUES.map(v=>[v.name,v.id]));
+    }
+    if(rt && rt.ok){
+      const items = (await rt.json()).items || [];
+      VENUE_TYPES = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name }));
+      venueTypeIdByName = Object.fromEntries(VENUE_TYPES.map(t=>[t.name,t.id]));
+    }
+  }catch(_){}
+}
+
+/* Populate the Venue <select>, filtered to the chosen Venue Type and excluding
+   closed/unavailable venues. Called on editor open and on Venue Type change. */
+function fillVenues(typeId, selectedId){
+  const sel = document.getElementById('f_venue'); if(!sel) return;
+  const typeName = (VENUE_TYPES.find(t=>t.id===typeId)||{}).name;
+  const opts = VENUES.filter(v => !v.closed && (!typeName || v.type===typeName));
+  sel.innerHTML = `<option value="">—</option>` +
+    opts.map(v=>`<option value="${v.id}" ${v.id===selectedId?'selected':''}>${esc(v.name)}</option>`).join('');
+}
+
+/* Volunteers typeahead over PEOPLE_LIST — maintains removable .ta-chip[data-id]
+   nodes that readForm() collects. Self-contained (blur closes the menu). */
+function initTypeahead(container, selectedIds){
+  const input = container.querySelector('.ta-input');
+  const menu  = container.querySelector('.ta-menu');
+  const disabled = input.disabled;
+  let selected = (selectedIds||[]).map(id=>({ id, name: peopleById[id] || id }));
+  let matches = [], active = -1;
+  const addChip = p => {
+    const chip = document.createElement('span');
+    chip.className = 'ta-chip'; chip.dataset.id = p.id;
+    chip.innerHTML = esc(p.name) + (disabled ? '' : ' <button type="button" aria-label="Remove" tabindex="-1">×</button>');
+    if(!disabled) chip.querySelector('button').addEventListener('click', ()=>{ selected = selected.filter(x=>x.id!==p.id); chip.remove(); });
+    container.insertBefore(chip, input);
+  };
+  const closeMenu = () => { menu.hidden = true; active = -1; };
+  const paint = () => [...menu.querySelectorAll('.ta-opt')].forEach((el,i)=>el.classList.toggle('active', i===active));
+  const openMenu = q => {
+    if(!q){ closeMenu(); return; }
+    const chosen = new Set([...container.querySelectorAll('.ta-chip')].map(c=>c.dataset.id));
+    matches = PEOPLE_LIST.filter(p=>!chosen.has(p.id) && p.name.toLowerCase().includes(q)).slice(0,8);
+    menu.innerHTML = matches.length
+      ? matches.map((p,i)=>`<div class="ta-opt${i===0?' active':''}" data-id="${p.id}">${esc(p.name)}</div>`).join('')
+      : '<div class="ta-empty">No match</div>';
+    active = matches.length ? 0 : -1; menu.hidden = false;
+  };
+  const pick = p => { if(!p) return; addChip(p); selected.push({id:p.id,name:p.name}); input.value=''; closeMenu(); input.focus(); };
+  selected.forEach(addChip);
+  if(disabled) return;
+  input.addEventListener('input', ()=>openMenu(input.value.trim().toLowerCase()));
+  input.addEventListener('focus', ()=>{ const q=input.value.trim().toLowerCase(); if(q) openMenu(q); });
+  input.addEventListener('blur', ()=>setTimeout(closeMenu, 150));
+  input.addEventListener('keydown', e=>{
+    if(menu.hidden) return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); active=Math.min(active+1, matches.length-1); paint(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); active=Math.max(active-1, 0); paint(); }
+    else if(e.key==='Enter'){ e.preventDefault(); pick(matches[active]); }
+    else if(e.key==='Escape'){ closeMenu(); }
+  });
+  menu.addEventListener('mousedown', e=>{ const o=e.target.closest('.ta-opt'); if(!o) return; e.preventDefault(); pick(PEOPLE_LIST.find(p=>p.id===o.dataset.id)); });
+  container.addEventListener('click', e=>{ if(e.target===container) input.focus(); });
+}
+/* Write cells for EST Planning Events SRC. Relations (Program(s)/Leads/Volunteers/
+   Venue/Venue Type) are written as target-table row ids; single lookups take a
+   one-id array (or [] to clear). Attribution is injected by the Worker. Month
+   scheduling stores Date=1st. */
 function eventToCodaCells(e){
   const sched = (e.scheduling||'exact').toLowerCase();
   const dateVal = sched==='month' ? (e.targetMonth ? `${e.targetMonth}-01` : '')
@@ -63,14 +168,19 @@ function eventToCodaCells(e){
   return [
     {column:'Title',           value:e.title||''},
     {column:'Program(s)',      value:(e.programs||[]).filter(id=>id&&id!=='oth')},
+    {column:'Leads',           value:(e.leads||[]).filter(Boolean)},
+    {column:'Volunteers',      value:(e.volunteers||[]).filter(Boolean)},
     {column:'Status',          value:cap(e.status||'idea')},
     {column:'Scheduling',      value:cap(sched)},
     {column:'Date',            value:dateVal},
     {column:'Start',           value:e.start||''},
     {column:'End',             value:e.end||''},
     {column:'All day',         value:!!e.allDay},
-    {column:'Venue (other)',   value:e.location||''},
+    {column:'Venue Type',      value:e.venueType ? [e.venueType] : []},
+    {column:'Venue',           value:e.venue ? [e.venue] : []},
+    {column:'Venue (other)',   value:e.venueOther||''},
     {column:'Event Description',value:e.description||''},
+    {column:'Planning Notes',  value:e.planningNotes||''},
     {column:'Window start',    value:e.rangeStart||''},
     {column:'Window end',      value:e.rangeEnd||''},
   ];
@@ -116,10 +226,15 @@ const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
 const _nameOf = x => typeof x === 'string' ? x : (x && x.name) || '';
 const _asList = v => (v == null || v === '') ? [] : (Array.isArray(v) ? v : [v]).map(_nameOf).filter(Boolean);
 const _toHM = s => { const m = String(s || '').match(/(?:T|^)(\d{2}:\d{2})/); return m ? m[1] : ''; };
+// Relation cells arrive as display-name strings; map them back to target-table
+// row ids via the loaded reference lists (same pattern as Program(s)). Requires
+// loadPeople/loadVenues to have run before loadEvents (init() awaits both).
+const _idsOf = (v, byName) => _asList(v).map(n => byName[n]).filter(Boolean);
 function planningRowToEvent(r){
   const v = r.values || {};
   const progs = _asList(v['Program(s)']);               // all programs (names)
-  const venue = _asList(v['Venue'])[0] || '';
+  const venueName = _asList(v['Venue'])[0] || '';
+  const venueOther = v['Venue (other)'] || '';
   const sched = String(v['Scheduling'] || 'Exact').toLowerCase();
   const rawDate = String(v['Date'] || '').slice(0,10);
   return {
@@ -127,10 +242,14 @@ function planningRowToEvent(r){
     program: progIdByName[progs[0]] || 'oth',           // primary program drives the color
     programs: progs.map(p => progIdByName[p] || 'oth'),  // full list (crossover UI: Plan 2b)
     title: v['Title'] || '',
-    leads: _asList(v['Leads']),
+    leads: _idsOf(v['Leads'], peopleIdByName),           // person row ids
+    volunteers: _idsOf(v['Volunteers'], peopleIdByName), // person row ids
     date: sched === 'month' ? '' : rawDate,              // Month renders as an undated month idea
     start: _toHM(v['Start']), end: _toHM(v['End']), allDay: !!v['All day'],
-    location: venue || (v['Venue (other)'] || ''),
+    venueType: venueTypeIdByName[_asList(v['Venue Type'])[0]] || '',
+    venue: venueIdByName[venueName] || '',
+    venueOther,
+    location: venueName || venueOther,                   // display fallback
     status: String(v['Status'] || 'idea').toLowerCase(),
     description: v['Event Description'] || '',
     planningNotes: v['Planning Notes'] || '',
@@ -479,11 +598,14 @@ function openEditor(ev){
     <div class="fld"><label>Start time</label><input id="f_start" type="time" value="${ev.start||''}" ${dis}></div>
     <div class="fld"><label>End time</label><input id="f_end" type="time" value="${ev.end||''}" ${dis}></div>
     <div class="allday" style="grid-column:1/3"><input id="f_allday" type="checkbox" ${ev.allDay?'checked':''} ${dis}><label for="f_allday" style="text-transform:none;color:var(--muted);font-weight:500">All day (no set time)</label></div>
-    <div class="fld full"><label>Location</label><input id="f_loc" value="${esc(ev.location||'')}" ${dis} placeholder="Venue or 'TBD'"></div>
-    <div class="fld full"><label>Leads</label><div class="leadchips" id="f_leads">${PEOPLE.map(p=>`<button type="button" class="leadchip" data-p="${p}" aria-pressed="${ev.leads.includes(p)}" disabled>${p}</button>`).join('')}</div></div>
-    <div class="fld full"><label>Description</label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
+    <div class="fld"><label>Venue type</label><select id="f_vtype" ${dis}><option value="">—</option>${VENUE_TYPES.map(t=>`<option value="${t.id}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
+    <div class="fld"><label>Venue</label><select id="f_venue" ${dis}></select></div>
+    <div class="fld full"><label>Venue <span class="hint">(other / not listed)</span></label><input id="f_vother" value="${esc(ev.venueOther||'')}" ${dis} placeholder="e.g. a home, or 'TBD'"></div>
+    <div class="fld full"><label>Leads</label><div class="leadchips pick" id="f_leads">${LEADS_LIST.length ? LEADS_LIST.map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.leads||[]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('') : '<span class="picknote" data-empty="No leads loaded — check connection"></span>'}</div></div>
+    <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
+    <div class="fld full"><label>Description <span class="hint">(public promo)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
+    <div class="fld full"><label>Planning notes <span class="hint">(internal)</span></label><textarea id="f_notes" ${dis} placeholder="Internal planning checklist">${esc(ev.planningNotes || (!ev.id ? NOTES_TEMPLATE : ''))}</textarea></div>
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
-    ${(canEdit&&!locked)?`<div class="locknote">Leads &amp; venue: set in Coda for now — pickers arrive next.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
     ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
 
@@ -518,19 +640,34 @@ function openEditor(ev){
       document.getElementById('whenFields').innerHTML=whenFieldsHTML(whenType, Object.assign({},ev,cur), '');
     });
   }
+
+  // venue cascade: fill the Venue list for the current type; refill on type change
+  fillVenues(ev.venueType||'', ev.venue||'');
+  if(canEdit && !locked){
+    const vt=document.getElementById('f_vtype');
+    if(vt) vt.addEventListener('change', ()=>fillVenues(vt.value, ''));
+  }
+  // volunteers typeahead
+  const volBox=document.getElementById('f_vols'); if(volBox) initTypeahead(volBox, ev.volunteers||[]);
+
   show();
   const t=document.getElementById('f_title'); if(t && !ev.id) t.focus();
 }
 
 function readForm(){
   const g=id=>document.getElementById(id);
-  const leads=[...document.querySelectorAll('#f_leads .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
-  const programs=[...document.querySelectorAll('#f_progs .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
+  const pressed=sel=>[...document.querySelectorAll(sel)].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
+  const leads=pressed('#f_leads .leadchip');
+  const programs=pressed('#f_progs .leadchip');
+  const volunteers=[...document.querySelectorAll('#f_vols .ta-chip')].map(c=>c.dataset.id);
+  const venue=g('f_venue')?g('f_venue').value:'', venueType=g('f_vtype')?g('f_vtype').value:'', venueOther=g('f_vother')?g('f_vother').value.trim():'';
   const w=collectWhen();
   const o={
     program:programs[0]||'oth', programs, status:g('f_status').value, title:g('f_title').value.trim()||'Untitled',
     allDay:g('f_allday').checked, start:g('f_start').value, end:g('f_end').value,
-    location:g('f_loc').value.trim(), description:g('f_desc').value.trim(), leads,
+    leads, volunteers, venueType, venue, venueOther,
+    location:(venue ? ((VENUES.find(v=>v.id===venue)||{}).name||'') : '') || venueOther,   // display fallback
+    description:g('f_desc').value.trim(), planningNotes:g('f_notes')?g('f_notes').value.trim():'',
     scheduling:whenType, date:'', rangeStart:'', rangeEnd:'', targetMonth:''
   };
   if(whenType==='exact') o.date=w.date||'';
@@ -771,7 +908,7 @@ async function init(){
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
   headerMQ.addEventListener('change', applyHeaderMode);
   applyHeaderMode();
-  await loadPrograms();
+  await Promise.all([loadPrograms(), loadPeople(), loadVenues()]);   // ref lists before events (name→id mapping)
   await loadEvents(); applyView(); layoutSticky();
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
   document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); }); // refetch on tab focus

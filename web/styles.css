@@ -240,6 +240,22 @@
   .leadchip{font-size:11px;padding:3px 7px;border-radius:20px;border:1px solid var(--hair-strong);cursor:pointer;background:#fff;color:var(--muted)}
   .leadchip[aria-pressed="true"]{background:var(--accent-tint);border-color:var(--accent);color:var(--accent-dk);font-weight:500}
   .leadchip:disabled{cursor:not-allowed;opacity:.6}
+  .leadchips.pick{max-height:120px;overflow:auto;padding:5px;border:1px solid var(--hair);border-radius:8px}
+  .leadchips.pick:empty::after,.picknote{content:attr(data-empty);font-size:11px;color:var(--faint)}
+  /* typeahead (Volunteers): selected chips + search input + suggestion menu */
+  .typeahead{position:relative;display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:#fff;border:1px solid var(--hair-strong);border-radius:8px;padding:5px}
+  .typeahead.dis{background:#F7F6F3;cursor:not-allowed}
+  .ta-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 5px 3px 8px;border-radius:20px;background:var(--accent-tint);border:1px solid var(--accent);color:var(--accent-dk)}
+  .ta-chip button{border:0;background:none;cursor:pointer;color:var(--accent-dk);font-size:14px;line-height:1;padding:0}
+  .ta-input{flex:1 1 90px;min-width:90px;border:0!important;padding:2px 4px!important;font:inherit;font-size:12px;background:transparent!important}
+  .ta-input:focus{outline:none!important}
+  .ta-input:disabled{background:transparent!important}
+  .ta-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;max-height:210px;overflow:auto;background:#fff;border:1px solid var(--hair-strong);border-radius:8px;box-shadow:var(--shadow);padding:4px}
+  .ta-menu[hidden]{display:none}
+  .ta-opt{padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ta-opt.active,.ta-opt:hover{background:var(--accent-tint)}
+  .ta-empty{padding:6px 8px;color:var(--faint);font-size:11px}
+  .fld .hint{text-transform:none;font-weight:400;color:var(--faint);letter-spacing:0}
   .allday{display:flex;align-items:center;gap:7px;align-self:end;padding-bottom:8px}
   .allday input{width:auto}
   .meta{grid-column:1/3;font-size:11px;color:var(--faint);border-top:1px dashed var(--hair);padding-top:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
