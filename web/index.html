@@ -15,28 +15,34 @@
 <div class="bar">
   <div class="bar-inner row1">
     <div class="brand">
-      <h1>Programming — Planning Calendar</h1>
-      <span class="sub">East Side Tribe · draft events, no eventbrite/gCal required</span>
+      <div class="brandline">
+        <h1>Programming — Planning Calendar</h1>
+        <button class="info-btn" id="infoBtn" title="Legend & key" aria-label="Legend and key">i</button>
+      </div>
+      <span class="sub sub-full">East Side Tribe · draft events, no eventbrite/gCal required</span>
+      <span class="sub sub-short">East Side Tribe</span>
     </div>
     <span class="grow-sp"></span>
-    <button class="info-btn" id="infoBtn" title="Legend & key" aria-label="Legend and key">i</button>
+    <span id="authSlot" class="authslot"></span>
   </div>
   <div class="bar-inner row2">
-    <div class="seg" id="viewSeg">
-      <button data-view="overview" aria-pressed="true">Overview</button>
-      <button data-view="year" aria-pressed="false">Calendar</button>
-    </div>
-    <div class="yearnav">
-      <button class="btn icon" id="prevYr" aria-label="Previous program year">‹</button>
-      <span class="yr" id="yrLabel">2026–2027</span>
-      <button class="btn icon" id="nextYr" aria-label="Next program year">›</button>
-      <button class="btn ghost" id="todayBtn">Today</button>
-      <button class="btn ghost" id="refreshBtn" title="Refresh from Coda" aria-label="Refresh">↻</button>
+    <div class="controls">
+      <div class="seg" id="viewSeg">
+        <button data-view="overview" aria-pressed="true">Overview</button>
+        <button data-view="year" aria-pressed="false">Calendar</button>
+      </div>
+      <div class="yearnav">
+        <button class="btn icon" id="prevYr" aria-label="Previous program year">‹</button>
+        <span class="yr" id="yrLabel" title="Program year">'26–'27</span>
+        <button class="btn icon" id="nextYr" aria-label="Next program year">›</button>
+      </div>
     </div>
     <span class="grow-sp"></span>
-    <span id="authSlot" class="authslot" style="display:flex;align-items:center;gap:8px"></span>
     <button class="btn primary" id="addBtn">+ New event</button>
+    <button class="btn ghost icon" id="refreshBtn" title="Refresh from Coda" aria-label="Refresh">↻</button>
+    <button class="btn icon ovf-btn" id="ovfBtn" aria-label="More options" aria-expanded="false" aria-haspopup="menu" hidden>⋯</button>
   </div>
+  <div class="ovf-panel" id="ovfPanel" role="menu" hidden></div>
 </div>
 
 <div class="layers" id="layers">

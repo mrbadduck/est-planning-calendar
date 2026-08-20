@@ -647,6 +647,13 @@ document.getElementById('viewSeg').addEventListener('click',e=>{
 /* legend / info modal */
 document.getElementById('infoBtn').addEventListener('click',openInfo);
 
+/* close the account + overflow menus on outside click / Esc */
+document.addEventListener('click', e=>{
+  if(!e.target.closest('.acct')) acctMenu(false);
+  if(!e.target.closest('#ovfPanel') && !e.target.closest('#ovfBtn')) ovfMenu(false);
+});
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ acctMenu(false); ovfMenu(false); } });
+
 /* layer toggles */
 document.getElementById('layers').addEventListener('click',e=>{
   const lab=e.target.closest('.lyr'); if(!lab) return;
@@ -658,17 +665,12 @@ document.getElementById('layers').addEventListener('click',e=>{
 /* nav — both views span a program year */
 function navStep(dir){ state.startYear+=dir; rerender(); updateNavLabel(); }
 function updateNavLabel(){
-  document.getElementById('yrLabel').textContent=`${state.startYear}–${state.startYear+1}`;
+  const el=document.getElementById('yrLabel');
+  el.textContent=`'${String(state.startYear).slice(2)}–'${String(state.startYear+1).slice(2)}`;   // compact: '26–'27
+  el.title=`Program year ${state.startYear}–${state.startYear+1}`;
 }
 document.getElementById('prevYr').addEventListener('click',()=>navStep(-1));
 document.getElementById('nextYr').addEventListener('click',()=>navStep(1));
-document.getElementById('todayBtn').addEventListener('click',()=>{
-  const t=new Date();
-  if(state.view==='overview'){
-    const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`);
-    if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
-  } else { const el=document.querySelector('.cell.today'); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); }
-});
 document.getElementById('addBtn').addEventListener('click',()=>openEditor(newEventOn(inProgramYear(todayStr)?todayStr:firstOfProgramYear())));
 function firstOfProgramYear(){ return ymd(state.startYear,8,1); }
 function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state.startYear+1,7,31); }
@@ -681,21 +683,59 @@ const GOOGLE_CLIENT_ID = '463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.goo
 const TOKEN_KEY = 'est-idtoken';
 function saveToken(t){ try{ t ? sessionStorage.setItem(TOKEN_KEY, t) : sessionStorage.removeItem(TOKEN_KEY); }catch(_){} }
 function loadToken(){ try{ return sessionStorage.getItem(TOKEN_KEY) || null; }catch(_){ return null; } }
+function jwtClaims(t){ try{ return JSON.parse(atob(String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); }catch(_){ return {}; } }
+function initials(name){ return (String(name||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('')||'?').toUpperCase(); }
+function roleLabel(id){ return id.canApprove ? 'Tribal Council' : (id.canWrite ? 'Program Lead' : (id.matched ? 'Member' : 'Not a recognized lead')); }
 function renderAuth(){
   const el = document.getElementById('authSlot'); if(!el) return;
   const id = state.identity;
-  if(id && id.signedIn && id.matched){
-    const role = id.canApprove ? ' · Council' : (id.canWrite ? ' · Lead' : '');
-    el.innerHTML = `<span class="who">${esc(id.name||'')}${role}</span><button class="btn ghost" id="signOut">Sign out</button>`;
-    el.querySelector('#signOut').addEventListener('click', signOut);
-  } else if(id && id.signedIn){
-    el.innerHTML = `<span class="who" style="color:var(--muted)">Not a recognized lead</span><button class="btn ghost" id="signOut">Sign out</button>`;
+  if(id && id.signedIn){
+    const claims = jwtClaims(state.idToken);
+    const name = id.name || claims.name || claims.email || 'Account';
+    const pic = claims.picture || '';
+    el.innerHTML = `<div class="acct">
+        <button class="avatar" id="avatarBtn" aria-haspopup="menu" aria-expanded="false" title="${esc(name)}">${pic ? `<img src="${esc(pic)}" alt="" referrerpolicy="no-referrer">` : esc(initials(name))}</button>
+        <div class="acct-menu" id="acctMenu" role="menu" hidden>
+          <div class="acct-who"><b>${esc(name)}</b><span class="role">${esc(roleLabel(id))}</span></div>
+          <button class="btn ghost" id="signOut" role="menuitem">Sign out</button>
+        </div>
+      </div>`;
+    el.querySelector('#avatarBtn').addEventListener('click', e=>{ e.stopPropagation(); acctMenu(); });
     el.querySelector('#signOut').addEventListener('click', signOut);
   } else {
     el.innerHTML = `<span id="gbtn"></span>`;
     if(GOOGLE_CLIENT_ID && window.google && google.accounts && google.accounts.id)
       google.accounts.id.renderButton(el.querySelector('#gbtn'), { type:'standard', size:'medium', text:'signin_with', shape:'pill' });
   }
+}
+function acctMenu(open){
+  const m=document.getElementById('acctMenu'), b=document.getElementById('avatarBtn'); if(!m||!b) return;
+  const willOpen = open!==undefined ? open : m.hidden;
+  m.hidden = !willOpen; b.setAttribute('aria-expanded', String(willOpen));
+}
+
+/* ---- mobile overflow (⋯): relocate year-nav + filters into a dropdown ---- */
+const headerMQ = window.matchMedia('(max-width:600px)');
+function ovfMenu(open){
+  const p=document.getElementById('ovfPanel'), b=document.getElementById('ovfBtn'); if(!p||!b) return;
+  const willOpen = open!==undefined ? open : p.hidden;
+  p.hidden=!willOpen; b.setAttribute('aria-expanded', String(willOpen));
+}
+function applyHeaderMode(){
+  const panel=document.getElementById('ovfPanel'), ovfBtn=document.getElementById('ovfBtn');
+  const yearnav=document.querySelector('.yearnav'), layers=document.getElementById('layers');
+  const controls=document.querySelector('.controls'), bar=document.querySelector('.bar');
+  if(!panel||!ovfBtn) return;
+  if(headerMQ.matches){                                   // mobile: tuck year-nav + filters into the ⋯ panel
+    if(yearnav && yearnav.parentElement!==panel) panel.appendChild(yearnav);
+    if(layers && layers.parentElement!==panel) panel.appendChild(layers);
+    ovfBtn.hidden=false;
+  } else {                                                // desktop: restore to their inline homes
+    if(yearnav && controls && yearnav.parentElement===panel) controls.appendChild(yearnav);
+    if(layers && bar && layers.parentElement===panel) bar.after(layers);
+    ovfBtn.hidden=true; ovfMenu(false);
+  }
+  layoutSticky();
 }
 async function fetchMe(){
   if(!PROXY_BASE || !state.idToken){ state.identity=null; renderAuth(); return; }
@@ -728,6 +768,9 @@ async function refresh(){
 }
 async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
+  document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
+  headerMQ.addEventListener('change', applyHeaderMode);
+  applyHeaderMode();
   await loadPrograms();
   await loadEvents(); applyView(); layoutSticky();
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);

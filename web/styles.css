@@ -31,19 +31,59 @@
   .bar-inner{max-width:1180px;margin:0 auto;padding:0 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
   .bar-inner.row2{margin-top:9px}
   .grow-sp{flex:1 1 20px}
-  .brand{display:flex;flex-direction:column;gap:1px}
+  .brand{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .brandline{display:flex;align-items:center;gap:9px;min-width:0}
   .brand h1{
     font-family:Fraunces,serif;font-weight:600;font-size:19px;letter-spacing:.1px;margin:0;line-height:1.1;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
   }
-  .brand .sub{color:var(--muted);font-size:11.5px;letter-spacing:.2px}
+  .brand .sub{color:var(--muted);font-size:11.5px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
   .info-btn{
-    width:26px;height:26px;flex:0 0 auto;border-radius:50%;border:1px solid var(--hair-strong);
+    width:24px;height:24px;flex:0 0 auto;border-radius:50%;border:1px solid var(--hair-strong);
     background:#fff;color:var(--muted);font-family:Fraunces,serif;font-style:italic;font-weight:600;
-    font-size:14px;line-height:1;cursor:pointer;transition:.12s;
+    font-size:13px;line-height:1;cursor:pointer;transition:.12s;
   }
   .info-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-tint)}
-  .yearnav{display:flex;align-items:center;gap:6px}
-  .yearnav .yr{font-family:Fraunces,serif;font-weight:600;font-size:15px;min-width:150px;text-align:center}
+
+  /* account: sign-in button, or signed-in avatar with a click menu */
+  .authslot{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .acct{position:relative;display:flex}
+  .avatar{
+    width:30px;height:30px;flex:0 0 auto;border-radius:50%;border:1px solid var(--hair-strong);
+    background:var(--accent);color:#fff;font:inherit;font-size:12px;font-weight:600;line-height:1;
+    cursor:pointer;padding:0;overflow:hidden;display:flex;align-items:center;justify-content:center;transition:.12s;
+  }
+  .avatar:hover{box-shadow:0 0 0 2px var(--accent-tint)}
+  .avatar img{width:100%;height:100%;object-fit:cover;display:block}
+  .acct-menu{
+    position:absolute;top:calc(100% + 8px);right:0;min-width:190px;z-index:60;
+    background:#fff;border:1px solid var(--hair-strong);border-radius:10px;box-shadow:var(--shadow);
+    padding:10px;display:flex;flex-direction:column;gap:8px;
+  }
+  .acct-menu[hidden]{display:none}
+  .acct-who{display:flex;flex-direction:column;gap:2px;padding:2px 2px 9px;border-bottom:1px solid var(--hair)}
+  .acct-who b{font-size:13px}
+  .acct-who .role{font-size:11px;color:var(--muted)}
+  .acct-menu .btn{text-align:left}
+
+  /* mobile overflow menu (⋯) — hidden until the mobile breakpoint */
+  .sub-short{display:none}
+  .ovf-panel{
+    position:absolute;right:14px;top:100%;margin-top:6px;z-index:55;
+    width:min(320px, calc(100vw - 28px));
+    background:#fff;border:1px solid var(--hair-strong);border-radius:12px;box-shadow:var(--shadow);
+    padding:12px;display:flex;flex-direction:column;gap:12px;
+  }
+  .ovf-panel[hidden]{display:none}
+  .ovf-panel .yearnav{width:100%}
+  .ovf-panel .layers{
+    display:flex;flex-direction:column;align-items:flex-start;gap:9px;
+    margin:0;padding:11px 0 0;border:0;border-top:1px solid var(--hair);max-width:none;
+  }
+  .ovf-panel .layers .spacer{display:none}
+  .yearnav{display:flex;align-items:center;gap:4px}
+  .yearnav .yr{font-family:Fraunces,serif;font-weight:600;font-size:15px;min-width:52px;text-align:center;white-space:nowrap}
   .btn{
     font:inherit;font-size:12px;font-weight:500;color:var(--ink);
     background:#fff;border:1px solid var(--hair-strong);border-radius:6px;
@@ -258,4 +298,17 @@
     :root{--cell-min:70px}
     .mbody{grid-template-columns:1fr}
     .fld.full,.meta,.locknote{grid-column:1}
+  }
+
+  /* mobile: slim two-row bar; year-nav + filters live behind the ⋯ menu */
+  @media (max-width:600px){
+    .bar{padding:10px 0 8px}
+    .bar-inner{padding:0 14px;gap:8px}
+    .bar-inner.row1{flex-wrap:nowrap}          /* keep sign-in/avatar on the title row; title truncates instead */
+    .bar-inner.row2{margin-top:8px}
+    .brand h1{font-size:16px}
+    .sub-full{display:none}
+    .sub-short{display:block}
+    .info-btn{width:22px;height:22px;font-size:12px}
+    .controls{gap:8px}
   }
