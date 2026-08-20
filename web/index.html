@@ -1063,7 +1063,7 @@ function firstOfProgramYear(){ return ymd(state.startYear,8,1); }
 function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state.startYear+1,7,31); }
 
 /* ---- Google sign-in (identity + role gating via the Worker /me) --------- */
-const GOOGLE_CLIENT_ID = '';   // ← paste the OAuth *Web* client id (…apps.googleusercontent.com)
+const GOOGLE_CLIENT_ID = '463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com';   // OAuth Web client (public)
 function renderAuth(){
   const el = document.getElementById('authSlot'); if(!el) return;
   const id = state.identity;
