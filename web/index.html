@@ -431,7 +431,7 @@ async function loadPrograms(){
     const r = await fetch(`${PROXY_BASE}/ref/programs`);
     if(!r.ok) return;
     const items = (await r.json()).items || [];
-    const list = items.filter(x=>x && x.name).map((x,i,a)=>({ id:x.id, name:x.name, color:genColor(i,a.length) }));
+    const list = items.filter(x=>x && x.name).map((x,i,a)=>({ id:x.id, name:x.name, active:!!(x.values && x.values['Active']===true), color:genColor(i,a.length) }));
     if(list.length) rebuildPrograms(list);
   }catch(_){}
 }
@@ -876,7 +876,7 @@ function openEditor(ev){
   const sched = ev.scheduling || 'exact';
   body.innerHTML = `
     <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
-    <div class="fld full"><label>Program(s)</label><div class="leadchips" id="f_progs">${PROGRAMS.filter(p=>p.id!=='oth').map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.programs&&ev.programs.length?ev.programs:[ev.program]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('')}</div></div>
+    <div class="fld full"><label>Program(s)</label><div class="leadchips" id="f_progs">${PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id)))).map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.programs&&ev.programs.length?ev.programs:[ev.program]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('')}</div></div>
     <div class="fld"><label>Status</label><select id="f_status" ${dis}>${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select></div>
     <div class="fld full"><label>When</label>
       <div class="whenseg" id="f_when">
