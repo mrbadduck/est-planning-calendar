@@ -273,7 +273,7 @@ const CodaSource = {
   async listReferences(){ return MOCK_REFS.slice(); },
   _wh(){ return { 'Content-Type':'application/json', 'Authorization':`Bearer ${state.idToken||''}` }; },
   async _fail(r){ let t=await r.text(); try{ t=JSON.parse(t).error||t; }catch(_){} throw new Error(`save failed (${r.status})${t?': '+t:''}`); },
-  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); return e; },
+  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; }catch(_){} return e; },
   async update(e){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(e.id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); if(!r.ok) await this._fail(r); return e; },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
 };
@@ -303,9 +303,22 @@ const pad=n=>String(n).padStart(2,'0');
 const ymd=(y,m,d)=>`${y}-${pad(m+1)}-${pad(d)}`;
 const todayStr=(()=>{const t=new Date();return ymd(t.getFullYear(),t.getMonth(),t.getDate());})();
 
+// Recently-saved planning events, kept for a few seconds so a re-fetch that hits
+// Coda *before* it has indexed the write can't revert an optimistic change.
+// Map id -> { e (optimistic event) | deleted:true, until }.
+const _recent = new Map();
+function markRecent(id, rec){ _recent.set(id, Object.assign({ until: Date.now() + 8000 }, rec)); }
 async function loadEvents(){
   const [p,r] = await Promise.all([DB.listPlanning(), DB.listReferences()]);
-  state.events = [...p, ...r];
+  let planning = p;
+  if(_recent.size){
+    const now = Date.now();
+    for(const [id,rec] of [..._recent]) if(rec.until <= now) _recent.delete(id);
+    planning = p.filter(ev => { const rec=_recent.get(ev.id); return !(rec && rec.deleted); })   // hide just-deleted
+                .map(ev => { const rec=_recent.get(ev.id); return (rec && rec.e) ? rec.e : ev; }); // keep just-edited
+    for(const [id,rec] of _recent) if(rec.e && !p.some(x=>x.id===id)) planning.push(rec.e);        // keep just-created
+  }
+  state.events = [...planning, ...r];
 }
 
 function eventsByDate(){
@@ -676,21 +689,69 @@ function readForm(){
   return o;
 }
 
+/* ---- optimistic writes: reflect the change instantly, reconcile after ------ */
+let _toastEl=null, _toastT=null;
+function toast(msg, kind){
+  if(!_toastEl){ _toastEl=document.createElement('div'); _toastEl.className='toast'; document.body.appendChild(_toastEl); }
+  _toastEl.textContent=msg; _toastEl.className='toast show'+(kind?' '+kind:'');
+  clearTimeout(_toastT);
+  if(kind!=='busy') _toastT=setTimeout(()=>{ if(_toastEl) _toastEl.className='toast'; }, 2200);
+}
+let _saving=false, _reconcileT=null;
+function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(()=>refresh(), 2500); }  // let Coda index, then pull server truth (recent guard prevents flicker)
+function applyLocal(e, remove){
+  const i=state.events.findIndex(x=>x.id===e.id);
+  if(remove){ if(i>=0) state.events.splice(i,1); return; }
+  if(i>=0) state.events[i]=e; else state.events.push(e);
+}
 async function saveEditor(approve){
+  if(_saving) return;
   const f=readForm();
-  const base = editing.id ? editing : {source:'planning', eventbriteUrl:'', gcalId:''};
-  const e = Object.assign({}, base, f);
+  const isNew=!editing.id;
+  const me=(state.identity && state.identity.name) || '';
+  const base= isNew ? {source:'planning', eventbriteUrl:'', gcalId:'', createdBy:me, editedBy:me} : editing;
+  const e=Object.assign({}, base, f);
+  e.editedBy = me || e.editedBy;
   if(approve) e.status='approved';
-  try {
-    if(editing.id){ await DB.update(e); } else { await DB.create(e); }
-    close(); await refresh();
-  } catch(err){ alert(String(err && err.message || err)); }
+  const prev = isNew ? null : Object.assign({}, editing);
+  if(isNew) e.id='tmp-'+Date.now();
+  _saving=true;
+  applyLocal(e); close(); rerender(); toast(approve?'Approving…':'Saving…','busy');   // instant reflect
+  try{
+    const saved = isNew ? await DB.create(e) : await DB.update(e);
+    if(isNew && saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); rerender(); }  // swap temp id → real
+    markRecent(e.id, { e });
+    toast(approve?'Approved':'Saved','ok');
+    scheduleReconcile();
+  }catch(err){
+    applyLocal(e, true); if(prev) applyLocal(prev); rerender();
+    toast('Save failed — reverted','err'); console.warn('save failed:', err);
+  }finally{ _saving=false; }
+}
+async function reopenEditor(){
+  if(_saving || !editing || !editing.id) return;
+  const prev=Object.assign({}, editing);
+  const e=Object.assign({}, editing, {status:'confirmed'});
+  _saving=true;
+  applyLocal(e); close(); rerender(); toast('Reopening…','busy');
+  try{ await DB.update(e); markRecent(e.id, { e }); toast('Reopened','ok'); scheduleReconcile(); }
+  catch(err){ applyLocal(prev); rerender(); toast('Reopen failed — restored','err'); console.warn('reopen failed:', err); }
+  finally{ _saving=false; }
 }
 async function deleteEditor(){
-  try {
-    if(editing && editing.id){ await DB.remove(editing.id); }
-    close(); await refresh();
-  } catch(err){ alert(String(err && err.message || err)); }
+  if(_saving) return;
+  if(!editing || !editing.id){ close(); return; }
+  const id=editing.id, prev=Object.assign({}, editing);
+  _saving=true;
+  applyLocal({id}, true); close(); rerender(); toast('Deleting…','busy');
+  try{
+    await DB.remove(id);
+    markRecent(id, { deleted:true });
+    toast('Deleted','ok'); scheduleReconcile();
+  }catch(err){
+    applyLocal(prev); rerender();
+    toast('Delete failed — restored','err'); console.warn('delete failed:', err);
+  }finally{ _saving=false; }
 }
 
 /* =========================================================================
@@ -707,7 +768,7 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   if(act==='close') close();
   else if(act==='save') saveEditor(false);
   else if(act==='approve') saveEditor(true);
-  else if(act==='reopen'){ const e=Object.assign({},editing,{status:'confirmed'}); DB.update(e).then(()=>{close();refresh();}).catch(err=>alert(String(err&&err.message||err))); }
+  else if(act==='reopen'){ reopenEditor(); }
   else if(act==='delete') deleteEditor();
 });
 document.getElementById('mBody').addEventListener('click',e=>{
