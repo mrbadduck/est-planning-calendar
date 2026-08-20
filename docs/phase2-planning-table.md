@@ -170,10 +170,10 @@ already define the normalized event. Going live is a **small** change, not a rew
 
 1. **✅ Plan 1 (done):** table created + seeded; proxy repointed; app renders it
    read-only.
-2. **Plan 2a — read-side polish (still read-only, ships independently):** retype the
-   schema to the decisions above (Start/End → time, drop `Target month`, attribution
-   → `EST People SRC` relations); add the reference-read proxy endpoints; add
-   refresh (button + focus + 60s poll).
+2. **✅ Plan 2a (done, Aug 2026) — read-side polish:** retyped the schema
+   (Start/End → native time, dropped `Target month` → Month uses `Date`=1st,
+   attribution → `EST People SRC` relations); added `/ref/:name` proxy endpoints;
+   added refresh (button + tab-focus + 60s poll). Still read-only.
 3. **Plan 2b — auth + editor + writes:** Google sign-in + email→person match;
    `ALLOW_WRITES=true` + read+write token; the editor (multi-program, venue cascade,
    notes template); create/edit/approve with attribution + VP-only approve.

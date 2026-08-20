@@ -32,11 +32,14 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
   in a browser to run it — no server, no build. Uses real EST programs/leads as
   sample rows. Edits reset on reload (mock has no persistence yet).
 - **LIVE (read-only) at `plan.eastsidetribe.org`** (GitHub Pages). Phased auth —
-  see `docs/architecture.md`. Phase 1 deployed; Phase 2 **Plan 1 shipped** (Aug
-  2026): the app reads the new `EST Planning Events SRC` table read-only.
+  see `docs/architecture.md`. Phase 1 + Phase 2 **Plans 1 & 2a shipped** (Aug
+  2026): the app reads `EST Planning Events SRC` read-only, with proper types
+  (native time; Month = `Date`=1st), refresh (button/focus/60s poll), and
+  attribution columns as `EST People SRC` relations (populated in Plan 2b).
 - **Proxy: deployed** at `est-planning-proxy.eastsidetribe.workers.dev` —
   read-only (read-scoped token, CORS locked to the app origin, `ALLOW_WRITES`
-  unset), pointed at `EST Planning Events SRC` (`grid--gYIvdD-cE`).
+  unset), pointed at `EST Planning Events SRC` (`grid--gYIvdD-cE`); serves
+  `GET /rows` + read-only `GET /ref/:name` (programs/people/venues/venue-types).
 - **Mission Control doc identified:** doc id `DYAz_wCVfv`
   (`superhuman://docs/DYAz_wCVfv`). Real source tables: `EST Events SRC`
   (`grid-9TAt5vMMKH`), `EST Programs SRC` (`grid-g87NFbtqN8`), `EST People SRC`
