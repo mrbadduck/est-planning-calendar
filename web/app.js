@@ -675,6 +675,12 @@ function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state
 
 /* ---- Google sign-in (identity + role gating via the Worker /me) --------- */
 const GOOGLE_CLIENT_ID = '463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com';   // OAuth Web client (public)
+// Persist the ID token so a page reload / discarded-tab restore keeps the
+// session without depending on Google's silent One-Tap re-auth (which 403s on
+// localhost). sessionStorage: survives reload + tab-discard, clears on tab close.
+const TOKEN_KEY = 'est-idtoken';
+function saveToken(t){ try{ t ? sessionStorage.setItem(TOKEN_KEY, t) : sessionStorage.removeItem(TOKEN_KEY); }catch(_){} }
+function loadToken(){ try{ return sessionStorage.getItem(TOKEN_KEY) || null; }catch(_){ return null; } }
 function renderAuth(){
   const el = document.getElementById('authSlot'); if(!el) return;
   const id = state.identity;
@@ -695,18 +701,23 @@ async function fetchMe(){
   if(!PROXY_BASE || !state.idToken){ state.identity=null; renderAuth(); return; }
   try{
     const r = await fetch(`${PROXY_BASE}/me`, { headers:{ 'Authorization':`Bearer ${state.idToken}` } });
-    state.identity = r.ok ? await r.json() : null;
-  }catch(_){ state.identity=null; }
+    if(r.ok){ state.identity = await r.json(); }
+    else { state.identity = null; if(r.status===401){ state.idToken=null; saveToken(null); } } // stale/expired token -> drop it
+  }catch(_){ state.identity=null; }               // transient network error: keep the token, try again later
   renderAuth(); applyView();
 }
-async function onCredential(resp){ state.idToken = (resp && resp.credential) || null; await fetchMe(); }
-function signOut(){ state.idToken=null; state.identity=null; try{ google.accounts.id.disableAutoSelect(); }catch(_){} renderAuth(); applyView(); }
+async function onCredential(resp){ state.idToken = (resp && resp.credential) || null; saveToken(state.idToken); await fetchMe(); }
+function signOut(){ state.idToken=null; state.identity=null; saveToken(null); try{ google.accounts.id.disableAutoSelect(); }catch(_){} renderAuth(); applyView(); }
 function initAuth(){
   if(!GOOGLE_CLIENT_ID){ renderAuth(); return; }                         // not configured yet
-  if(!(window.google && google.accounts && google.accounts.id)) return setTimeout(initAuth, 300); // wait for GIS
+  if(!state.idToken){ state.idToken = loadToken(); if(state.idToken) fetchMe(); } // restore persisted session, validate via /me
+  gisReady();
+}
+function gisReady(){
+  if(!(window.google && google.accounts && google.accounts.id)) return setTimeout(gisReady, 300); // wait for GIS
   google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onCredential, auto_select: true });
   renderAuth();
-  if(!state.idToken) google.accounts.id.prompt();     // silent re-auth for returning users
+  if(!state.idToken) google.accounts.id.prompt();     // only fall back to silent re-auth if we have no token
 }
 
 let _refreshing = false;
