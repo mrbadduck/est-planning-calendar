@@ -268,8 +268,9 @@
   .ta-opt.active,.ta-opt:hover{background:var(--accent-tint)}
   .ta-empty{padding:6px 8px;color:var(--faint);font-size:11px}
   .fld .hint{text-transform:none;font-weight:400;color:var(--faint);letter-spacing:0}
-  .allday{display:flex;align-items:center;gap:7px;align-self:end;padding-bottom:8px}
+  .allday{grid-column:1/3;display:flex;align-items:center;gap:7px;align-self:end;padding-bottom:8px}
   .allday input{width:auto}
+  .allday label{text-transform:none;color:var(--muted);font-weight:500}
   .meta{grid-column:1/3;font-size:11px;color:var(--faint);border-top:1px dashed var(--hair);padding-top:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
   .mfoot{padding:12px 18px 16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--hair);margin-top:8px;flex-shrink:0}
   .mfoot .push{flex:1}
@@ -325,7 +326,7 @@
   @media (max-width:720px){
     :root{--cell-min:70px}
     .mbody{grid-template-columns:1fr}
-    .fld.full,.meta,.locknote{grid-column:1}
+    .fld.full,.fld,.meta,.locknote,.allday{grid-column:1}   /* everything single-column; kills the phantom track from spans */
   }
 
   /* mobile: slim two-row bar; year-nav + filters live behind the ⋯ menu */
@@ -339,4 +340,16 @@
     .sub-short{display:block}
     .info-btn{width:22px;height:22px;font-size:12px}
     .controls{gap:8px}
+  }
+
+  /* phone: the editor modal becomes a full-screen sheet */
+  @media (max-width:600px){
+    .scrim{padding:0;align-items:stretch;overflow:hidden}
+    .modal{width:100%;max-width:none;height:100dvh;max-height:100dvh;border:0;border-radius:0}
+    .modal .mhead{padding:14px 16px 11px}
+    .modal .mbody{flex:1 1 auto;padding:14px 16px 8px}
+    .modal .mfoot{padding:12px 16px;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+    .whenseg{width:100%}
+    .whenseg button{flex:1;text-align:center}
+    .mfoot .btn{padding:9px 13px}          /* comfier tap targets */
   }

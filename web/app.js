@@ -610,7 +610,7 @@ function openEditor(ev){
     <div class="fld full" id="whenFields"></div>
     <div class="fld"><label>Start time</label><input id="f_start" type="time" value="${ev.start||''}" ${dis}></div>
     <div class="fld"><label>End time</label><input id="f_end" type="time" value="${ev.end||''}" ${dis}></div>
-    <div class="allday" style="grid-column:1/3"><input id="f_allday" type="checkbox" ${ev.allDay?'checked':''} ${dis}><label for="f_allday" style="text-transform:none;color:var(--muted);font-weight:500">All day (no set time)</label></div>
+    <div class="allday"><input id="f_allday" type="checkbox" ${ev.allDay?'checked':''} ${dis}><label for="f_allday">All day (no set time)</label></div>
     <div class="fld"><label>Venue type</label><select id="f_vtype" ${dis}><option value="">—</option>${VENUE_TYPES.map(t=>`<option value="${t.id}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
     <div class="fld"><label>Venue</label><select id="f_venue" ${dis}></select></div>
     <div class="fld full"><label>Venue <span class="hint">(other / not listed)</span></label><input id="f_vother" value="${esc(ev.venueOther||'')}" ${dis} placeholder="e.g. a home, or 'TBD'"></div>
