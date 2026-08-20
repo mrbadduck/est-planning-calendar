@@ -57,7 +57,7 @@ async function loadPrograms(){
     const r = await fetch(`${PROXY_BASE}/ref/programs`);
     if(!r.ok) return;
     const items = (await r.json()).items || [];
-    const list = items.filter(x=>x && x.name).map((x,i,a)=>({ id:x.id, name:x.name, active:!!(x.values && x.values['Active']===true), color:genColor(i,a.length) }));
+    const list = items.filter(x=>x && x.name).map((x,i,a)=>({ id:x.id, name:x.name, active:!!(x.values && x.values['Active']===true), color:genColor(i,a.length), currentLeadNames:_asList((x.values&&x.values['Current Leads'])||[]) }));
     if(list.length) rebuildPrograms(list);
   }catch(_){}
 }
@@ -105,44 +105,39 @@ async function loadVenues(){
   }catch(_){}
 }
 
-/* Populate the Venue <select>, filtered to the chosen Venue Type and excluding
-   closed/unavailable venues. Called on editor open and on Venue Type change. */
-function fillVenues(typeId, selectedId){
-  const sel = document.getElementById('f_venue'); if(!sel) return;
-  const typeName = (VENUE_TYPES.find(t=>t.id===typeId)||{}).name;
-  const opts = VENUES.filter(v => !v.closed && (!typeName || v.type===typeName));
-  sel.innerHTML = `<option value="">—</option>` +
-    opts.map(v=>`<option value="${v.id}" ${v.id===selectedId?'selected':''}>${esc(v.name)}</option>`).join('');
-}
-
-/* Volunteers typeahead over PEOPLE_LIST — maintains removable .ta-chip[data-id]
-   nodes that readForm() collects. Self-contained (blur closes the menu). */
-function initTypeahead(container, selectedIds){
+/* Multi-select typeahead (Leads, Volunteers) — maintains removable .ta-chip[data-id]
+   nodes that readForm() collects. opts: {selected:[ids], pool:()=>[{id,name}]}.
+   Exposes container.addPerson(id) for external appends (program → leads). */
+function initTypeahead(container, opts){
+  opts = opts || {};
   const input = container.querySelector('.ta-input');
   const menu  = container.querySelector('.ta-menu');
   const disabled = input.disabled;
-  let selected = (selectedIds||[]).map(id=>({ id, name: peopleById[id] || id }));
+  const pool = opts.pool || (() => PEOPLE_LIST);           // candidate list [{id,name}]
+  const nameOf = id => peopleById[id] || id;
   let matches = [], active = -1;
-  const addChip = p => {
+  const has = id => [...container.querySelectorAll('.ta-chip')].some(c=>c.dataset.id===id);
+  const addChip = (id, name) => {
+    if(!id || has(id)) return;
     const chip = document.createElement('span');
-    chip.className = 'ta-chip'; chip.dataset.id = p.id;
-    chip.innerHTML = esc(p.name) + (disabled ? '' : ' <button type="button" aria-label="Remove" tabindex="-1">×</button>');
-    if(!disabled) chip.querySelector('button').addEventListener('click', ()=>{ selected = selected.filter(x=>x.id!==p.id); chip.remove(); });
+    chip.className = 'ta-chip'; chip.dataset.id = id;
+    chip.innerHTML = esc(name) + (disabled ? '' : ' <button type="button" aria-label="Remove" tabindex="-1">×</button>');
+    if(!disabled) chip.querySelector('button').addEventListener('click', ()=>chip.remove());
     container.insertBefore(chip, input);
   };
+  container.addPerson = id => addChip(id, nameOf(id));      // external append (program → leads)
   const closeMenu = () => { menu.hidden = true; active = -1; };
   const paint = () => [...menu.querySelectorAll('.ta-opt')].forEach((el,i)=>el.classList.toggle('active', i===active));
   const openMenu = q => {
     if(!q){ closeMenu(); return; }
-    const chosen = new Set([...container.querySelectorAll('.ta-chip')].map(c=>c.dataset.id));
-    matches = PEOPLE_LIST.filter(p=>!chosen.has(p.id) && p.name.toLowerCase().includes(q)).slice(0,8);
+    matches = pool().filter(p=>!has(p.id) && p.name.toLowerCase().includes(q)).slice(0,8);
     menu.innerHTML = matches.length
       ? matches.map((p,i)=>`<div class="ta-opt${i===0?' active':''}" data-id="${p.id}">${esc(p.name)}</div>`).join('')
       : '<div class="ta-empty">No match</div>';
     active = matches.length ? 0 : -1; menu.hidden = false;
   };
-  const pick = p => { if(!p) return; addChip(p); selected.push({id:p.id,name:p.name}); input.value=''; closeMenu(); input.focus(); };
-  selected.forEach(addChip);
+  const pick = p => { if(!p) return; addChip(p.id, p.name); input.value=''; closeMenu(); input.focus(); };
+  (opts.selected || []).forEach(id => addChip(id, nameOf(id)));
   if(disabled) return;
   input.addEventListener('input', ()=>openMenu(input.value.trim().toLowerCase()));
   input.addEventListener('focus', ()=>{ const q=input.value.trim().toLowerCase(); if(q) openMenu(q); });
@@ -154,8 +149,63 @@ function initTypeahead(container, selectedIds){
     else if(e.key==='Enter'){ e.preventDefault(); pick(matches[active]); }
     else if(e.key==='Escape'){ closeMenu(); }
   });
-  menu.addEventListener('mousedown', e=>{ const o=e.target.closest('.ta-opt'); if(!o) return; e.preventDefault(); pick(PEOPLE_LIST.find(p=>p.id===o.dataset.id)); });
+  menu.addEventListener('mousedown', e=>{ const o=e.target.closest('.ta-opt'); if(!o) return; e.preventDefault(); pick(pool().find(p=>p.id===o.dataset.id)); });
   container.addEventListener('click', e=>{ if(e.target===container) input.focus(); });
+}
+
+/* Single-select Venue picker: typeahead over venues (alphabetized, filtered by the
+   Venue Type select, closed hidden). No match → "＋ New venue" which drops the text
+   into other-mode (an editable field with a clear ✕ that returns to select mode).
+   State lives on container.dataset.venueId / the visible other input. */
+function initVenuePicker(container, ev){
+  const input = container.querySelector('.ta-input');
+  const menu  = container.querySelector('.ta-menu');
+  const otherWrap = container.querySelector('.venue-other-wrap');
+  const otherInput = container.querySelector('.venue-other');
+  const disabled = input.disabled;
+  const typeName = () => { const t=document.getElementById('f_vtype'); const id=t?t.value:''; return (VENUE_TYPES.find(x=>x.id===id)||{}).name; };
+  const pool = () => { const tn=typeName(); return VENUES.filter(v=>!v.closed && (!tn || v.type===tn)).slice().sort((a,b)=>a.name.localeCompare(b.name)); };
+  let active = -1;
+  const clearPill = () => [...container.querySelectorAll('.ta-chip')].forEach(c=>c.remove());
+  function showSelect(){ container.dataset.venueId=''; clearPill(); otherWrap.hidden=true; otherInput.value=''; input.hidden=false; input.value=''; menu.hidden=true; if(!disabled) input.focus(); }
+  function selectVenue(v){
+    container.dataset.venueId=v.id; clearPill(); otherWrap.hidden=true; input.hidden=true; menu.hidden=true;
+    const t=document.getElementById('f_vtype'), tid=venueTypeIdByName[v.type]; if(t && tid) t.value=tid;   // sync type filter to the venue
+    const chip=document.createElement('span'); chip.className='ta-chip venue-pick';
+    chip.innerHTML=esc(v.name)+(disabled?'':' <button type="button" aria-label="Clear" tabindex="-1">×</button>');
+    if(!disabled) chip.querySelector('button').addEventListener('click', showSelect);
+    container.insertBefore(chip, input);
+  }
+  function enterOther(text){ container.dataset.venueId=''; clearPill(); input.hidden=true; menu.hidden=true; otherWrap.hidden=false; otherInput.value=text; if(!disabled) otherInput.focus(); }
+  const closeMenu=()=>{ menu.hidden=true; active=-1; };
+  const paint=()=>[...menu.querySelectorAll('.ta-opt')].forEach((el,i)=>el.classList.toggle('active', i===active));
+  function openMenu(q){
+    if(!q){ closeMenu(); return; }
+    const ms = pool().filter(v=>v.name.toLowerCase().includes(q)).slice(0,8);
+    let html = ms.map((v,i)=>`<div class="ta-opt${i===0?' active':''}" data-id="${v.id}">${esc(v.name)}</div>`).join('');
+    html += `<div class="ta-opt ta-new${ms.length?'':' active'}" data-new="1">＋ New venue: "${esc(input.value.trim())}"</div>`;
+    menu.innerHTML=html; active = 0; menu.hidden=false; paint();
+  }
+  // initial state
+  if(ev.venue && VENUES.some(v=>v.id===ev.venue)) selectVenue(VENUES.find(v=>v.id===ev.venue));
+  else if(ev.venueOther) enterOther(ev.venueOther);
+  else showSelect();
+  if(disabled){ if(!container.dataset.venueId && otherWrap.hidden){ /* empty: leave disabled input */ } return; }
+  if(otherInput) container.querySelector('.venue-clear').addEventListener('click', showSelect);
+  input.addEventListener('input', ()=>openMenu(input.value.trim().toLowerCase()));
+  input.addEventListener('focus', ()=>{ const q=input.value.trim().toLowerCase(); if(q) openMenu(q); });
+  input.addEventListener('blur', ()=>setTimeout(closeMenu, 150));
+  input.addEventListener('keydown', e=>{
+    if(menu.hidden) return;
+    const opts=[...menu.querySelectorAll('.ta-opt')];
+    if(e.key==='ArrowDown'){ e.preventDefault(); active=Math.min(active+1, opts.length-1); paint(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); active=Math.max(active-1, 0); paint(); }
+    else if(e.key==='Enter'){ e.preventDefault(); if(opts[active]) opts[active].dispatchEvent(new MouseEvent('mousedown',{bubbles:true})); }
+    else if(e.key==='Escape'){ closeMenu(); }
+  });
+  menu.addEventListener('mousedown', e=>{ const o=e.target.closest('.ta-opt'); if(!o) return; e.preventDefault();
+    if(o.dataset.new){ enterOther(input.value.trim()); } else { const v=VENUES.find(x=>x.id===o.dataset.id); if(v) selectVenue(v); }
+  });
 }
 /* Write cells for EST Planning Events SRC. Relations (Program(s)/Leads/Volunteers/
    Venue/Venue Type) are written as target-table row ids; single lookups take a
@@ -551,15 +601,24 @@ function openInfo(){
 let editing=null; // event being edited, or null
 let whenType='exact';
 
+// Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
 function whenFieldsHTML(type,ev,dis){
-  if(type==='range') return `<div style="display:flex;gap:10px">
-      <div class="fld" style="flex:1"><label>Window start</label><input id="f_rstart" type="date" value="${ev.rangeStart||ev.date||''}" ${dis}></div>
-      <div class="fld" style="flex:1"><label>Window end</label><input id="f_rend" type="date" value="${ev.rangeEnd||''}" ${dis}></div>
+  if(type==='range') return `<div class="timerow">
+      <div class="fld"><label>Window start</label><input id="f_rstart" type="date" value="${ev.rangeStart||ev.date||''}" ${dis}></div>
+      <div class="fld"><label>Window end</label><input id="f_rend" type="date" value="${ev.rangeEnd||''}" ${dis}></div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:5px">Floats in the gutter until it gets a firm day.</div>`;
+    <div class="whenhint">All-day range — floats in the gutter until it gets a firm day.</div>`;
   if(type==='month') return `<div class="fld"><label>Target month</label><input id="f_month" type="month" value="${ev.targetMonth||(ev.date?ev.date.slice(0,7):'')}" ${dis}></div>
-    <div style="font-size:11px;color:var(--muted);margin-top:5px">Shows as a whole-month idea in the gutter.</div>`;
-  return `<div class="fld"><label>Date</label><input id="f_date" type="date" value="${ev.date||''}" ${dis}></div>`;
+    <div class="whenhint">Whole-month idea — shows in the gutter.</div>`;
+  const allDay = !!ev.allDay;
+  return `<div class="daterow">
+      <div class="fld"><label>Date</label><input id="f_date" type="date" value="${ev.date||''}" ${dis}></div>
+      <label class="allday-inline"><input id="f_allday" type="checkbox" ${allDay?'checked':''} ${dis}> All day</label>
+    </div>` +
+    (allDay ? '' : `<div class="timerow">
+      <div class="fld"><label>Start time</label><input id="f_start" type="time" value="${ev.start||''}" ${dis}></div>
+      <div class="fld"><label>End time</label><input id="f_end" type="time" value="${ev.end||''}" ${dis}></div>
+    </div>`);
 }
 function collectWhen(){
   const g=id=>document.getElementById(id), o={};
@@ -567,6 +626,9 @@ function collectWhen(){
   if(g('f_rstart')) o.rangeStart=g('f_rstart').value;
   if(g('f_rend')) o.rangeEnd=g('f_rend').value;
   if(g('f_month')) o.targetMonth=g('f_month').value;
+  if(g('f_start')) o.start=g('f_start').value;
+  if(g('f_end')) o.end=g('f_end').value;
+  if(g('f_allday')) o.allDay=g('f_allday').checked;
   return o;
 }
 
@@ -599,6 +661,8 @@ function openEditor(ev){
   body.innerHTML = `
     <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
     <div class="fld full"><label>Program(s)</label><div class="leadchips" id="f_progs">${PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id)))).map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.programs&&ev.programs.length?ev.programs:[ev.program]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('')}</div></div>
+    <div class="fld full"><label>Leads <span class="hint">(program leads auto-added)</span></label><div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
+    <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
     <div class="fld"><label>Status</label><select id="f_status" ${dis}>${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select></div>
     <div class="fld full"><label>When</label>
       <div class="whenseg" id="f_when">
@@ -608,14 +672,8 @@ function openEditor(ev){
       </div>
     </div>
     <div class="fld full" id="whenFields"></div>
-    <div class="fld"><label>Start time</label><input id="f_start" type="time" value="${ev.start||''}" ${dis}></div>
-    <div class="fld"><label>End time</label><input id="f_end" type="time" value="${ev.end||''}" ${dis}></div>
-    <div class="allday"><input id="f_allday" type="checkbox" ${ev.allDay?'checked':''} ${dis}><label for="f_allday">All day (no set time)</label></div>
-    <div class="fld"><label>Venue type</label><select id="f_vtype" ${dis}><option value="">—</option>${VENUE_TYPES.map(t=>`<option value="${t.id}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
-    <div class="fld"><label>Venue</label><select id="f_venue" ${dis}></select></div>
-    <div class="fld full"><label>Venue <span class="hint">(other / not listed)</span></label><input id="f_vother" value="${esc(ev.venueOther||'')}" ${dis} placeholder="e.g. a home, or 'TBD'"></div>
-    <div class="fld full"><label>Leads</label><div class="leadchips pick" id="f_leads">${LEADS_LIST.length ? LEADS_LIST.map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.leads||[]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('') : '<span class="picknote" data-empty="No leads loaded — check connection"></span>'}</div></div>
-    <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
+    <div class="fld"><label>Venue type <span class="hint">(filter)</span></label><select id="f_vtype" ${dis}><option value="">Any</option>${VENUE_TYPES.map(t=>`<option value="${t.id}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}</select></div>
+    <div class="fld"><label>Venue</label><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
     <div class="fld full"><label>Description <span class="hint">(public promo)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
     <div class="fld full"><label>Planning notes <span class="hint">(internal)</span></label><textarea id="f_notes" ${dis} placeholder="Internal planning checklist">${esc(ev.planningNotes || (!ev.id ? NOTES_TEMPLATE : ''))}</textarea></div>
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
@@ -635,33 +693,41 @@ function openEditor(ev){
   if(canEdit && !locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
   foot.innerHTML=acts;
 
-  // lead toggles
-  body.querySelectorAll('.leadchip').forEach(b=>{
-    if(!canEdit||locked) return;
-    b.addEventListener('click',()=>b.setAttribute('aria-pressed', b.getAttribute('aria-pressed')==='true'?'false':'true'));
-  });
+  // leads (leadership cohort) + volunteers (all people) + venue typeaheads
+  const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:ev.leads||[], pool:()=>LEADS_LIST });
+  const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:ev.volunteers||[], pool:()=>PEOPLE_LIST });
+  const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev);
 
-  // when control
+  // program chips: toggle + append that program's Current Leads when selected
+  if(canEdit && !locked){
+    document.getElementById('f_progs').addEventListener('click', e=>{
+      const b=e.target.closest('.leadchip'); if(!b) return;
+      const now = b.getAttribute('aria-pressed')!=='true';
+      b.setAttribute('aria-pressed', String(now));
+      if(now && leadsBox && leadsBox.addPerson){
+        const prog=PROG[b.dataset.p];
+        (prog && prog.currentLeadNames || []).forEach(nm=>{ const id=peopleIdByName[nm]; if(id) leadsBox.addPerson(id); });
+      }
+    });
+  }
+
+  // when control: mode switch + all-day toggle both re-render the time fields
   whenType = sched;
-  document.getElementById('whenFields').innerHTML = whenFieldsHTML(whenType, ev, dis);
+  const wf=document.getElementById('whenFields');
+  wf.innerHTML = whenFieldsHTML(whenType, ev, dis);
   if(canEdit && !locked){
     document.getElementById('f_when').addEventListener('click',e=>{
       const b=e.target.closest('button[data-when]'); if(!b) return;
       const cur=collectWhen();
       whenType=b.dataset.when;
       [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
-      document.getElementById('whenFields').innerHTML=whenFieldsHTML(whenType, Object.assign({},ev,cur), '');
+      wf.innerHTML=whenFieldsHTML(whenType, Object.assign({},ev,cur), '');
+    });
+    wf.addEventListener('change', e=>{                 // All-day toggled → show/hide the times
+      if(e.target.id!=='f_allday') return;
+      wf.innerHTML=whenFieldsHTML('exact', Object.assign({},ev,collectWhen()), '');
     });
   }
-
-  // venue cascade: fill the Venue list for the current type; refill on type change
-  fillVenues(ev.venueType||'', ev.venue||'');
-  if(canEdit && !locked){
-    const vt=document.getElementById('f_vtype');
-    if(vt) vt.addEventListener('change', ()=>fillVenues(vt.value, ''));
-  }
-  // volunteers typeahead
-  const volBox=document.getElementById('f_vols'); if(volBox) initTypeahead(volBox, ev.volunteers||[]);
 
   show();
   const t=document.getElementById('f_title'); if(t && !ev.id) t.focus();
@@ -669,21 +735,25 @@ function openEditor(ev){
 
 function readForm(){
   const g=id=>document.getElementById(id);
-  const pressed=sel=>[...document.querySelectorAll(sel)].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
-  const leads=pressed('#f_leads .leadchip');
-  const programs=pressed('#f_progs .leadchip');
-  const volunteers=[...document.querySelectorAll('#f_vols .ta-chip')].map(c=>c.dataset.id);
-  const venue=g('f_venue')?g('f_venue').value:'', venueType=g('f_vtype')?g('f_vtype').value:'', venueOther=g('f_vother')?g('f_vother').value.trim():'';
+  const chipIds=sel=>[...document.querySelectorAll(sel)].map(c=>c.dataset.id);
+  const programs=[...document.querySelectorAll('#f_progs .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
+  const leads=chipIds('#f_leads .ta-chip');
+  const volunteers=chipIds('#f_vols .ta-chip');
+  const venBox=g('f_venue_box'), venOther=venBox && venBox.querySelector('.venue-other-wrap');
+  const venue=venBox ? (venBox.dataset.venueId||'') : '';
+  const venueOther=(venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '';
+  const venueType=g('f_vtype')?g('f_vtype').value:'';
   const w=collectWhen();
+  const exact=whenType==='exact', allDay= exact ? !!w.allDay : true;   // range/month are all-day
   const o={
     program:programs[0]||'oth', programs, status:g('f_status').value, title:g('f_title').value.trim()||'Untitled',
-    allDay:g('f_allday').checked, start:g('f_start').value, end:g('f_end').value,
+    allDay, start:(exact && !allDay) ? (w.start||'') : '', end:(exact && !allDay) ? (w.end||'') : '',
     leads, volunteers, venueType, venue, venueOther,
     location:(venue ? ((VENUES.find(v=>v.id===venue)||{}).name||'') : '') || venueOther,   // display fallback
     description:g('f_desc').value.trim(), planningNotes:g('f_notes')?g('f_notes').value.trim():'',
     scheduling:whenType, date:'', rangeStart:'', rangeEnd:'', targetMonth:''
   };
-  if(whenType==='exact') o.date=w.date||'';
+  if(exact) o.date=w.date||'';
   else if(whenType==='range'){ o.rangeStart=w.rangeStart||''; o.rangeEnd=w.rangeEnd||w.rangeStart||''; }
   else if(whenType==='month') o.targetMonth=w.targetMonth||'';
   return o;
