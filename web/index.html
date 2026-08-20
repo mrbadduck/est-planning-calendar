@@ -480,42 +480,46 @@ function cellsToValues(e){
     'Scheduling':cap(e.scheduling||'exact'),'Window start':e.rangeStart||'','Window end':e.rangeEnd||'','Target month':e.targetMonth||''};
 }
 /* ---- CodaSource (live, via the proxy) ------------------------------------
-   PHASE 1 = READ-ONLY. Reads `EST Events SRC` through the Worker proxy and maps
-   its real columns to our normalized event shape (see eventsSrcRowToEvent). The
-   proxy holds the read-scoped, doc-scoped token server-side. Writes land in
-   Phase 2 (Google sign-in + lead allowlist), so create/update/remove throw for
-   now. References stay on the mock holiday overlays until Hebcal wiring (later).
-   Phase 2 will point reads at the real planning table via codaRowToEvent. */
+   READS `EST Planning Events SRC` through the Worker proxy and maps its columns
+   to our normalized event shape (see planningRowToEvent). The proxy holds the
+   read-scoped, doc-scoped token server-side. Editing is still READ-ONLY here —
+   writes land with auth (Google sign-in + lead allowlist), so create/update/
+   remove throw for now. References stay on the mock holiday overlays until
+   Hebcal wiring (later). */
 const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
                          // ← deployed Worker (read-only, doc-scoped token server-side).
                          //   Set '' to fall back to in-memory mock data.
                          //   NOTE: the Worker's CORS is locked to https://plan.eastsidetribe.org,
                          //   so the live app only works when served from that domain.
 
-/* EST Events SRC row (Coda simpleWithArrays + useColumnNames) -> normalized event.
-   Relation cells arrive as arrays of display strings (or objects); datetimes as
-   ISO-ish strings carrying the doc's tz offset, so we read the wall-clock parts
-   literally. (Verify against live proxy output on first deploy.) */
+/* EST Planning Events SRC row (Coda simpleWithArrays + useColumnNames) -> event.
+   Relation cells (Program(s)/Leads/Venue) arrive as arrays of display strings;
+   Date/Window are date-only 'YYYY-MM-DD'; Start/End are 'HH:MM' text; Target
+   month is 'YYYY-MM' text. Read-only here; the editor + writes arrive in Plan 2. */
 const _nameOf = x => typeof x === 'string' ? x : (x && x.name) || '';
 const _asList = v => (v == null || v === '') ? [] : (Array.isArray(v) ? v : [v]).map(_nameOf).filter(Boolean);
-function _splitDT(iso){
-  const m = iso && String(iso).match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/);
-  return m ? { date:m[1], time:m[2] || '' } : { date:'', time:'' };
-}
-function eventsSrcRowToEvent(r){
+function planningRowToEvent(r){
   const v = r.values || {};
-  const s = _splitDT(v['Event Start']), e = _splitDT(v['Event End']);
-  const title = String(v['Event Name'] || '').replace(/\s*\(\d{1,2}\/\d{1,2}\/\d{4}\)\s*$/, '');
-  const prog = _asList(v['Program(s)'])[0] || '';
+  const progs = _asList(v['Program(s)']);               // all programs (names)
+  const venue = _asList(v['Venue'])[0] || '';
   return {
-    id: r.id, source:'planning', program: progIdByName[prog] || 'oth',
-    title, leads: _asList(v['Leads']), date: s.date,
-    start: s.time, end: e.time, allDay: !s.time,
-    location: _asList(v['Venue']).join(', '),
-    status: 'approved', description: String(v['Event Description'] || ''),
-    createdBy:'', editedBy:'',
-    eventbriteUrl: v['Eventbrite Event URL'] || '', gcalId: v['gCal Event Id'] || '',
-    readOnly: true, scheduling:'exact', rangeStart:'', rangeEnd:'', targetMonth:''
+    id: r.id, source:'planning',
+    program: progIdByName[progs[0]] || 'oth',           // primary program drives the color
+    programs: progs.map(p => progIdByName[p] || 'oth'),  // full list (crossover UI: Plan 2)
+    title: v['Title'] || '',
+    leads: _asList(v['Leads']),
+    date: String(v['Date'] || '').slice(0,10),
+    start: v['Start'] || '', end: v['End'] || '', allDay: !!v['All day'],
+    location: venue || (v['Venue (other)'] || ''),
+    status: String(v['Status'] || 'idea').toLowerCase(),
+    description: v['Event Description'] || '',
+    planningNotes: v['Planning Notes'] || '',
+    createdBy: v['Created by'] || '', editedBy: v['Edited by'] || '',
+    eventbriteUrl:'', gcalId:'', readOnly:true,          // writes come in Plan 2
+    scheduling: String(v['Scheduling'] || 'Exact').toLowerCase(),
+    rangeStart: String(v['Window start'] || '').slice(0,10),
+    rangeEnd: String(v['Window end'] || '').slice(0,10),
+    targetMonth: v['Target month'] || ''
   };
 }
 const READONLY_MSG = 'This calendar is read-only in Phase 1 — editing goes live in Phase 2 (Google sign-in + lead allowlist).';
@@ -525,10 +529,7 @@ const CodaSource = {
     const r = await fetch(`${this.base}/rows`, { headers:{ 'Accept':'application/json' } });
     if(!r.ok) throw new Error(`proxy ${r.status}: ${await r.text()}`);
     const j = await r.json();
-    return (j.items || [])
-      .filter(row => !(row.values && row.values['Cancelled?'] === true))
-      .map(eventsSrcRowToEvent)
-      .filter(ev => ev.date);          // drop undated/malformed rows for now
+    return (j.items || []).map(planningRowToEvent);
   },
   async listReferences(){ return MOCK_REFS.slice(); },
   async create(){ alert(READONLY_MSG); throw new Error(READONLY_MSG); },
