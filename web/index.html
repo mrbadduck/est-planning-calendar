@@ -184,8 +184,9 @@
   .modal{
     background:#fff;border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:440px;
     border:1px solid var(--hair-strong);overflow:hidden;
+    display:flex;flex-direction:column;max-height:calc(100dvh - 96px);
   }
-  .modal .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:10px}
+  .modal .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:10px;flex-shrink:0}
   .modal .mhead .stripe{width:5px;height:34px;border-radius:3px;background:var(--c,var(--accent))}
   .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;flex:1}
   .modal .mhead .badge{font-size:10px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;padding:3px 7px;border-radius:20px}
@@ -194,7 +195,7 @@
   .badge.b-confirmed{background:#E7F1EA;color:#3C7A55}
   .badge.b-approved{background:var(--accent);color:#fff}
   .badge.b-ref{background:#F0EFEC;color:#8A8896}
-  .mbody{padding:14px 18px 4px;display:grid;grid-template-columns:1fr 1fr;gap:11px 12px}
+  .mbody{padding:14px 18px 4px;display:grid;grid-template-columns:1fr 1fr;gap:11px 12px;overflow-y:auto;min-height:0}
   .fld{display:flex;flex-direction:column;gap:4px}
   .fld.full{grid-column:1/3}
   .fld label{font-size:10.5px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.6px}
@@ -212,7 +213,7 @@
   .allday{display:flex;align-items:center;gap:7px;align-self:end;padding-bottom:8px}
   .allday input{width:auto}
   .meta{grid-column:1/3;font-size:11px;color:var(--faint);border-top:1px dashed var(--hair);padding-top:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-  .mfoot{padding:12px 18px 16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--hair);margin-top:8px}
+  .mfoot{padding:12px 18px 16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--hair);margin-top:8px;flex-shrink:0}
   .mfoot .push{flex:1}
   .danger{color:#B23B3B;border-color:#E7C9C9}
   .danger:hover{background:#FBEEEE;border-color:#B23B3B;color:#B23B3B}
@@ -1114,8 +1115,9 @@ function signOut(){ state.idToken=null; state.identity=null; try{ google.account
 function initAuth(){
   if(!GOOGLE_CLIENT_ID){ renderAuth(); return; }                         // not configured yet
   if(!(window.google && google.accounts && google.accounts.id)) return setTimeout(initAuth, 300); // wait for GIS
-  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onCredential });
+  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onCredential, auto_select: true });
   renderAuth();
+  if(!state.idToken) google.accounts.id.prompt();     // silent re-auth for returning users
 }
 
 let _refreshing = false;
