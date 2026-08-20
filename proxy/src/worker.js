@@ -188,18 +188,34 @@ async function verifyGoogleIdToken(token, clientId) {
 const PEOPLE_TABLE = 'grid-X316Eql8dE';
 const WRITE_STATUSES = ['Program Lead', 'Tribal Council'];
 const APPROVE_STATUSES = ['Tribal Council'];
-// Coda's `query` param doesn't match formula columns like `All Emails`, so we
-// fetch the People table (cached per isolate) and filter in the Worker.
-let _people = null, _peopleExp = 0;
-async function peopleRows(base, docId, auth) {
-  if (_people && Date.now() < _peopleExp) return _people;
-  const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth);
-  _people = out.ok ? out.items : [];
-  _peopleExp = Date.now() + 300_000;                 // 5-min cache
-  return _people;
+// Coda's `query` doesn't match the formula `All Emails` column, but it DOES match
+// the `Leadership Status` relation — so fetch only Leads/Council (~25 rows, cached
+// per isolate) and match the email in the Worker. Falls back to a full fetch if the
+// query yields nothing (defensive against query-semantics surprises).
+const LEADERSHIP_COL = 'c-STedpK20lj';
+let _leaders = null, _leadersExp = 0;
+async function leaderRows(base, docId, auth) {
+  if (_leaders && Date.now() < _leadersExp) return _leaders;
+  const byId = {};
+  for (const status of WRITE_STATUSES) {
+    const u = new URL(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`);
+    u.searchParams.set('useColumnNames', 'true');
+    u.searchParams.set('valueFormat', 'simpleWithArrays');
+    u.searchParams.set('query', `${LEADERSHIP_COL}:"${status}"`);
+    u.searchParams.set('limit', '200');
+    const r = await fetch(u.toString(), { headers: auth });
+    if (r.ok) for (const row of ((await r.json()).items || [])) byId[row.id] = row;
+  }
+  let rows = Object.values(byId);
+  if (!rows.length) {                                  // query matched nothing -> full fetch
+    const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth);
+    rows = out.ok ? out.items : [];
+  }
+  _leaders = rows; _leadersExp = Date.now() + 300_000; // 5-min cache
+  return _leaders;
 }
 async function resolvePerson(email, base, docId, auth) {
-  const rows = await peopleRows(base, docId, auth);
+  const rows = await leaderRows(base, docId, auth);
   const row = rows.find(r => {
     const em = r.values['All Emails'];
     const list = (em == null || em === '') ? [] : (Array.isArray(em) ? em : [em]);
