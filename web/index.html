@@ -291,6 +291,7 @@
       <span class="yr" id="yrLabel">2026–2027</span>
       <button class="btn icon" id="nextYr" aria-label="Next program year">›</button>
       <button class="btn ghost" id="todayBtn">Today</button>
+      <button class="btn ghost" id="refreshBtn" title="Refresh from Coda" aria-label="Refresh">↻</button>
     </div>
     <span class="grow-sp"></span>
     <button class="btn primary" id="addBtn">+ New event</button>
@@ -493,33 +494,37 @@ const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
                          //   so the live app only works when served from that domain.
 
 /* EST Planning Events SRC row (Coda simpleWithArrays + useColumnNames) -> event.
-   Relation cells (Program(s)/Leads/Venue) arrive as arrays of display strings;
-   Date/Window are date-only 'YYYY-MM-DD'; Start/End are 'HH:MM' text; Target
-   month is 'YYYY-MM' text. Read-only here; the editor + writes arrive in Plan 2. */
+   Relation cells (Program(s)/Leads/Venue/…by) arrive as arrays of display strings;
+   Date/Window come back as ISO datetimes (slice to YYYY-MM-DD); Start/End are a
+   native time column, serialized as a 1899-placeholder ISO (see _toHM); Month
+   scheduling lives in Date=1st -> targetMonth. Read-only until Plan 2b. */
 const _nameOf = x => typeof x === 'string' ? x : (x && x.name) || '';
 const _asList = v => (v == null || v === '') ? [] : (Array.isArray(v) ? v : [v]).map(_nameOf).filter(Boolean);
+const _toHM = s => { const m = String(s || '').match(/(?:T|^)(\d{2}:\d{2})/); return m ? m[1] : ''; };
 function planningRowToEvent(r){
   const v = r.values || {};
   const progs = _asList(v['Program(s)']);               // all programs (names)
   const venue = _asList(v['Venue'])[0] || '';
+  const sched = String(v['Scheduling'] || 'Exact').toLowerCase();
+  const rawDate = String(v['Date'] || '').slice(0,10);
   return {
     id: r.id, source:'planning',
     program: progIdByName[progs[0]] || 'oth',           // primary program drives the color
-    programs: progs.map(p => progIdByName[p] || 'oth'),  // full list (crossover UI: Plan 2)
+    programs: progs.map(p => progIdByName[p] || 'oth'),  // full list (crossover UI: Plan 2b)
     title: v['Title'] || '',
     leads: _asList(v['Leads']),
-    date: String(v['Date'] || '').slice(0,10),
-    start: v['Start'] || '', end: v['End'] || '', allDay: !!v['All day'],
+    date: sched === 'month' ? '' : rawDate,              // Month renders as an undated month idea
+    start: _toHM(v['Start']), end: _toHM(v['End']), allDay: !!v['All day'],
     location: venue || (v['Venue (other)'] || ''),
     status: String(v['Status'] || 'idea').toLowerCase(),
     description: v['Event Description'] || '',
     planningNotes: v['Planning Notes'] || '',
-    createdBy: v['Created by'] || '', editedBy: v['Edited by'] || '',
-    eventbriteUrl:'', gcalId:'', readOnly:true,          // writes come in Plan 2
-    scheduling: String(v['Scheduling'] || 'Exact').toLowerCase(),
+    createdBy: _asList(v['Created by'])[0] || '', editedBy: _asList(v['Edited by'])[0] || '',
+    eventbriteUrl:'', gcalId:'', readOnly:true,          // writes come in Plan 2b
+    scheduling: sched,
     rangeStart: String(v['Window start'] || '').slice(0,10),
     rangeEnd: String(v['Window end'] || '').slice(0,10),
-    targetMonth: v['Target month'] || ''
+    targetMonth: sched === 'month' ? rawDate.slice(0,7) : ''
   };
 }
 const READONLY_MSG = 'This calendar is read-only in Phase 1 — editing goes live in Phase 2 (Google sign-in + lead allowlist).';
@@ -1035,10 +1040,18 @@ document.getElementById('addBtn').addEventListener('click',()=>openEditor(newEve
 function firstOfProgramYear(){ return ymd(state.startYear,8,1); }
 function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state.startYear+1,7,31); }
 
-async function refresh(){ await loadEvents(); rerender(); }
+let _refreshing = false;
+async function refresh(){
+  if(_refreshing) return;                    // don't stack overlapping polls/clicks
+  _refreshing = true;
+  try { await loadEvents(); applyView(); layoutSticky(); } finally { _refreshing = false; }
+}
 async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel();
   await loadEvents(); applyView(); layoutSticky();
+  const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
+  document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); }); // refetch on tab focus
+  setInterval(() => { if(!document.hidden) refresh(); }, 60000);                            // light 60s poll while visible
   setTimeout(()=>{
     const t=new Date();
     if(state.view==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
