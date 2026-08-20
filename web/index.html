@@ -269,6 +269,7 @@
     .fld.full,.meta,.locknote{grid-column:1}
   }
 </style>
+<script src="https://accounts.google.com/gsi/client" async></script>
 </head>
 <body>
 
@@ -294,6 +295,7 @@
       <button class="btn ghost" id="refreshBtn" title="Refresh from Coda" aria-label="Refresh">↻</button>
     </div>
     <span class="grow-sp"></span>
+    <span id="authSlot" class="authslot" style="display:flex;align-items:center;gap:8px"></span>
     <button class="btn primary" id="addBtn">+ New event</button>
   </div>
 </div>
@@ -429,17 +431,25 @@ function codaRowToEvent(r){
     rangeStart:v['Window start']||'', rangeEnd:v['Window end']||'', targetMonth:v['Target month']||''
   };
 }
-function eventToCodaCells(e){ /* used by CodaSource.create/update -> PATCH /rows */
+/* Scalar write cells for EST Planning Events SRC (Plan 2b-i). Program(s)/Leads/
+   Venue relations are edited in Plan 2b-ii; attribution is injected by the Worker.
+   Month scheduling stores Date=1st. */
+function eventToCodaCells(e){
+  const sched = (e.scheduling||'exact').toLowerCase();
+  const dateVal = sched==='month' ? (e.targetMonth ? `${e.targetMonth}-01` : '')
+                : sched==='exact' ? (e.date||'') : '';
   return [
-    {column:'Title',value:e.title},{column:'Program',value:PROG[e.program].name},
-    {column:'Leads',value:e.leads},{column:'Date',value:e.date},
-    {column:'Start',value:e.start},{column:'End',value:e.end},
-    {column:'All day',value:e.allDay},{column:'Location',value:e.location},
-    {column:'Status',value:e.status[0].toUpperCase()+e.status.slice(1)},
-    {column:'Description',value:e.description},{column:'Edited by',value:e.editedBy},
-    {column:'Scheduling',value:cap(e.scheduling||'exact')},
-    {column:'Window start',value:e.rangeStart||''},{column:'Window end',value:e.rangeEnd||''},
-    {column:'Target month',value:e.targetMonth||''},
+    {column:'Title',           value:e.title||''},
+    {column:'Status',          value:cap(e.status||'idea')},
+    {column:'Scheduling',      value:cap(sched)},
+    {column:'Date',            value:dateVal},
+    {column:'Start',           value:e.start||''},
+    {column:'End',             value:e.end||''},
+    {column:'All day',         value:!!e.allDay},
+    {column:'Venue (other)',   value:e.location||''},
+    {column:'Event Description',value:e.description||''},
+    {column:'Window start',    value:e.rangeStart||''},
+    {column:'Window end',      value:e.rangeEnd||''},
   ];
 }
 
@@ -537,9 +547,11 @@ const CodaSource = {
     return (j.items || []).map(planningRowToEvent);
   },
   async listReferences(){ return MOCK_REFS.slice(); },
-  async create(){ alert(READONLY_MSG); throw new Error(READONLY_MSG); },
-  async update(){ alert(READONLY_MSG); throw new Error(READONLY_MSG); },
-  async remove(){ alert(READONLY_MSG); throw new Error(READONLY_MSG); },
+  _wh(){ return { 'Content-Type':'application/json', 'Authorization':`Bearer ${state.idToken||''}` }; },
+  async _fail(r){ let t=await r.text(); try{ t=JSON.parse(t).error||t; }catch(_){} throw new Error(`save failed (${r.status})${t?': '+t:''}`); },
+  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); return e; },
+  async update(e){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(e.id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); if(!r.ok) await this._fail(r); return e; },
+  async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
 };
 
 const DB = PROXY_BASE ? CodaSource : MockSource;
@@ -550,8 +562,10 @@ const DB = PROXY_BASE ? CodaSource : MockSource;
 const state = {
   startYear: 2026,           // program year = Sep(startYear) .. Aug(startYear+1)
   view: 'overview',          // 'overview' (default) | 'year' (Calendar)
-  role: 'vp',
+  role: 'vp',                // legacy; superseded by identity from /me
   currentUser: 'Eric',
+  idToken: null,
+  identity: null,            // { signedIn, matched, name, canWrite, canApprove }
   layers: { planning:true, us:true, jew:true, part:false, shab:false },
   events: [],
 };
@@ -817,7 +831,9 @@ function collectWhen(){
 function openEditor(ev){
   editing = ev;
   const isRef = ev.source==='ref';
-  const locked = (!isRef) && ev.status==='approved' && state.role!=='vp';
+  const canEdit = !isRef && !!(state.identity && state.identity.canWrite);
+  const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
+  const locked = (!isRef) && ev.status==='approved' && !canApprove;
   const c = isRef ? REF[ev.refLayer].color : PROG[ev.program].color;
   document.getElementById('mStripe').style.setProperty('--c',c);
   document.getElementById('mTitle').textContent = ev.id ? (isRef?'Reference event':'Edit event') : 'New event';
@@ -836,11 +852,11 @@ function openEditor(ev){
     show(); return;
   }
 
-  const dis = locked ? 'disabled' : '';
+  const dis = (!canEdit || locked) ? 'disabled' : '';
   const sched = ev.scheduling || 'exact';
   body.innerHTML = `
     <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
-    <div class="fld"><label>Program / series</label><select id="f_prog" ${dis}>${PROGRAMS.map(p=>`<option value="${p.id}" ${p.id===ev.program?'selected':''}>${p.name}</option>`).join('')}</select></div>
+    <div class="fld"><label>Program / series</label><select id="f_prog" disabled>${PROGRAMS.map(p=>`<option value="${p.id}" ${p.id===ev.program?'selected':''}>${p.name}</option>`).join('')}</select></div>
     <div class="fld"><label>Status</label><select id="f_status" ${dis}>${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select></div>
     <div class="fld full"><label>When</label>
       <div class="whenseg" id="f_when">
@@ -854,34 +870,36 @@ function openEditor(ev){
     <div class="fld"><label>End time</label><input id="f_end" type="time" value="${ev.end||''}" ${dis}></div>
     <div class="allday" style="grid-column:1/3"><input id="f_allday" type="checkbox" ${ev.allDay?'checked':''} ${dis}><label for="f_allday" style="text-transform:none;color:var(--muted);font-weight:500">All day (no set time)</label></div>
     <div class="fld full"><label>Location</label><input id="f_loc" value="${esc(ev.location||'')}" ${dis} placeholder="Venue or 'TBD'"></div>
-    <div class="fld full"><label>Leads</label><div class="leadchips" id="f_leads">${PEOPLE.map(p=>`<button type="button" class="leadchip" data-p="${p}" aria-pressed="${ev.leads.includes(p)}" ${dis}>${p}</button>`).join('')}</div></div>
+    <div class="fld full"><label>Leads</label><div class="leadchips" id="f_leads">${PEOPLE.map(p=>`<button type="button" class="leadchip" data-p="${p}" aria-pressed="${ev.leads.includes(p)}" disabled>${p}</button>`).join('')}</div></div>
     <div class="fld full"><label>Description</label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
+    ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
+    ${(canEdit&&!locked)?`<div class="locknote">Program &amp; leads: set in Coda for now — pickers arrive next.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
     ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
 
   // footer actions
   const foot=document.getElementById('mFoot');
   let acts='';
-  if(ev.id) acts+=`<button class="btn danger" data-act="delete" ${locked?'disabled':''}>Delete</button>`;
+  if(ev.id && canEdit && !locked) acts+=`<button class="btn danger" data-act="delete">Delete</button>`;
   acts+=`<span class="push"></span>`;
-  acts+=`<button class="btn" data-act="close">Cancel</button>`;
-  if(state.role==='vp'){
+  acts+=`<button class="btn" data-act="close">${canEdit&&!locked?'Cancel':'Close'}</button>`;
+  if(canApprove){
     if(ev.status==='approved') acts+=`<button class="btn" data-act="reopen">Reopen</button>`;
     else acts+=`<button class="btn" data-act="approve">Approve${ev.id?'':' & save'}</button>`;
   }
-  if(!locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
+  if(canEdit && !locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
   foot.innerHTML=acts;
 
   // lead toggles
   body.querySelectorAll('.leadchip').forEach(b=>{
-    if(locked) return;
+    if(!canEdit||locked) return;
     b.addEventListener('click',()=>b.setAttribute('aria-pressed', b.getAttribute('aria-pressed')==='true'?'false':'true'));
   });
 
   // when control
   whenType = sched;
   document.getElementById('whenFields').innerHTML = whenFieldsHTML(whenType, ev, dis);
-  if(!locked){
+  if(canEdit && !locked){
     document.getElementById('f_when').addEventListener('click',e=>{
       const b=e.target.closest('button[data-when]'); if(!b) return;
       const cur=collectWhen();
@@ -912,15 +930,19 @@ function readForm(){
 
 async function saveEditor(approve){
   const f=readForm();
-  const base = editing.id ? editing : {createdBy:state.currentUser, source:'planning', eventbriteUrl:'', gcalId:''};
-  const e = Object.assign({}, base, f, {editedBy:state.currentUser});
+  const base = editing.id ? editing : {source:'planning', eventbriteUrl:'', gcalId:''};
+  const e = Object.assign({}, base, f);
   if(approve) e.status='approved';
-  if(editing.id){ await DB.update(e); } else { await DB.create(e); }
-  close(); await refresh();
+  try {
+    if(editing.id){ await DB.update(e); } else { await DB.create(e); }
+    close(); await refresh();
+  } catch(err){ alert(String(err && err.message || err)); }
 }
 async function deleteEditor(){
-  if(editing && editing.id){ await DB.remove(editing.id); }
-  close(); await refresh();
+  try {
+    if(editing && editing.id){ await DB.remove(editing.id); }
+    close(); await refresh();
+  } catch(err){ alert(String(err && err.message || err)); }
 }
 
 /* =========================================================================
@@ -937,7 +959,7 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   if(act==='close') close();
   else if(act==='save') saveEditor(false);
   else if(act==='approve') saveEditor(true);
-  else if(act==='reopen'){ editing.status='confirmed'; DB.update(editing).then(()=>{close();refresh();}); }
+  else if(act==='reopen'){ const e=Object.assign({},editing,{status:'confirmed'}); DB.update(e).then(()=>{close();refresh();}).catch(err=>alert(String(err&&err.message||err))); }
   else if(act==='delete') deleteEditor();
 });
 document.getElementById('mBody').addEventListener('click',e=>{
@@ -1040,6 +1062,41 @@ document.getElementById('addBtn').addEventListener('click',()=>openEditor(newEve
 function firstOfProgramYear(){ return ymd(state.startYear,8,1); }
 function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state.startYear+1,7,31); }
 
+/* ---- Google sign-in (identity + role gating via the Worker /me) --------- */
+const GOOGLE_CLIENT_ID = '';   // ← paste the OAuth *Web* client id (…apps.googleusercontent.com)
+function renderAuth(){
+  const el = document.getElementById('authSlot'); if(!el) return;
+  const id = state.identity;
+  if(id && id.signedIn && id.matched){
+    const role = id.canApprove ? ' · Council' : (id.canWrite ? ' · Lead' : '');
+    el.innerHTML = `<span class="who">${esc(id.name||'')}${role}</span><button class="btn ghost" id="signOut">Sign out</button>`;
+    el.querySelector('#signOut').addEventListener('click', signOut);
+  } else if(id && id.signedIn){
+    el.innerHTML = `<span class="who" style="color:var(--muted)">Not a recognized lead</span><button class="btn ghost" id="signOut">Sign out</button>`;
+    el.querySelector('#signOut').addEventListener('click', signOut);
+  } else {
+    el.innerHTML = `<span id="gbtn"></span>`;
+    if(GOOGLE_CLIENT_ID && window.google && google.accounts && google.accounts.id)
+      google.accounts.id.renderButton(el.querySelector('#gbtn'), { type:'standard', size:'medium', text:'signin_with', shape:'pill' });
+  }
+}
+async function fetchMe(){
+  if(!PROXY_BASE || !state.idToken){ state.identity=null; renderAuth(); return; }
+  try{
+    const r = await fetch(`${PROXY_BASE}/me`, { headers:{ 'Authorization':`Bearer ${state.idToken}` } });
+    state.identity = r.ok ? await r.json() : null;
+  }catch(_){ state.identity=null; }
+  renderAuth(); applyView();
+}
+async function onCredential(resp){ state.idToken = (resp && resp.credential) || null; await fetchMe(); }
+function signOut(){ state.idToken=null; state.identity=null; try{ google.accounts.id.disableAutoSelect(); }catch(_){} renderAuth(); applyView(); }
+function initAuth(){
+  if(!GOOGLE_CLIENT_ID){ renderAuth(); return; }                         // not configured yet
+  if(!(window.google && google.accounts && google.accounts.id)) return setTimeout(initAuth, 300); // wait for GIS
+  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onCredential });
+  renderAuth();
+}
+
 let _refreshing = false;
 async function refresh(){
   if(_refreshing) return;                    // don't stack overlapping polls/clicks
@@ -1047,7 +1104,7 @@ async function refresh(){
   try { await loadEvents(); applyView(); layoutSticky(); } finally { _refreshing = false; }
 }
 async function init(){
-  buildWeekHead(); renderLayers(); updateNavLabel();
+  buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
   await loadEvents(); applyView(); layoutSticky();
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
   document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); }); // refetch on tab focus
