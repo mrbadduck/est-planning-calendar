@@ -39,6 +39,10 @@ function rebuildPrograms(list){
   PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
   progIdByName = Object.fromEntries(PROGRAMS.map(p=>[p.name,p.id]));
 }
+// Safe palette lookups: on live data the program id may not be in the current
+// PROG map (e.g. a new event's default, or an id from before the live palette
+// loaded). Fall back to 'Other', then a literal, so rendering never throws.
+function progColor(id){ return (PROG[id] || PROG.oth || {color:'var(--p-oth)'}).color; }
 async function loadPrograms(){
   if(!PROXY_BASE) return;                          // mock mode keeps the built-in palette
   try{
@@ -233,7 +237,7 @@ function chipHTML(e){
     const c=REF[e.refLayer].color;
     return `<div class="chip ref" style="--c:${c}" data-id="${e.id}" data-ref="1" title="${esc(e.title)}"><span class="t">${esc(e.title)}</span></div>`;
   }
-  const c=PROG[e.program].color;
+  const c=progColor(e.program);
   const t = (!e.allDay && e.start) ? `<span class="time">${e.start}</span>` : '';
   const lock = e.status==='approved' ? '<span class="lock">🔒</span>' : '';
   return `<div class="chip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${t}<span class="t">${esc(e.title)}</span>${xMark(e)}${lock}</div>`;
@@ -248,7 +252,7 @@ function anchorRow(e, mk, startWd){
   return 0;
 }
 function gchipHTML(e, mk){
-  const c=PROG[e.program].color;
+  const c=progColor(e.program);
   let tag='month';
   if(e.scheduling==='range'){
     const s=e.rangeStart, en=e.rangeEnd;
@@ -311,7 +315,7 @@ function renderMonths(){
    ========================================================================= */
 function qchipHTML(e){
   if(e.source==='ref') return `<div class="qchip ref" style="--c:${REF[e.refLayer].color}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}</div>`;
-  const c=PROG[e.program].color;
+  const c=progColor(e.program);
   return `<div class="qchip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${esc(e.title)}${xMark(e)}</div>`;
 }
 function weekAddDate(y,m,dayNums,zone){
@@ -440,7 +444,7 @@ function openEditor(ev){
   const canEdit = !isRef && !!(state.identity && state.identity.canWrite);
   const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
   const locked = (!isRef) && ev.status==='approved' && !canApprove;
-  const c = isRef ? REF[ev.refLayer].color : PROG[ev.program].color;
+  const c = isRef ? REF[ev.refLayer].color : progColor(ev.program);
   document.getElementById('mStripe').style.setProperty('--c',c);
   document.getElementById('mTitle').textContent = ev.id ? (isRef?'Reference event':'Edit event') : 'New event';
   const badge=document.getElementById('mBadge');
@@ -598,7 +602,7 @@ document.getElementById('quarter').addEventListener('click',e=>{
 });
 
 function newEventOn(date){
-  return {id:null,source:'planning',program:'kab',title:'',leads:[],date,start:'18:30',end:'20:00',allDay:false,location:'',status:'draft',description:'',scheduling:'exact',rangeStart:'',rangeEnd:'',targetMonth:'',createdBy:state.currentUser,editedBy:state.currentUser,eventbriteUrl:'',gcalId:''};
+  return {id:null,source:'planning',program:'',programs:[],title:'',leads:[],date,start:'18:30',end:'20:00',allDay:false,location:'',status:'draft',description:'',scheduling:'exact',rangeStart:'',rangeEnd:'',targetMonth:'',createdBy:state.currentUser,editedBy:state.currentUser,eventbriteUrl:'',gcalId:''};
 }
 function newIdeaInMonth(mkey){
   return {id:null,source:'planning',program:'oth',title:'',leads:[],date:'',start:'',end:'',allDay:false,location:'',status:'idea',description:'',scheduling:'month',rangeStart:'',rangeEnd:'',targetMonth:mkey,createdBy:state.currentUser,editedBy:state.currentUser,eventbriteUrl:'',gcalId:''};
