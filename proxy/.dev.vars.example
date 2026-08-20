@@ -1,7 +1,7 @@
 # Copy to .dev.vars (gitignored) for local `npm run dev`.
 CODA_API_TOKEN=paste-a-READ-scoped-doc-scoped-token
 CODA_DOC_ID=DYAz_wCVfv
-CODA_TABLE_ID=grid-9TAt5vMMKH
+CODA_TABLE_ID=grid--gYIvdD-cE
 CODA_API_BASE=https://coda.io/apis/v1
 ALLOWED_ORIGIN=https://plan.eastsidetribe.org
 # ALLOW_WRITES=true   # Phase 2 only — enables POST/PUT/DELETE

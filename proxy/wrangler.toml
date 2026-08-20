@@ -5,7 +5,7 @@ compatibility_date = "2026-01-01"
 [vars]
 CODA_API_BASE  = "https://coda.io/apis/v1"
 CODA_DOC_ID    = "DYAz_wCVfv"          # EST — Mission Control doc
-CODA_TABLE_ID  = "grid-9TAt5vMMKH"     # EST Events SRC (Phase-1 read target)
+CODA_TABLE_ID  = "grid--gYIvdD-cE"     # EST Planning Events SRC
 ALLOWED_ORIGIN = "https://plan.eastsidetribe.org"
 # ALLOW_WRITES stays unset in Phase 1 (read-only). Set to "true" in Phase 2,
 # together with a read+write token and the Google sign-in allowlist.
