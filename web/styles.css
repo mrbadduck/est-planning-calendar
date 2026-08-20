@@ -259,3 +259,21 @@
     .mbody{grid-template-columns:1fr}
     .fld.full,.meta,.locknote{grid-column:1}
   }
+
+  @media (max-width:620px){
+    .wrap{padding:0 12px 60px}
+    .bar-inner{padding:0 12px;gap:6px 10px}
+    .bar-inner.row2{margin-top:6px}
+    .brand h1{font-size:18px}
+    .brand .sub{font-size:10.5px}
+    .yearnav{gap:4px}
+    .yearnav .yr{min-width:0;font-size:13.5px}
+    /* overview: stack each week's weeknight/weekend into one column; hide empties */
+    .qgrid{gap:11px}
+    .qweek{display:flex;flex-direction:column;min-height:0}
+    .qwk{border-right:0;border-bottom:1px solid var(--hair);padding:3px 10px}
+    .qzone{padding:5px 10px}
+    .qzone.wknd{border-left:0;border-top:1px dashed var(--hair)}
+    .qzone:has(.zlbl){display:none}
+    .qchip{white-space:normal}
+  }
