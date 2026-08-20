@@ -39,10 +39,10 @@ later"). This spec is scoped so either outcome stays open.
 - The broader **event-lifecycle** surface (marketing emails, socials, budget,
   expenses, attendance, feedback). See "Designed to grow."
 
-## The new table: `EST Program Planning`
+## The new table: `EST Planning Events SRC`
 
-*(Name provisional.)* Relations point at the **existing** entity tables — we do not
-duplicate Programs / People / Venues.
+Relations point at the **existing** entity tables — we do not duplicate Programs /
+People / Venues.
 
 ### Authored core (what a lead fills in)
 | Column | Type | Notes |
@@ -137,7 +137,7 @@ already define the normalized event. Going live is a **small** change, not a rew
 
 ## Rollout (parallel-run)
 
-1. **Create** `EST Program Planning` beside the existing tables — zero impact on
+1. **Create** `EST Planning Events SRC` beside the existing tables — zero impact on
    `EST Events SRC` or its metrics.
 2. **Seed** a few real upcoming ideas (or port the app's sample rows).
 3. **Read-only first**: point the app at the new table, verify the calendar renders
@@ -162,7 +162,6 @@ without another inversion.
 
 ## Open decisions
 
-- **Table name** (`EST Program Planning`?).
 - **Endpoint**: replace `EST Events SRC` vs. coexist (deferred).
 - **Venue picker plumbing**: confirm the app filters Venue options by Venue Type
   client-side from the reference reads (vs. a server-side filtered endpoint).
