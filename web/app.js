@@ -51,14 +51,23 @@ function rebuildPrograms(list){
 // PROG map (e.g. a new event's default, or an id from before the live palette
 // loaded). Fall back to 'Other', then a literal, so rendering never throws.
 function progColor(id){ return (PROG[id] || PROG.oth || {color:'var(--p-oth)'}).color; }
+
+/* Reference data is slow to fetch (/ref/people is 1128 rows → many seconds) but
+   changes rarely, so cache it in localStorage: hydrate synchronously on load for
+   an instant paint, then refresh in the background. cacheGet is sync so callers
+   can rely on the maps being populated immediately. */
+function cacheGet(k){ try{ return JSON.parse(localStorage.getItem('est-cache-'+k) || 'null'); }catch(_){ return null; } }
+function cacheSet(k,v){ try{ localStorage.setItem('est-cache-'+k, JSON.stringify(v)); }catch(_){} }
+
 async function loadPrograms(){
-  if(!PROXY_BASE) return;                          // mock mode keeps the built-in palette
+  const c = cacheGet('programs'); if(c && c.length) rebuildPrograms(c);   // instant from cache
+  if(!PROXY_BASE) return;
   try{
     const r = await fetch(`${PROXY_BASE}/ref/programs`);
     if(!r.ok) return;
     const items = (await r.json()).items || [];
     const list = items.filter(x=>x && x.name).map((x,i,a)=>({ id:x.id, name:x.name, active:!!(x.values && x.values['Active']===true), color:genColor(i,a.length), currentLeadNames:_asList((x.values&&x.values['Current Leads'])||[]) }));
-    if(list.length) rebuildPrograms(list);
+    if(list.length){ rebuildPrograms(list); cacheSet('programs', list); }
   }catch(_){}
 }
 
@@ -75,11 +84,12 @@ function rebuildPeople(list){
   peopleIdByName = Object.fromEntries(list.map(p=>[p.name,p.id]));
 }
 async function loadPeople(){
+  const c = cacheGet('people'); if(c && c.length) rebuildPeople(c);       // instant from cache
   if(!PROXY_BASE) return;
   try{
     const r = await fetch(`${PROXY_BASE}/ref/people`); if(!r.ok) return;
-    const items = (await r.json()).items || [];
-    if(items.length) rebuildPeople(items.map(x=>({ id:x.id, name:x.name, lead:!!x.lead })));
+    const items = ((await r.json()).items || []).map(x=>({ id:x.id, name:x.name, lead:!!x.lead }));
+    if(items.length){ rebuildPeople(items); cacheSet('people', items); }
   }catch(_){}
 }
 
@@ -87,20 +97,25 @@ async function loadPeople(){
 let VENUES = [];          // {id,name,type,closed}
 let VENUE_TYPES = [];     // {id,name}
 let venueIdByName = {}, venueTypeIdByName = {};
+function setVenues(list){ VENUES=list; venueIdByName=Object.fromEntries(VENUES.map(v=>[v.name,v.id])); }
+function setVenueTypes(list){ VENUE_TYPES=list; venueTypeIdByName=Object.fromEntries(VENUE_TYPES.map(t=>[t.name,t.id])); }
 async function loadVenues(){
+  const cv=cacheGet('venues'), ct=cacheGet('venue-types');               // instant from cache
+  if(cv && cv.length) setVenues(cv);
+  if(ct && ct.length) setVenueTypes(ct);
   if(!PROXY_BASE) return;
   try{
     const [rv, rt] = await Promise.all([ fetch(`${PROXY_BASE}/ref/venues`), fetch(`${PROXY_BASE}/ref/venue-types`) ]);
     if(rv && rv.ok){
       const items = (await rv.json()).items || [];
-      VENUES = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
+      const list = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
         type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true) }));
-      venueIdByName = Object.fromEntries(VENUES.map(v=>[v.name,v.id]));
+      if(list.length){ setVenues(list); cacheSet('venues', list); }
     }
     if(rt && rt.ok){
       const items = (await rt.json()).items || [];
-      VENUE_TYPES = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name }));
-      venueTypeIdByName = Object.fromEntries(VENUE_TYPES.map(t=>[t.name,t.id]));
+      const list = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name }));
+      if(list.length){ setVenueTypes(list); cacheSet('venue-types', list); }
     }
   }catch(_){}
 }
@@ -296,6 +311,7 @@ function planningRowToEvent(r){
     title: v['Title'] || '',
     leads: _idsOf(v['Leads'], peopleIdByName),           // person row ids
     volunteers: _idsOf(v['Volunteers'], peopleIdByName), // person row ids
+    leadNames: _asList(v['Leads']), volunteerNames: _asList(v['Volunteers']), // raw names — editor fallback if people not loaded yet
     date: sched === 'month' ? '' : rawDate,              // Month renders as an undated month idea
     start: _toHM(v['Start']), end: _toHM(v['End']), allDay: !!v['All day'],
     venueType: venueTypeIdByName[_asList(v['Venue Type'])[0]] || '',
@@ -320,7 +336,9 @@ const CodaSource = {
     const r = await fetch(`${this.base}/rows`, { headers:{ 'Accept':'application/json' } });
     if(!r.ok) throw new Error(`proxy ${r.status}: ${await r.text()}`);
     const j = await r.json();
-    return (j.items || []).map(planningRowToEvent);
+    const items = j.items || [];
+    cacheSet('rows-raw', items);                       // instant repaint on next reload
+    return items.map(planningRowToEvent);
   },
   async listReferences(){ return MOCK_REFS.slice(); },
   _wh(){ return { 'Content-Type':'application/json', 'Authorization':`Bearer ${state.idToken||''}` }; },
@@ -704,8 +722,9 @@ function openEditor(ev){
   foot.innerHTML=acts;
 
   // leads (leadership cohort) + volunteers (all people) + venue typeaheads
-  const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:ev.leads||[], pool:()=>LEADS_LIST });
-  const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:ev.volunteers||[], pool:()=>PEOPLE_LIST });
+  const resolveIds = (ids, names) => (ids && ids.length) ? ids : (names||[]).map(n=>peopleIdByName[n]).filter(Boolean);
+  const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST });
+  const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:resolveIds(ev.volunteers, ev.volunteerNames), pool:()=>PEOPLE_LIST });
   const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev);
 
   // program chips: toggle + append that program's Current Leads when selected
@@ -1061,11 +1080,21 @@ async function init(){
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
   headerMQ.addEventListener('change', applyHeaderMode);
   applyHeaderMode();
-  await Promise.all([loadPrograms(), loadPeople(), loadVenues()]);   // ref lists before events (name→id mapping)
-  await loadEvents(); applyView(); layoutSticky();
+  // Wire refresh/focus/poll up front so they work immediately (never dead while loading).
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
   document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); }); // refetch on tab focus
   setInterval(() => { if(!document.hidden) refresh(); }, 60000);                            // light 60s poll while visible
+
+  // Kick off ref loads — each hydrates its maps synchronously from cache, then
+  // refreshes in the background. loadPeople is the slow one (/ref/people is many
+  // seconds) so it is NOT awaited — the calendar doesn't need it (leads/venues
+  // resolve in the editor via cached maps / stored names).
+  loadPrograms(); loadVenues(); loadPeople();
+  // Instant paint from the last cached events (maps are hydrated above).
+  const cachedRows = cacheGet('rows-raw');
+  if(cachedRows && cachedRows.length){ state.events = [...cachedRows.map(planningRowToEvent), ...MOCK_REFS]; applyView(); layoutSticky(); }
+  // Fresh events (renders as soon as /rows returns).
+  await refresh();
   setTimeout(()=>{
     const t=new Date();
     if(state.view==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }

@@ -23,6 +23,7 @@
  *   GOOGLE_CLIENT_ID (var)     OAuth client id; verified as the JWT `aud` for sign-in
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
+const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -90,24 +91,32 @@ export default {
         // Read-only reference lists for the editor's relation pickers. Only the
         // allowlisted tables below are reachable — never arbitrary tables.
         const REF = { programs: 'grid-g87NFbtqN8', people: 'grid-X316Eql8dE', venues: 'grid-foC40iAOaX', 'venue-types': 'grid-idEVRQX7SL' };
-        const refTable = REF[parts[1]];
+        const name = parts[1];
+        const refTable = REF[name];
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
+        // Per-isolate cache — ref data changes rarely and /ref/people is very slow
+        // to fetch (1128 rows over 6 Coda pages). Warm isolates serve it instantly.
+        const hit = REF_CACHE.get(name);
+        if (hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
         const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
         if (!out.ok) return pass(out.resp, cors);
         // People is ~1128 rows x ~50 cols — project to just what the editor's
         // pickers need: {id, name, lead}. `lead` = write-authorized leadership,
         // so one fetch powers both the Leads chip list and the Volunteers
         // typeahead. Other ref tables (small) pass through whole.
-        if (parts[1] === 'people') {
-          const items = out.items.map(r => {
+        let items;
+        if (name === 'people') {
+          items = out.items.map(r => {
             const v = r.values || {};
             const st = v['Leadership Status'];
             const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
             return { id: r.id, name: r.name || v['Full Name'] || '', lead: roles.some(s => WRITE_STATUSES.includes(s)) };
           }).filter(p => p.name);
-          return json({ items }, 200, cors);
+        } else {
+          items = out.items;
         }
-        return json({ items: out.items }, 200, cors);
+        REF_CACHE.set(name, { items, exp: Date.now() + 5 * 60 * 1000 });
+        return json({ items }, 200, cors);
       }
       if (parts[0] === 'me' && request.method === 'GET') {
         let id = null;
