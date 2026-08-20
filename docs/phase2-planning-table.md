@@ -60,18 +60,32 @@ People / Venues.
 | Column | Type | Used when |
 |---|---|---|
 | Scheduling | Select: `Exact / Range / Month` | always |
-| Date | Date | Exact |
-| Start / End | Text (`HH:MM`) | Exact |
+| Date | Date | **Exact** (the day) **and Month** (the 1st of the target month) |
+| Start / End | **Time** (native) | Exact |
 | All day | Checkbox | Exact |
 | Window start / Window end | Date | Range |
-| Target month | Text (`YYYY-MM`) | Month |
+
+Coda has no native "month" type, so `Month` scheduling reuses `Date` set to the
+**1st** and the app renders month-only when `Scheduling = Month` — no separate
+`Target month` column. Proper types throughout (this revises Plan 1, which used
+text `Start`/`End` and a `Target month` text column).
 
 ### Workflow
 | Column | Type | Notes |
 |---|---|---|
 | Status | Select: `Idea / Draft / Confirmed / Approved` | lifecycle; `Approved` is VP-only |
-| Created by / Edited by | Person | attribution |
-| Approved by / Approved at | Person / Date | audit for the approve action |
+| Created by / Edited by | Relation → `EST People SRC` | attribution — see note (not Coda-person, not native) |
+| Approved by | Relation → `EST People SRC` | set at approve |
+| Approved at | Date/Time | set at approve (a specific action, distinct from "last modified") |
+
+**Attribution — why relations, not native metadata or person columns:** writes go
+through the proxy on **one shared API token**, so Coda's native *Created/Modified
+by* would attribute every write to the token account, not the lead. Instead, Plan 2
+auth yields the lead's **Google-verified email**; the Worker matches it to an
+`EST People SRC` row **by email** and writes that row as the `Created by` /
+`Edited by` / `Approved by` relation. Leads can sign in with any email and still
+resolve to their real person row. Native **Created on / Last modified on**
+timestamps are used as-is (free) — we add no columns for those.
 
 ### Publish seam (empty until publish-out is built — the dedup key)
 | Column | Type | Notes |
@@ -97,13 +111,23 @@ The app was *built* for this shape — `codaRowToEvent` / the mock `row()` colum
 already define the normalized event. Going live is a **small** change, not a rewrite.
 
 **Data layer**
-- Read mapping: reuse the normalized event shape. Update column names/relations:
-  `Program(s)` (take first for color, keep the list), `Venue`/`Venue (other)` →
-  `location`, `Event Description` → `description`, add `planningNotes`.
-- Replace the Phase-1 `eventsSrcRowToEvent` adapter with this planning-table
-  mapping; `DB` points at the new table via the proxy.
-- Writes: `create` / `update` / `remove` send `eventToCodaCells` (already present)
-  against the new table.
+- Read mapping (`planningRowToEvent`, shipped in Plan 1): normalized event shape;
+  `Program(s)` first → color + keep the list, `Venue`/`Venue (other)` → `location`,
+  `Event Description` → `description`, `planningNotes`. For `Scheduling = Month`,
+  derive the month from `Date` (the 1st); `Start`/`End` are native time — normalize
+  whatever the proxy returns to `HH:MM`.
+- Writes: `create` / `update` / `remove` send `eventToCodaCells` against the new
+  table (times as native time, relations as target-table row ids, attribution
+  relations from the email→person match).
+
+**Refresh (Plan 1 fetches once on load — this fixes that)**
+- A manual **Refresh** button (re-fetch + re-render).
+- Re-fetch on **tab focus** (`visibilitychange`).
+- Light **auto-poll** every ~60s while the tab is visible.
+- After a successful write, re-fetch so the lead's own change appears immediately.
+- If polling makes the Worker chatty, add a ~30s response cache in the Worker
+  (still free tier). True push (Coda webhook → Durable Object → WebSocket) is a
+  later plan, only if needed.
 
 **Editor UI changes (contained)**
 - Program: multi-select relation.
@@ -131,19 +155,29 @@ already define the normalized event. Going live is a **small** change, not a rew
 - App: Google Identity Services sign-in; send the Google-signed ID token as
   `Authorization: Bearer <token>` on writes.
 - Worker: verify the ID token against Google's public keys (`aud` = our client id,
-  `iss` = accounts.google.com, `exp`) and check the email against an **EST-leads
-  allowlist** (Worker var/secret) before any `POST/PUT/DELETE`. VP role (approve)
-  comes from the same identity layer.
+  `iss` = accounts.google.com, `exp`) before any `POST/PUT/DELETE`.
+- **Identity + authorization via email→person match:** the Worker looks the
+  verified email up in `EST People SRC` (match on any of the person's emails). The
+  matched person row is the attribution written to `Created by` / `Edited by` /
+  `Approved by`. **Authorization is *not* "anyone in `EST People SRC`"** (that's
+  every attendee) — it requires the person to have a **leadership role** (a
+  leadership-status / wave field on the person row; exact field TBD in Plan 2).
+  **VP (approve)** is a higher role/flag on the same record. No lead-level match →
+  writes rejected; non-VP → approve rejected. This match doubles as the allowlist
+  *and* the attribution source, so leads sign in with any email on their record.
 
 ## Rollout (parallel-run)
 
-1. **Create** `EST Planning Events SRC` beside the existing tables — zero impact on
-   `EST Events SRC` or its metrics.
-2. **Seed** a few real upcoming ideas (or port the app's sample rows).
-3. **Read-only first**: point the app at the new table, verify the calendar renders
-   (mirrors how we validated Phase 1).
-4. **Add auth + enable writes**: leads create/edit; VP approves.
-5. **Later specs**: publish-out on approve (+ dedup via the publish-seam links);
+1. **✅ Plan 1 (done):** table created + seeded; proxy repointed; app renders it
+   read-only.
+2. **Plan 2a — read-side polish (still read-only, ships independently):** retype the
+   schema to the decisions above (Start/End → time, drop `Target month`, attribution
+   → `EST People SRC` relations); add the reference-read proxy endpoints; add
+   refresh (button + focus + 60s poll).
+3. **Plan 2b — auth + editor + writes:** Google sign-in + email→person match;
+   `ALLOW_WRITES=true` + read+write token; the editor (multi-program, venue cascade,
+   notes template); create/edit/approve with attribution + VP-only approve.
+4. **Later specs**: publish-out on approve (+ dedup via the publish-seam links);
    then the endpoint decision (replace vs. coexist).
 
 ## Designed to grow (vision — not built now)
@@ -167,5 +201,9 @@ without another inversion.
   client-side from the reference reads (vs. a server-side filtered endpoint).
 - **Planning Notes template**: final question list + which (if any) start as
   structured fields vs. free text.
-- **Auth specifics**: Google allowlist as a Worker var vs. a small list table;
-  how VP (approve) role is expressed.
+- **Leadership role fields**: which `EST People SRC` field marks a person as an
+  authorized **lead** (write access) vs. a **VP** (approve) — confirm during Plan 2
+  (candidates: a leadership-status / leadership-wave field).
+- **Native time format**: normalize whatever `valueFormat=simpleWithArrays` returns
+  for the native `Start`/`End` time columns to `HH:MM` (confirm the exact format via
+  a proxy curl during Plan 2a).
