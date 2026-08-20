@@ -6,7 +6,7 @@ compatibility_date = "2026-01-01"
 CODA_API_BASE  = "https://coda.io/apis/v1"
 CODA_DOC_ID    = "DYAz_wCVfv"          # EST — Mission Control doc
 CODA_TABLE_ID  = "grid--gYIvdD-cE"     # EST Planning Events SRC
-ALLOWED_ORIGIN = "https://plan.eastsidetribe.org"
+ALLOWED_ORIGIN = "https://plan.eastsidetribe.org,http://localhost:8080,http://127.0.0.1:8080"  # first entry = canonical; localhost entries are for local dev
 ALLOW_WRITES   = "true"                 # Plan 2b: writes enabled (still require a write-authorized identity)
 GOOGLE_CLIENT_ID = "463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com"  # OAuth Web client (public); verified as the JWT aud
 

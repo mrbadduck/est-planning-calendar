@@ -4,9 +4,8 @@
      { id, source, program, title, leads:[], date:'YYYY-MM-DD',
        start, end, allDay, location, status, description,
        createdBy, editedBy, readOnly, eventbriteUrl, gcalId }
-   The mock stores rows in *Coda list-rows shape* and transforms them, so the
-   live swap is: replace MockSource with CodaSource (fetch -> proxy) and reuse
-   codaRowToEvent / eventToCodaCells verbatim.
+   The single data source is CodaSource: it fetches Coda list-rows through the
+   Worker proxy and maps them with planningRowToEvent / eventToCodaCells.
    ========================================================================= */
 
 let PROGRAMS = [
@@ -32,55 +31,6 @@ const REF_LAYERS = [
 ];
 const REF = Object.fromEntries(REF_LAYERS.map(r=>[r.id,r]));
 
-/* ---- Coda-shaped mock planning rows (values keyed by column name) ---- */
-let _rid = 1000;
-const MOCK_CODA_ROWS = { items: [
-  row('Kabbalat Shabbat',            'kab','2026-09-18','confirmed',['Eric','Sophie'],'18:30','20:00','The Skillery','Monthly Kab Shabbat + potluck.'),
-  row('Rosh Hashanah dinner',        'din','2026-09-12','approved',['Laura','Emma'],'18:00','21:00','Host home (East Nashville)','Communal 1st-night dinner. Approved & pushed.'),
-  row('East Side Tribelings',        'tot','2026-09-26','confirmed',['Kaitlyn','Emma'],'10:00','11:15','Shelby Park','Tot Shabbat in the park.'),
-  row('Littles playdate',            'lit','2026-10-11','draft',['Anna'],'15:30','17:00','Cornelia Fort','Under-5s + caregivers.'),
-  row('Wandering Scholars — relaunch','wan','2026-10-20','draft',['Erika','Jesse'],'19:00','20:30','TBD','Re-invigorate per Year-1 charter goal. Speaker TBD.'),
-  row('Kabbalat Shabbat',            'kab','2026-10-16','confirmed',['Eric'],'18:30','20:00','The Skillery',''),
-  row("L'chaim Time",                'lch','2026-11-06','idea',['Robby'],'20:00','22:00','Local bar TBD','Re-invigorate. Scout venues.'),
-  row('East Side Tribelings',        'tot','2026-11-14','draft',['Kaitlyn'],'10:00','11:15','Shelby Park',''),
-  row('Shoresh study',               'sho','2026-11-18','idea',['Sophie'],'19:00','20:30','Zoom','Text study series.'),
-  row('Hanukkah party',              'oth','2026-12-06','confirmed',['Eric','Laura','Emma'],'16:00','19:00','Community room','Big all-ages latke party. Day 3.'),
-  row('Kabbalat Shabbat',            'kab','2026-12-11','draft',['Brigid'],'18:30','20:00','The Skillery',''),
-  row('Littles playdate',            'lit','2027-01-10','idea',['Anna'],'15:30','17:00','TBD',''),
-  row('Wandering Scholars',          'wan','2027-01-19','idea',['Erika'],'19:00','20:30','TBD',''),
-  row('Tu BiShvat seder',            'oth','2027-01-22','idea',['Jesse','Sophie'],'18:00','20:00','Host home','Environmental seder.'),
-  row('East Side Tribelings',        'tot','2027-02-13','idea',['Emma'],'10:00','11:15','Shelby Park',''),
-  row('Purim carnival',              'oth','2027-03-21','idea',['Laura','Kaitlyn'],'14:00','17:00','TBD','Costumes + hamantaschen.'),
-  row('Community Seder',             'din','2027-04-24','idea',['Eric','Laura'],'18:00','21:30','TBD','2nd-night communal seder.'),
-  /* rough / undated ideas — no firm day yet */
-  roughRow('Sukkah build day',        'oth','range','2026-09-27','2026-10-01','idea',['Jesse'],'Hands-on build; pick a good-weather day that week.'),
-  roughRow('Adult beginner Hebrew',   'sho','month','2026-11',null,'idea',['Sophie'],'6-week weeknight series — find a night that works.'),
-  roughRow('Pre-Passover cook-along', 'oth','range','2027-04-05','2027-04-18','draft',['Laura'],'Sometime in the two weeks before Pesach.'),
-  roughRow('Summer BBQ / picnic',     'oth','month','2027-07',null,'idea',['Eric','Robby'],'Big outdoor hang; exact date flexible.'),
-]};
-function row(title,prog,date,status,leads,start,end,loc,desc){
-  return { id:'r-'+(_rid++), name:title, values:{
-    'Title':title, 'Program':PROG[prog].name, 'Leads':leads.slice(),
-    'Date':date, 'Start':start, 'End':end, 'All day':false,
-    'Location':loc, 'Status':status[0].toUpperCase()+status.slice(1),
-    'Description':desc, 'Created by':leads[0]||'Eric', 'Edited by':leads[0]||'Eric',
-    'Eventbrite URL':'', 'GCal ID':'',
-    'Scheduling':'Exact', 'Window start':'', 'Window end':'', 'Target month':''
-  }};
-}
-/* rough rows: type 'range' (a=start,b=end) or 'month' (a='YYYY-MM') */
-function roughRow(title,prog,type,a,b,status,leads,desc){
-  return { id:'r-'+(_rid++), name:title, values:{
-    'Title':title, 'Program':PROG[prog].name, 'Leads':leads.slice(),
-    'Date':'', 'Start':'', 'End':'', 'All day':false,
-    'Location':'', 'Status':status[0].toUpperCase()+status.slice(1),
-    'Description':desc, 'Created by':leads[0]||'Eric', 'Edited by':leads[0]||'Eric',
-    'Eventbrite URL':'', 'GCal ID':'',
-    'Scheduling': type[0].toUpperCase()+type.slice(1),
-    'Window start': type==='range'?a:'', 'Window end': type==='range'?b:'',
-    'Target month': type==='month'?a:''
-  }};
-}
 let progIdByName = Object.fromEntries(PROGRAMS.map(p=>[p.name,p.id]));
 /* live programs: replace the built-in palette with the real EST Programs SRC set */
 function genColor(i,n){ return `hsl(${Math.round(i*360/Math.max(n,1))}, 50%, 55%)`; }
@@ -98,19 +48,6 @@ async function loadPrograms(){
     const list = items.filter(x=>x && x.name).map((x,i,a)=>({ id:x.id, name:x.name, active:!!(x.values && x.values['Active']===true), color:genColor(i,a.length) }));
     if(list.length) rebuildPrograms(list);
   }catch(_){}
-}
-function codaRowToEvent(r){
-  const v=r.values;
-  return {
-    id:r.id, source:'planning', program:progIdByName[v['Program']]||'oth',
-    title:v['Title'], leads:(v['Leads']||[]).slice(), date:v['Date'],
-    start:v['Start']||'', end:v['End']||'', allDay:!!v['All day'],
-    location:v['Location']||'', status:(v['Status']||'idea').toLowerCase(),
-    description:v['Description']||'', createdBy:v['Created by']||'', editedBy:v['Edited by']||'',
-    eventbriteUrl:v['Eventbrite URL']||'', gcalId:v['GCal ID']||'', readOnly:false,
-    scheduling:(v['Scheduling']||'Exact').toLowerCase(),
-    rangeStart:v['Window start']||'', rangeEnd:v['Window end']||'', targetMonth:v['Target month']||''
-  };
 }
 /* Scalar write cells for EST Planning Events SRC (Plan 2b-i). Program(s)/Leads/
    Venue relations are edited in Plan 2b-ii; attribution is injected by the Worker.
@@ -157,33 +94,15 @@ const MOCK_REFS = [
   refEv('part','Partner: MLK service','2027-01-18'),
 ];
 
-/* ---- DataSource interface (swap MockSource -> CodaSource later) ---- */
-const MockSource = {
-  async listPlanning(){ return MOCK_CODA_ROWS.items.map(codaRowToEvent); },
-  async listReferences(){ return MOCK_REFS.slice(); },
-  async create(e){ const r={id:'r-'+(_rid++),name:e.title,values:{}}; Object.assign(r.values, cellsToValues(e)); MOCK_CODA_ROWS.items.push(r); return codaRowToEvent(r); },
-  async update(e){ const r=MOCK_CODA_ROWS.items.find(x=>x.id===e.id); if(r){Object.assign(r.values, cellsToValues(e)); r.name=e.title;} return e; },
-  async remove(id){ const i=MOCK_CODA_ROWS.items.findIndex(x=>x.id===id); if(i>=0) MOCK_CODA_ROWS.items.splice(i,1); },
-};
-function cellsToValues(e){
-  return {'Title':e.title,'Program':PROG[e.program].name,'Leads':e.leads.slice(),'Date':e.date,
-    'Start':e.start,'End':e.end,'All day':e.allDay,'Location':e.location,
-    'Status':e.status[0].toUpperCase()+e.status.slice(1),'Description':e.description,
-    'Created by':e.createdBy,'Edited by':e.editedBy,'Eventbrite URL':e.eventbriteUrl||'','GCal ID':e.gcalId||'',
-    'Scheduling':cap(e.scheduling||'exact'),'Window start':e.rangeStart||'','Window end':e.rangeEnd||'','Target month':e.targetMonth||''};
-}
-/* ---- CodaSource (live, via the proxy) ------------------------------------
+/* ---- CodaSource (live, via the proxy) — the only data source ------------
    READS `EST Planning Events SRC` through the Worker proxy and maps its columns
    to our normalized event shape (see planningRowToEvent). The proxy holds the
-   read-scoped, doc-scoped token server-side. Editing is still READ-ONLY here —
-   writes land with auth (Google sign-in + lead allowlist), so create/update/
-   remove throw for now. References stay on the mock holiday overlays until
-   Hebcal wiring (later). */
+   doc-scoped token server-side and gates writes on Google sign-in + role.
+   References (holidays/partners) stay on the built-in overlays until Hebcal
+   wiring (later). */
 const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
-                         // ← deployed Worker (read-only, doc-scoped token server-side).
-                         //   Set '' to fall back to in-memory mock data.
-                         //   NOTE: the Worker's CORS is locked to https://plan.eastsidetribe.org,
-                         //   so the live app only works when served from that domain.
+                         // ← deployed Worker. CORS allows the deploy origin plus
+                         //   http://localhost:8080 for local dev (see wrangler.toml).
 
 /* EST Planning Events SRC row (Coda simpleWithArrays + useColumnNames) -> event.
    Relation cells (Program(s)/Leads/Venue/…by) arrive as arrays of display strings;
@@ -236,11 +155,10 @@ const CodaSource = {
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
 };
 
-// Local dev (localhost / 127.0.0.1) runs on MockSource so the app renders
-// without the live proxy — the proxy's CORS is locked to the deploy origin.
-// Deployed builds use the live proxy. See CLAUDE.md "Current status".
-const IS_LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-const DB = (PROXY_BASE && !IS_LOCAL) ? CodaSource : MockSource;
+// The live proxy is the only data source. Reads are unauthenticated (CORS-gated,
+// localhost allowed); writes require Google sign-in + role. Runs the same locally
+// and deployed. See docs/deployment.md → "Local development".
+const DB = CodaSource;
 
 /* =========================================================================
    STATE + RENDER

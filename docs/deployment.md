@@ -17,21 +17,26 @@ Then open `http://localhost:8080`. Saving any file in `web/` auto-reloads the pa
 `package.json`, no build. (A `.claude/launch.json` config is checked in so the
 in-editor preview can start the same server.)
 
-**Local runs on mock data, on purpose.** `web/app.js` uses `MockSource` (real EST
-programs/leads as sample rows) whenever the hostname is `localhost`/`127.0.0.1`, and
-the live proxy (`CodaSource`) otherwise. This is because the proxy's CORS and the
-Google sign-in origins are both locked to `https://plan.eastsidetribe.org`, so live
-data and sign-in **cannot** work from `localhost` as configured. Local dev is for
-UI/layout work against representative data; edits reset on reload (mock has no
-persistence).
+**Local runs on live data.** There is no mock — `web/app.js` always uses
+`CodaSource`, hitting the deployed Worker proxy. The Worker's `ALLOWED_ORIGIN`
+allowlist includes `http://localhost:8080` (and `http://127.0.0.1:8080`) alongside
+the deploy origin, so **reads work from localhost** — the proxy's read endpoints
+(`GET /rows`, `GET /ref/*`) are unauthenticated. Use port **8080** locally to match.
 
-To exercise **live** data/auth locally (rarely needed), you'd have to add
-`http://localhost:8080` to the Worker's `ALLOWED_ORIGIN` and to the Google OAuth
-client's authorized origins — do this only in a throwaway/dev context, never weaken
-the production origin lock.
+**Sign-in and writes need one more step you must do once:** add
+`http://localhost:8080` to the **Authorized JavaScript origins** of the Google OAuth
+Web client (Google Cloud Console → Credentials). Until then, Google Sign-In won't
+initialize on localhost (you'll see a harmless "Not signed in" console notice), and
+since create/edit/approve require a verified identity, writes stay unavailable
+locally. Reads and all UI/layout work are unaffected.
 
-Opening `web/index.html` directly with `file://` also works for a quick look, but
-use the server for hot reload.
+⚠️ **Local writes hit the real `EST Planning Events SRC` table** — there's no staging
+data. This is the same table the deployed site writes to, so it's no more dangerous
+than editing on `plan.eastsidetribe.org`, but be deliberate when testing writes
+locally.
+
+Opening `web/index.html` directly with `file://` won't work for data — the `file://`
+origin isn't in the CORS allowlist. Use the server.
 
 ## DNS — the one record to add (do NOT move nameservers)
 

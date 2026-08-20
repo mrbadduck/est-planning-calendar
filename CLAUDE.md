@@ -28,13 +28,13 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 
 ## Current status
 
-- **App: complete and working on in-memory mock data.** For local dev with hot
+- **App: complete and working on live data (no mock).** For local dev with hot
   reload: `npx -y live-server web --port=8080 --no-browser`, then open
   `http://localhost:8080` — no build step (see `docs/deployment.md` → *Local
-  development*). On `localhost`/`127.0.0.1` the app runs on `MockSource` (real EST
-  programs/leads as sample rows); deployed builds use the live proxy. Local can't
-  reach live data/sign-in — proxy CORS + Google origins are locked to the deploy
-  origin. Edits reset on reload (mock has no persistence yet).
+  development*). The app always uses `CodaSource` (the live proxy); the Worker's
+  CORS allowlist includes `localhost:8080`, so **reads work locally**. Sign-in and
+  writes locally also need `http://localhost:8080` added to the Google OAuth
+  client's authorized origins (one-time, in Google Cloud Console).
 - **LIVE at `plan.eastsidetribe.org`** (GitHub Pages). Phase 1 + Phase 2 **Plans
   1, 2a & 2b-i shipped** (Aug 2026): leaders **sign in with Google** and
   create/edit/approve planning events that persist to `EST Planning Events SRC`,
@@ -42,7 +42,8 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
   Proper types (native time; Month = `Date`=1st), refresh (button/focus/60s poll).
 - **Proxy: deployed** at `est-planning-proxy.eastsidetribe.workers.dev` —
   **doc-scoped read+write** token, `ALLOW_WRITES="true"`, `GOOGLE_CLIENT_ID` set,
-  CORS locked to the app origin. Serves `GET /rows`, `GET /ref/:name`, `GET /me`
+  CORS locked to an allowlist (the app origin + `localhost:8080` for local dev).
+  Serves `GET /rows`, `GET /ref/:name`, `GET /me`
   (verifies the Google JWT → matches email to `EST People SRC` → role), and
   role-gated writes that inject person attribution. Points at
   `EST Planning Events SRC` (`grid--gYIvdD-cE`).
@@ -67,9 +68,9 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 3. **Downstream lives in Superhuman Docs, not here.** The app's scope ends at
    "approved." Eventbrite/gCal/Mailchimp/socials are Superhuman Docs automations.
 4. **Keep the data-layer seam clean.** The app normalizes every event to one
-   shape and converts Coda rows via `codaRowToEvent` / `eventToCodaCells`. Going
-   live = swap `MockSource` for `CodaSource` (a commented template is in the file).
-   **The UI must not change when the data source changes.**
+   shape and converts Coda rows via `planningRowToEvent` / `eventToCodaCells`
+   inside `CodaSource` (the single data source; the in-memory mock was removed).
+   **The UI reads only normalized events — it must not learn the Coda row shape.**
 5. **Deploy standalone, keep DNS at Hover.** The app ships to GitHub Pages at
    `plan.eastsidetribe.org` via a single `plan CNAME mrbadduck.github.io` record.
    `eastsidetribe.org` also carries the Strikingly marketing site (apex/`www`) and
@@ -98,12 +99,14 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 
 ## How the app (`web/index.html`) is built
 
-Single file. All logic in one `<script>`. Key pieces, top to bottom:
+Split into `web/index.html` + `web/styles.css` + `web/app.js` (buildless; all
+logic in `app.js`). Key pieces of `app.js`, top to bottom:
 
-- **Data layer** (the swappable part): `PROGRAMS`, `PEOPLE`, `MOCK_CODA_ROWS`
-  (shaped like Coda's list-rows response), `codaRowToEvent`, `eventToCodaCells`,
-  `MockSource` (in-memory), and a commented **`CodaSource`** template that hits
-  the proxy. `const DB = MockSource;` is the single line to flip.
+- **Data layer**: `PROGRAMS`/`PEOPLE` (built-in palette + editor picker seeds,
+  the programs list is replaced live from `/ref/programs`), `MOCK_REFS` (built-in
+  holiday/partner overlays, still awaiting Hebcal), `planningRowToEvent` /
+  `eventToCodaCells`, and **`CodaSource`** — the single live data source hitting
+  the proxy. `const DB = CodaSource;` (the in-memory mock was removed).
 - **State**: `state` object (program year, current view, layers, role, events).
   Program year runs **Sep→Aug**.
 - **Event model**: normalized event with `scheduling ∈ {exact, range, month}`.

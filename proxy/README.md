@@ -2,8 +2,11 @@
 
 A Cloudflare Worker that holds the Superhuman Docs (Coda) API token server-side
 and exposes planning rows to the calendar app. The token never reaches the browser.
-Phase 1 is **read-only** (read-scoped token, CORS locked to `plan.eastsidetribe.org`);
-writes are gated by Google Sign-In + an allowlist in Phase 2. See `../docs/architecture.md`.
+Reads (`GET /rows`, `GET /ref/*`) are unauthenticated; writes are gated by Google
+Sign-In + role (verified server-side). CORS is an allowlist in `ALLOWED_ORIGIN`
+(comma-separated) — the deploy origin `plan.eastsidetribe.org` plus
+`http://localhost:8080` / `http://127.0.0.1:8080` for local dev. The Worker reflects
+the request's Origin when it's on the list. See `../docs/architecture.md`.
 
 ## Local dev
     cp .dev.vars.example .dev.vars   # fill in real values (gitignored)

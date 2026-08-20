@@ -110,7 +110,11 @@ export default {
 };
 
 function corsHeaders(origin, env) {
-  const allow = env.ALLOWED_ORIGIN ? (origin === env.ALLOWED_ORIGIN ? origin : env.ALLOWED_ORIGIN) : (origin || '*');
+  // ALLOWED_ORIGIN may be a comma-separated allowlist (e.g. the deploy origin
+  // plus http://localhost:8080 for local dev). Reflect the request's Origin when
+  // it's on the list; otherwise fall back to the first (canonical) entry.
+  const list = (env.ALLOWED_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+  const allow = list.length ? (list.includes(origin) ? origin : list[0]) : (origin || '*');
   return {
     'Access-Control-Allow-Origin': allow,
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
