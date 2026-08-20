@@ -10,6 +10,7 @@
  *   POST   /rows        create a row  (body: { rows: [{ cells: [...] }] })
  *   PUT    /rows/:id    update a row  (body: { row:  { cells: [...] } })
  *   DELETE /rows/:id    delete a row
+ *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN  (secret)  doc/table-scoped token, read+write
@@ -50,23 +51,8 @@ export default {
           return json({ error: 'writes disabled (Phase 1 is read-only)' }, 403, cors);
 
         if (request.method === 'GET' && !rowId) {
-          // Aggregate all pages so date-relevant rows are never dropped by the
-          // 200-row page cap (EST Events SRC spans more than one page).
-          const items = [];
-          let pageToken = null, pages = 0;
-          do {
-            const u = new URL(rowsUrl);
-            u.searchParams.set('useColumnNames', 'true');
-            u.searchParams.set('valueFormat', 'simpleWithArrays');
-            u.searchParams.set('limit', '200');
-            if (pageToken) u.searchParams.set('pageToken', pageToken);
-            const r = await fetch(u.toString(), { headers: auth });
-            if (!r.ok) return pass(r, cors);
-            const j = await r.json();
-            if (Array.isArray(j.items)) items.push(...j.items);
-            pageToken = j.nextPageToken || null;
-          } while (pageToken && ++pages < 6);
-          return json({ items }, 200, cors);
+          const out = await readAllRows(rowsUrl, auth);
+          return out.ok ? json({ items: out.items }, 200, cors) : pass(out.resp, cors);
         }
         if (request.method === 'POST' && !rowId)
           return pass(await fetch(rowsUrl, { method: 'POST', headers: auth, body: await request.text() }), cors);
@@ -74,6 +60,15 @@ export default {
           return pass(await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: await request.text() }), cors);
         if (request.method === 'DELETE' && rowId)
           return pass(await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth }), cors);
+      }
+      if (parts[0] === 'ref' && request.method === 'GET') {
+        // Read-only reference lists for the editor's relation pickers. Only the
+        // allowlisted tables below are reachable — never arbitrary tables.
+        const REF = { programs: 'grid-g87NFbtqN8', people: 'grid-X316Eql8dE', venues: 'grid-foC40iAOaX', 'venue-types': 'grid-idEVRQX7SL' };
+        const refTable = REF[parts[1]];
+        if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
+        const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
+        return out.ok ? json({ items: out.items }, 200, cors) : pass(out.resp, cors);
       }
       return json({ error: 'not found' }, 404, cors);
     } catch (e) {
@@ -96,3 +91,23 @@ const json = (obj, status, cors) =>
   new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json', ...cors } });
 const pass = async (r, cors) =>
   new Response(await r.text(), { status: r.status, headers: { 'Content-Type': 'application/json', ...cors } });
+
+// Read every page of a table's rows (column names + simpleWithArrays), aggregated.
+// Returns { ok:true, items } or { ok:false, resp } carrying the upstream error.
+async function readAllRows(rowsUrl, auth) {
+  const items = [];
+  let pageToken = null, pages = 0;
+  do {
+    const u = new URL(rowsUrl);
+    u.searchParams.set('useColumnNames', 'true');
+    u.searchParams.set('valueFormat', 'simpleWithArrays');
+    u.searchParams.set('limit', '200');
+    if (pageToken) u.searchParams.set('pageToken', pageToken);
+    const r = await fetch(u.toString(), { headers: auth });
+    if (!r.ok) return { ok: false, resp: r };
+    const j = await r.json();
+    if (Array.isArray(j.items)) items.push(...j.items);
+    pageToken = j.nextPageToken || null;
+  } while (pageToken && ++pages < 6);
+  return { ok: true, items };
+}
