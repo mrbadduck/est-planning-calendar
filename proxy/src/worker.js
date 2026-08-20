@@ -11,15 +11,17 @@
  *   PUT    /rows/:id    update a row  (body: { row:  { cells: [...] } })
  *   DELETE /rows/:id    delete a row
  *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
+ *   GET    /me          verify Google token -> { signedIn, name, canWrite, canApprove }
  *
  * Config (see wrangler.toml and .dev.vars.example):
- *   CODA_API_TOKEN  (secret)  doc/table-scoped token, read+write
- *   CODA_DOC_ID     (var)     Mission Control doc id
- *   CODA_TABLE_ID   (var)     planning table id
- *   CODA_API_BASE   (var)     default https://coda.io/apis/v1 (still resolves post-rename)
- *   ALLOWED_ORIGIN  (var)     optional; lock CORS to the app's deploy origin
- *   ALLOW_WRITES    (var)     optional; 'true' enables POST/PUT/DELETE (Phase 2)
- *   APP_KEY         (secret)  optional shared secret required in X-App-Key header
+ *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
+ *   CODA_DOC_ID      (var)     Mission Control doc id
+ *   CODA_TABLE_ID    (var)     planning table id
+ *   CODA_API_BASE    (var)     default https://coda.io/apis/v1 (still resolves post-rename)
+ *   ALLOWED_ORIGIN   (var)     optional; lock CORS to the app's deploy origin
+ *   ALLOW_WRITES     (var)     'true' enables writes (also requires a write-authorized identity)
+ *   GOOGLE_CLIENT_ID (var)     OAuth client id; verified as the JWT `aud` for sign-in
+ *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 export default {
   async fetch(request, env) {
@@ -44,22 +46,45 @@ export default {
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
         const writing = request.method === 'POST' || request.method === 'PUT' || request.method === 'DELETE';
 
-        // Phase 1 is read-only. Writes stay disabled unless ALLOW_WRITES==='true'
-        // (Phase 2, alongside Google sign-in + allowlist). The token is also
-        // read-scoped in Phase 1, so this is defense in depth.
-        if (writing && env.ALLOW_WRITES !== 'true')
-          return json({ error: 'writes disabled (Phase 1 is read-only)' }, 403, cors);
+        if (writing) {
+          // Writes require the ALLOW_WRITES master switch AND a verified,
+          // write-authorized identity. Identity + attribution are derived HERE
+          // from the Google token — never trusted from the client.
+          if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+          let id;
+          try { id = await authIdentity(request, env, base, docId, auth); }
+          catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+          if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+
+          if (request.method === 'DELETE' && rowId)
+            return pass(await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth }), cors);
+
+          if ((request.method === 'POST' && !rowId) || (request.method === 'PUT' && rowId)) {
+            let body;
+            try { body = JSON.parse((await request.text()) || '{}'); }
+            catch (e) { return json({ error: 'bad body' }, 400, cors); }
+            const cellSets = request.method === 'POST'
+              ? (body.rows || []).map(r => (r.cells = r.cells || []))
+              : (body.row ? [body.row.cells = body.row.cells || []] : []);
+            // Approve = setting Status to Approved. Double-gate on canApprove (server-side).
+            const approving = cellSets.some(cells => cells.some(c => c.column === 'Status' && c.value === 'Approved'));
+            if (approving && !id.canApprove) return json({ error: 'approval requires Tribal Council' }, 403, cors);
+            const today = new Date().toISOString().slice(0, 10);
+            for (const cells of cellSets) {
+              setCell(cells, 'Edited by', [id.personId]);
+              if (request.method === 'POST') setCell(cells, 'Created by', [id.personId]);
+              if (approving) { setCell(cells, 'Approved by', [id.personId]); setCell(cells, 'Approved at', today); }
+            }
+            const target = request.method === 'POST' ? rowsUrl : `${rowsUrl}/${encodeURIComponent(rowId)}`;
+            return pass(await fetch(target, { method: request.method, headers: auth, body: JSON.stringify(body) }), cors);
+          }
+          return json({ error: 'bad write request' }, 400, cors);
+        }
 
         if (request.method === 'GET' && !rowId) {
           const out = await readAllRows(rowsUrl, auth);
           return out.ok ? json({ items: out.items }, 200, cors) : pass(out.resp, cors);
         }
-        if (request.method === 'POST' && !rowId)
-          return pass(await fetch(rowsUrl, { method: 'POST', headers: auth, body: await request.text() }), cors);
-        if (request.method === 'PUT' && rowId)
-          return pass(await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: await request.text() }), cors);
-        if (request.method === 'DELETE' && rowId)
-          return pass(await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth }), cors);
       }
       if (parts[0] === 'ref' && request.method === 'GET') {
         // Read-only reference lists for the editor's relation pickers. Only the
@@ -69,6 +94,13 @@ export default {
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
         const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
         return out.ok ? json({ items: out.items }, 200, cors) : pass(out.resp, cors);
+      }
+      if (parts[0] === 'me' && request.method === 'GET') {
+        let id = null;
+        try { id = await authIdentity(request, env, base, docId, auth); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id) return json({ signedIn: false }, 200, cors);
+        return json({ signedIn: true, matched: id.matched, name: id.name || null, canWrite: id.canWrite, canApprove: id.canApprove }, 200, cors);
       }
       return json({ error: 'not found' }, 404, cors);
     } catch (e) {
@@ -82,7 +114,7 @@ function corsHeaders(origin, env) {
   return {
     'Access-Control-Allow-Origin': allow,
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-App-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, X-App-Key, Authorization',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
@@ -110,4 +142,77 @@ async function readAllRows(rowsUrl, auth) {
     pageToken = j.nextPageToken || null;
   } while (pageToken && ++pages < 6);
   return { ok: true, items };
+}
+
+// Replace (or append) a cell by column name in a Coda cells array.
+function setCell(cells, column, value) {
+  const c = cells.find(x => x.column === column);
+  if (c) c.value = value; else cells.push({ column, value });
+}
+
+// --- Google ID-token verification (RS256 via JWKS) ---
+let _jwks = null, _jwksExp = 0;
+async function googleKeys() {
+  if (_jwks && Date.now() < _jwksExp) return _jwks;
+  const r = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+  const j = await r.json();
+  _jwks = {}; for (const k of j.keys) _jwks[k.kid] = k;
+  _jwksExp = Date.now() + 3600_000;                 // ~1h; Google keys rotate slowly
+  return _jwks;
+}
+function b64url(s) {
+  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  s += '='.repeat((4 - s.length % 4) % 4);
+  const bin = atob(s), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+async function verifyGoogleIdToken(token, clientId) {
+  const p = String(token || '').split('.');
+  if (p.length !== 3) throw new Error('malformed token');
+  const header = JSON.parse(new TextDecoder().decode(b64url(p[0])));
+  const payload = JSON.parse(new TextDecoder().decode(b64url(p[1])));
+  const jwk = (await googleKeys())[header.kid];
+  if (!jwk) throw new Error('unknown signing key');
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64url(p[2]), new TextEncoder().encode(`${p[0]}.${p[1]}`));
+  if (!ok) throw new Error('bad signature');
+  if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') throw new Error('bad iss');
+  if (payload.aud !== clientId) throw new Error('bad aud');
+  if (!payload.exp || Date.now() / 1000 > payload.exp) throw new Error('expired');
+  if (payload.email_verified !== true && payload.email_verified !== 'true') throw new Error('email unverified');
+  return String(payload.email || '').toLowerCase();
+}
+
+// --- email -> EST People SRC person + role (Program Lead/Tribal Council) ---
+const PEOPLE_TABLE = 'grid-X316Eql8dE';
+const ALL_EMAILS_COL = 'c-6HV3jKCecV';
+const WRITE_STATUSES = ['Program Lead', 'Tribal Council'];
+const APPROVE_STATUSES = ['Tribal Council'];
+async function resolvePerson(email, base, docId, auth) {
+  const u = new URL(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`);
+  u.searchParams.set('useColumnNames', 'true');
+  u.searchParams.set('valueFormat', 'simpleWithArrays');
+  u.searchParams.set('query', `${ALL_EMAILS_COL}:"${email}"`);
+  const r = await fetch(u.toString(), { headers: auth });
+  if (!r.ok) return null;
+  const row = ((await r.json()).items || [])[0];
+  if (!row) return null;
+  const st = row.values['Leadership Status'];
+  const list = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
+  return {
+    personId: row.id,
+    name: row.values['Full Name'] || email,
+    canWrite: list.some(s => WRITE_STATUSES.includes(s)),
+    canApprove: list.some(s => APPROVE_STATUSES.includes(s)),
+  };
+}
+// null = no Bearer token; throws = invalid token (-> 401); else identity object.
+async function authIdentity(request, env, base, docId, auth) {
+  const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  const email = await verifyGoogleIdToken(m[1], env.GOOGLE_CLIENT_ID);
+  const person = await resolvePerson(email, base, docId, auth);
+  if (!person) return { matched: false, email, canWrite: false, canApprove: false };
+  return { matched: true, ...person };
 }
