@@ -174,9 +174,14 @@ already define the normalized event. Going live is a **small** change, not a rew
    (Start/End → native time, dropped `Target month` → Month uses `Date`=1st,
    attribution → `EST People SRC` relations); added `/ref/:name` proxy endpoints;
    added refresh (button + tab-focus + 60s poll). Still read-only.
-3. **Plan 2b — auth + editor + writes:** Google sign-in + email→person match;
-   `ALLOW_WRITES=true` + read+write token; the editor (multi-program, venue cascade,
-   notes template); create/edit/approve with attribution + VP-only approve.
+3. **✅ Plan 2b-i (done, Aug 2026) — auth + write spine:** Google sign-in; Worker
+   verifies the JWT + matches email to `EST People SRC` (`All Emails`) + role gate
+   (write = Program Lead/Tribal Council; approve = Tribal Council); role-gated
+   writes inject person attribution (Created/Edited/Approved by, Approved at);
+   scalar create/edit/approve persist. Doc-scoped read+write token.
+4. **Plan 2b-ii — next:** editor relation pickers (multi-program; venue-type→venue
+   cascade; Planning Notes template); program palette from `/ref/programs`;
+   crossover coloring; full create-with-relations.
 4. **Later specs**: publish-out on approve (+ dedup via the publish-seam links);
    then the endpoint decision (replace vs. coexist).
 

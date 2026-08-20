@@ -31,15 +31,17 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 - **App: complete and working on in-memory mock data.** Open `web/index.html`
   in a browser to run it — no server, no build. Uses real EST programs/leads as
   sample rows. Edits reset on reload (mock has no persistence yet).
-- **LIVE (read-only) at `plan.eastsidetribe.org`** (GitHub Pages). Phased auth —
-  see `docs/architecture.md`. Phase 1 + Phase 2 **Plans 1 & 2a shipped** (Aug
-  2026): the app reads `EST Planning Events SRC` read-only, with proper types
-  (native time; Month = `Date`=1st), refresh (button/focus/60s poll), and
-  attribution columns as `EST People SRC` relations (populated in Plan 2b).
+- **LIVE at `plan.eastsidetribe.org`** (GitHub Pages). Phase 1 + Phase 2 **Plans
+  1, 2a & 2b-i shipped** (Aug 2026): leaders **sign in with Google** and
+  create/edit/approve planning events that persist to `EST Planning Events SRC`,
+  with server-verified identity + role gating and person-relation attribution.
+  Proper types (native time; Month = `Date`=1st), refresh (button/focus/60s poll).
 - **Proxy: deployed** at `est-planning-proxy.eastsidetribe.workers.dev` —
-  read-only (read-scoped token, CORS locked to the app origin, `ALLOW_WRITES`
-  unset), pointed at `EST Planning Events SRC` (`grid--gYIvdD-cE`); serves
-  `GET /rows` + read-only `GET /ref/:name` (programs/people/venues/venue-types).
+  **doc-scoped read+write** token, `ALLOW_WRITES="true"`, `GOOGLE_CLIENT_ID` set,
+  CORS locked to the app origin. Serves `GET /rows`, `GET /ref/:name`, `GET /me`
+  (verifies the Google JWT → matches email to `EST People SRC` → role), and
+  role-gated writes that inject person attribution. Points at
+  `EST Planning Events SRC` (`grid--gYIvdD-cE`).
 - **Mission Control doc identified:** doc id `DYAz_wCVfv`
   (`superhuman://docs/DYAz_wCVfv`). Real source tables: `EST Events SRC`
   (`grid-9TAt5vMMKH`), `EST Programs SRC` (`grid-g87NFbtqN8`), `EST People SRC`
@@ -140,24 +142,27 @@ App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
 (inverting the old Eventbrite-first flow). See `docs/phase2-planning-table.md`.**
 
 4. **Plan 1 — ✅ DONE (Aug 2026):** table created + seeded; proxy repointed; app
-   reads it read-only via `planningRowToEvent`. See
-   `docs/phase2-plan-1-table-and-read.md`.
-5. **Plan 2 — NEXT:** editor UX (multi-program; venue-type→venue cascade; split
-   **Event Description** / templated **Planning Notes**); reference-read proxy
-   endpoints (Programs/People/Venues/Venue Types) for the pickers; **Google
-   Sign-In + Worker JWT allowlist**; `ALLOW_WRITES=true` + read+write token; map
-   writes via `eventToCodaCells`; VP-only approve from real identity.
+   reads it read-only.
+5. **Plan 2a — ✅ DONE (Aug 2026):** proper types (native time; Month=`Date`=1st);
+   `/ref/:name` endpoints; refresh (button/focus/60s poll).
+6. **Plan 2b-i — ✅ DONE (Aug 2026):** Google sign-in + Worker JWT verify +
+   email→`EST People SRC` match + role gate (write = Program Lead/Tribal Council;
+   approve = Tribal Council); role-gated writes inject person attribution; scalar
+   create/edit/approve persist. See `docs/phase2-plan-2b-i-auth-writes.md`.
+7. **Plan 2b-ii — NEXT:** editor relation pickers (multi-program; venue-type→venue
+   cascade; Planning Notes template); source the program palette from
+   `/ref/programs`; crossover coloring; full create-with-relations.
 
 **Later:**
 
-6. **References live:** Hebcal JSON for Jewish holidays; shared Google Calendars
+8. **References live:** Hebcal JSON for Jewish holidays; shared Google Calendars
    synced into Superhuman Docs and read via the proxy.
-7. **Downstream automations** in Superhuman Docs (approved → Eventbrite/gCal/
+9. **Downstream automations** in Superhuman Docs (approved → Eventbrite/gCal/
    Mailchimp/socials).
-8. **Polish:** real mobile layout; active conflict warnings (overlaps / holiday
-   collisions at save time); per-person layer-toggle persistence.
-9. **(Optional) Embed** inside Mission Control if ever desired — validate
-   `web/embed-test/` in Compatibility mode first.
+10. **Polish:** real mobile layout; active conflict warnings; per-person
+    layer-toggle persistence. Consider a 2-token split (read-only doc token +
+    planning-write token) to tighten the Worker's write scope.
+11. **(Optional) Embed** inside Mission Control — validate `web/embed-test/` first.
 
 ## Open decisions
 
