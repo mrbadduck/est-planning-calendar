@@ -269,7 +269,7 @@ async function buildReferences(base, docId, auth) {
     try {
       const r = await fetch(url);
       if (!r.ok) { console.log(`references: ${name} feed HTTP ${r.status}, skipped`); continue; }
-      const parsed = parseVEvents(await r.text());
+      const parsed = parseVEvents(await r.text(), { expandUntil: hi });
       for (const ev of parsed) {
         if (ev.date < lo || ev.date > hi) continue;
         events.push({
