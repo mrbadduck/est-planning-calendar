@@ -59,9 +59,14 @@ break that flow.
    permissions, so we do **not** have to publish notes publicly. A viewer not
    signed into Google (in that browser) sees a request-access/sign-in state
    instead → the "Edit in Google Docs" button is the reliable fallback.
-3. **Coda's Document Generation Pack** can create a Google Doc **from a template
-   URL** into a chosen Drive folder, button/automation-triggered, returning the
-   new doc's URL. This is the provisioning mechanism.
+3. **Coda's official Google Drive pack** has a **Copy Doc** action that copies a
+   template Doc into a chosen Drive folder and returns the new doc's URL. This is
+   the provisioning mechanism. **Verified working 2026-08-20** — pack installed,
+   a template Doc + target folder created, and a canvas button running Copy Doc
+   tested successfully. (This supersedes the earlier third-party Document
+   Generation Pack candidate — the official pack removes the third-party-vetting
+   and pricing concerns.)
+   - Target Drive folder: `https://drive.google.com/drive/folders/1fZXRHWwKMD0FJFLWLUrw7r7kIWG_5sds`
 
 Sources captured in the brainstorming transcript (X-Frame-Options behavior;
 `/preview` vs publish-to-web; Document Generation Pack capabilities).
@@ -90,11 +95,14 @@ Sources captured in the brainstorming transcript (X-Frame-Options behavior;
 ## Coda-side setup (one-time, no app code)
 
 1. A **template Google Doc** containing the current `NOTES_TEMPLATE` checklist
-   (see [`web/app.js:24`](../../../web/app.js), `NOTES_TEMPLATE`).
+   (see [`web/app.js:24`](../../../web/app.js), `NOTES_TEMPLATE`). **Done** — a
+   template Doc exists in the target folder.
 2. A Drive **folder shared with the org** (edit access for leaders) so generated
-   docs inherit permissions and `/preview` works for signed-in viewers.
-3. **Document Generation Pack** configured to copy the template into that folder
-   and return the URL.
+   docs inherit permissions and `/preview` works for signed-in viewers. **Done** —
+   folder `1fZXRHWwKMD0FJFLWLUrw7r7kIWG_5sds` created. *Remaining: confirm its
+   sharing is org-edit so leaders inherit access and `/preview` works (spike #2).*
+3. **Official Google Drive pack — Copy Doc** action, copying the template into
+   that folder and returning the URL. **Verified** via a canvas button.
 4. Two new columns on `EST Planning Events SRC` (`grid--gYIvdD-cE`):
    - **`Notes Doc`** — URL/text; the generated doc link.
    - **`Create Notes Doc`** — boolean trigger flag.
@@ -148,17 +156,19 @@ taken now.
 
 ## Verification spikes (do these before building on the assumptions)
 
-1. **Document Generation Pack**: confirm create-from-template into a shared
-   folder returns a URL; confirm its Google-account/sharing model (which account
-   owns generated docs) and any **pricing**. It is a **third-party** pack acting
-   on the org's Drive — vet accordingly.
-2. **`/preview` embed**: confirm an org-shared (private) doc renders in an
-   iframe for a signed-in viewer, and confirm the degraded state when the viewer
-   is not Google-authed.
-3. **Automation on API write**: confirm a Coda automation fires on an
-   **API-driven** cell change (the proxy write), and **measure its latency** —
-   this sets the loading-wait expectation and decides whether the escape hatch
-   is needed.
+1. ~~**Document Generation Pack** vetting~~ — **DONE 2026-08-20.** Resolved by
+   using the **official** Google Drive pack (Copy Doc), tested working. No
+   third-party pack; no pricing/vetting concern. Remaining sub-item folded into
+   spike #2: confirm the target folder's **sharing** (org-edit) so leaders
+   inherit access and `/preview` works.
+2. **`/preview` embed + folder sharing**: confirm an org-shared (private) doc in
+   the target folder renders in an iframe for a signed-in viewer, and confirm the
+   degraded state when the viewer is not Google-authed.
+3. **Copy Doc in an automation, on API write**: the canvas-button test proves the
+   action works; confirm the same **Copy Doc action runs inside a Coda
+   automation** triggered by an **API-driven** cell change (the proxy flag
+   write), and **measure the automation latency** — this sets the loading-wait
+   expectation and decides whether the button-push escape hatch is needed.
 4. **Trigger write path**: confirm the app can write the `Create Notes Doc` flag
    through the existing role-gated proxy write path.
 
@@ -166,7 +176,9 @@ taken now.
 
 - **Automation latency** worse than expected → mitigated by loading indicator +
   timeout/retry, and by the button-push escape hatch.
-- **Third-party pack** on the org's Drive → vet account/sharing/pricing in spike 1.
+- ~~Third-party pack on the org's Drive~~ → resolved: using the **official**
+  Google Drive pack (Copy Doc), tested working 2026-08-20. Remaining: confirm
+  folder sharing (spike #2).
 - **Viewer not Google-authed** → preview degrades to the edit-in-tab button (still
   functional).
 - **Doc lifecycle** (row delete/duplicate → orphaned or shared docs) →
