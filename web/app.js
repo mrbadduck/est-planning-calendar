@@ -342,7 +342,7 @@ const CodaSource = {
   },
   async listReferences(){ return MOCK_REFS.slice(); },
   _wh(){ return { 'Content-Type':'application/json', 'Authorization':`Bearer ${state.idToken||''}` }; },
-  async _fail(r){ let t=await r.text(); try{ t=JSON.parse(t).error||t; }catch(_){} throw new Error(`save failed (${r.status})${t?': '+t:''}`); },
+  async _fail(r){ let t=await r.text(); try{ t=JSON.parse(t).error||t; }catch(_){} const e=new Error(`save failed (${r.status})${t?': '+t:''}`); e.status=r.status; throw e; },
   async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; }catch(_){} return e; },
   async update(e){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(e.id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); if(!r.ok) await this._fail(r); return e; },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
@@ -811,6 +811,7 @@ function applyLocal(e, remove){
 }
 async function saveEditor(approve){
   if(_saving) return;
+  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }   // token already dead → don't lose the edit to an optimistic revert
   const f=readForm();
   const isNew=!editing.id;
   const me=(state.identity && state.identity.name) || '';
@@ -830,7 +831,8 @@ async function saveEditor(approve){
     scheduleReconcile();
   }catch(err){
     applyLocal(e, true); if(prev) applyLocal(prev); rerender();
-    toast('Save failed — reverted','err'); console.warn('save failed:', err);
+    if(err && err.status===401) sessionExpired();
+    else { toast('Save failed — reverted','err'); console.warn('save failed:', err); }
   }finally{ _saving=false; }
 }
 async function reopenEditor(){
@@ -840,7 +842,7 @@ async function reopenEditor(){
   _saving=true;
   applyLocal(e); close(); rerender(); toast('Reopening…','busy');
   try{ await DB.update(e); markRecent(e.id, { e }); toast('Reopened','ok'); scheduleReconcile(); }
-  catch(err){ applyLocal(prev); rerender(); toast('Reopen failed — restored','err'); console.warn('reopen failed:', err); }
+  catch(err){ applyLocal(prev); rerender(); if(err && err.status===401) sessionExpired(); else { toast('Reopen failed — restored','err'); console.warn('reopen failed:', err); } }
   finally{ _saving=false; }
 }
 async function deleteEditor(){
@@ -855,7 +857,8 @@ async function deleteEditor(){
     toast('Deleted','ok'); scheduleReconcile();
   }catch(err){
     applyLocal(prev); rerender();
-    toast('Delete failed — restored','err'); console.warn('delete failed:', err);
+    if(err && err.status===401) sessionExpired();
+    else { toast('Delete failed — restored','err'); console.warn('delete failed:', err); }
   }finally{ _saving=false; }
 }
 
@@ -1057,6 +1060,28 @@ async function fetchMe(){
 }
 async function onCredential(resp){ state.idToken = (resp && resp.credential) || null; saveToken(state.idToken); await fetchMe(); }
 function signOut(){ state.idToken=null; state.identity=null; saveToken(null); try{ google.accounts.id.disableAutoSelect(); }catch(_){} renderAuth(); applyView(); }
+
+/* Google ID tokens expire ~1h. Keep the UI honest as the token ages and refresh
+   proactively so an idle tab doesn't silently go stale. */
+function tokenExpMs(){ const e=jwtClaims(state.idToken).exp; return e ? e*1000 : 0; }
+function sessionExpired(){
+  state.idToken=null; state.identity=null; saveToken(null);
+  renderAuth(); applyView();                        // reflect signed-out (Sign in button)
+  toast('Session expired — please sign in again','err');
+  try{ if(window.google && google.accounts && google.accounts.id) google.accounts.id.prompt(); }catch(_){}  // courtesy silent re-auth (works on the deploy origin)
+}
+let _reauthT=null;
+function checkAuthFreshness(){                       // called on tab focus + the 60s poll
+  if(!state.idToken) return;
+  const exp=tokenExpMs(); if(!exp) return;
+  const now=Date.now();
+  if(exp - now > 5*60*1000) return;                 // still comfortably fresh
+  try{ if(window.google && google.accounts && google.accounts.id) google.accounts.id.prompt(); }catch(_){}  // silent refresh before it lapses
+  if(exp <= now){                                   // already expired — if silent re-auth doesn't land, show signed-out
+    clearTimeout(_reauthT);
+    _reauthT=setTimeout(()=>{ if(!state.idToken || tokenExpMs() <= Date.now()) sessionExpired(); }, 3000);
+  }
+}
 function initAuth(){
   if(!GOOGLE_CLIENT_ID){ renderAuth(); return; }                         // not configured yet
   if(!state.idToken){ state.idToken = loadToken(); if(state.idToken) fetchMe(); } // restore persisted session, validate via /me
@@ -1082,8 +1107,8 @@ async function init(){
   applyHeaderMode();
   // Wire refresh/focus/poll up front so they work immediately (never dead while loading).
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
-  document.addEventListener('visibilitychange', () => { if(!document.hidden) refresh(); }); // refetch on tab focus
-  setInterval(() => { if(!document.hidden) refresh(); }, 60000);                            // light 60s poll while visible
+  document.addEventListener('visibilitychange', () => { if(!document.hidden){ refresh(); checkAuthFreshness(); } }); // refetch + re-check auth on tab focus
+  setInterval(() => { if(!document.hidden){ refresh(); checkAuthFreshness(); } }, 60000);    // light 60s poll while visible
 
   // Kick off ref loads — each hydrates its maps synchronously from cache, then
   // refreshes in the background. loadPeople is the slow one (/ref/people is many
