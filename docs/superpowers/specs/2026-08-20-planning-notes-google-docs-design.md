@@ -39,9 +39,11 @@ This was chosen over the two alternatives we explored:
 
 CLAUDE.md non-negotiables say Coda is the single source of truth (#1), the app
 owns no data (#4), and **orchestration/automation lives in Coda, not the app**
-(#3). This design honors #3 directly: **provisioning is a Coda automation**, and
-the app stays a thin view layer that reads a URL cell like any other field. The
-one departure is that Planning-Notes *content* now lives in Google Docs rather
+(#3). This design honors #3 directly: **the doc-generation logic lives in a Coda
+row button** (Copy Doc + write-back), not in the app; the app only reads the
+resulting URL cell and *triggers* the button through the proxy. The app stays a
+thin view layer. The one departure is that Planning-Notes *content* now lives in
+Google Docs rather
 than a Coda cell — an accepted, scoped trade for internal notes only. Event
 Description, which flows **downstream** through Coda automations
 (Eventbrite/Mailchimp), stays in Coda precisely because pulling it out would
@@ -87,10 +89,10 @@ Sources captured in the brainstorming transcript (X-Frame-Options behavior;
 |---|---|
 | Planning-notes **content** | Google Docs (one doc per event) |
 | Notes doc **reference** (URL) | Coda `Notes Doc` column on the planning table |
-| Notes doc **provisioning** | Coda automation + Document Generation Pack |
+| Notes doc **provisioning** | Coda row button (Copy Doc + write-back), pushed via the proxy |
 | Notes doc **template/checklist** | A template Google Doc (holds `NOTES_TEMPLATE`) |
 | **Rendering** preview + edit link | The app (thin view layer) |
-| Auth / role gating for the trigger write | Existing Worker proxy (unchanged surface) |
+| Auth / role gating + button push | Worker proxy (small new role-gated `POST /notes-doc` route) |
 
 ## Coda-side setup (one-time, no app code)
 
@@ -103,12 +105,14 @@ Sources captured in the brainstorming transcript (X-Frame-Options behavior;
    sharing is org-edit so leaders inherit access and `/preview` works (spike #2).*
 3. **Official Google Drive pack — Copy Doc** action, copying the template into
    that folder and returning the URL. **Verified** via a canvas button.
-4. Two new columns on `EST Planning Events SRC` (`grid--gYIvdD-cE`):
+4. On `EST Planning Events SRC` (`grid--gYIvdD-cE`):
    - **`Notes Doc`** — URL/text; the generated doc link.
-   - **`Create Notes Doc`** — boolean trigger flag.
-5. A **Coda automation**: *when `Create Notes Doc` becomes true AND `Notes Doc`
-   is empty* → run the pack to generate the doc → write the URL into `Notes Doc`
-   → clear `Create Notes Doc`.
+   - **`Create notes doc`** — a **button column** whose action runs **Copy Doc**
+     (template → target folder) and writes the returned URL into
+     `thisRow.[Notes Doc]`. (The tested Copy Doc button, moved to a row button +
+     write-back.)
+5. **No separate automation rule and no trigger flag** — the app pushes this
+   button via the proxy (see *Provisioning-trigger* below).
 
 ## App behavior (the actual code change)
 
@@ -120,8 +124,9 @@ line ~710; conversion in `planningRowToEvent`/`eventToCodaCells`, lines ~249,
   button (opens `…/edit` in a new tab). A fallback line ("Sign in to Google to
   preview, or open in Google Docs") covers the not-Google-authed viewer.
 - **Doc absent** → a **"Create notes doc"** button. On click:
-  1. Write `Create Notes Doc = true` via the **existing proxy write path**
-     (role-gated exactly like other writes).
+  1. Call the **proxy button-push route** (`POST /notes-doc` with the row id),
+     role-gated exactly like other writes; the proxy pushes the row's Copy Doc
+     button via the Coda API.
   2. Show a **loading indicator** ("Setting up your notes doc…").
   3. **Temporarily fast-poll** (~3s interval) for `Notes Doc` to populate, then
      swap to the preview. Resume the normal 60s poll afterward.
@@ -136,23 +141,39 @@ line ~710; conversion in `planningRowToEvent`/`eventToCodaCells`, lines ~249,
 ### Data-layer seam
 
 Per CLAUDE.md #4, the UI reads only normalized events. Add a normalized field
-(e.g. `notesDocUrl`) populated in `planningRowToEvent` from the `Notes Doc` cell,
-and have `eventToCodaCells` write the `Create Notes Doc` flag. The UI must not
-learn the Coda column names directly.
+`notesDocUrl`, populated in `planningRowToEvent` from the `Notes Doc` cell
+(**done** in the spike). Provisioning is **not** a cell write in
+`eventToCodaCells` — it's a distinct action: the app calls the proxy's
+`POST /notes-doc` (row id) to push the button. The UI must not learn the Coda
+column/button names directly.
 
-## Provisioning-trigger trade-off (chosen, with an escape hatch)
+## Provisioning-trigger (chosen: push the row button via the Coda API)
 
-**Chosen:** trigger via a **flag cell + Coda automation** — keeps the Worker's
-surface untouched. **Caveat:** the real latency floor is Coda's automation
-cadence, not our poll rate, so the loading wait is bounded by Coda, not by us.
-The fast-poll + loading indicator manage the *perceived* wait; they cannot beat
-the automation's own latency.
+**Chosen 2026-08-20:** the app calls a **small, role-gated proxy route** that
+**pushes a row button** via the Coda API
+(`POST /docs/{docId}/tables/{tableId}/rows/{rowId}/buttons/{columnId}`). The
+button's action runs **Copy Doc** and writes the returned URL into
+`thisRow.[Notes Doc]`. The push returns a request id; the app then fast-polls the
+row until `Notes Doc` populates.
 
-**Escape hatch (only if the spike shows automation latency is unacceptable):**
-trigger a Coda **button via the API** (`PushButton`) wired to the pack action,
-which fires more promptly. This requires a **small, role-gated Worker addition**
-(a button-push route) and is therefore a deliberate, separate decision — not
-taken now.
+**Why this over the alternatives we considered:**
+
+| | Flag cell + row-change automation | Webhook automation | **Push button via API (chosen)** |
+|---|---|---|---|
+| Worker change | none | new route **+ new webhook secret** | new route, **no new secret** (reuses the existing doc-scoped token) |
+| Trigger latency | slowest (row-change cadence) | prompt | prompt |
+| Row targeting | flag column on the row | `rowId` in payload + `ParseJSON` | **native** (push on that row) |
+| Coda config | automation + flag column + clear step | webhook automation + payload parse | **just a row button** (≈ the tested Copy Doc button) + write-back |
+
+The push-button route reuses the **same doc-scoped Coda token the proxy already
+holds** (no new secret — honors CLAUDE.md #2), is natively row-scoped (no flag
+column, no payload parsing), and needs the least Coda-side config. It does mean a
+**small role-gated Worker addition** (the button-push route, gated like other
+writes: Program Lead / Tribal Council).
+
+**Note:** pushing the button (like any Coda button action) executes
+asynchronously server-side — the API returns a request id, not the doc URL — so
+the fast-poll for `Notes Doc` remains the mechanism that surfaces the result.
 
 ## Verification spikes (do these before building on the assumptions)
 
@@ -169,13 +190,14 @@ taken now.
    frame + our "Edit in Google Docs" fallback. Spike code lives on
    `feat/planning-notes-google-docs` (`notesDocPanelHTML` etc. in `web/app.js`),
    additive — legacy notes textarea preserved.
-3. **Copy Doc in an automation, on API write**: the canvas-button test proves the
-   action works; confirm the same **Copy Doc action runs inside a Coda
-   automation** triggered by an **API-driven** cell change (the proxy flag
-   write), and **measure the automation latency** — this sets the loading-wait
-   expectation and decides whether the button-push escape hatch is needed.
-4. **Trigger write path**: confirm the app can write the `Create Notes Doc` flag
-   through the existing role-gated proxy write path.
+3. **Row button: Copy Doc + write-back, pushed via API**: the canvas-button test
+   proves Copy Doc works; confirm a **row button** whose action runs Copy Doc
+   **and writes the returned URL into `thisRow.[Notes Doc]`**, and that
+   **pushing it via the Coda buttons API** fires that action. Measure the
+   round-trip (push → `Notes Doc` populated) to set the loading-wait expectation.
+4. **Proxy button-push route**: confirm the new role-gated route
+   (`POST /notes-doc` → Coda `PushButton`) works with the proxy's existing
+   doc-scoped token and the Google-JWT/role gate.
 
 ## Risks
 
