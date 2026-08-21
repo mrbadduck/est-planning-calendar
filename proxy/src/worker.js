@@ -12,6 +12,7 @@
  *   DELETE /rows/:id    delete a row
  *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
  *   GET    /me          verify Google token -> { signedIn, name, canWrite, canApprove }
+ *   POST   /notes-doc   push the row's notes-doc button by id (body: { rowId }) — role-gated
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -142,6 +143,26 @@ export default {
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id) return json({ signedIn: false }, 200, cors);
         return json({ signedIn: true, matched: id.matched, name: id.name || null, canWrite: id.canWrite, canApprove: id.canApprove }, 200, cors);
+      }
+      if (parts[0] === 'notes-doc' && request.method === 'POST') {
+        // Provision a Planning-Notes Google Doc by pushing the row's notes-doc
+        // button (by id) via the Coda API. Same write gate as row writes; reuses
+        // the doc-scoped token (no new secret). The button itself runs the Google
+        // Drive pack's Copy file and writes the URL back into the Notes Doc column.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        const buttonId = env.CODA_NOTES_BUTTON_ID;
+        if (!buttonId) return json({ error: 'proxy not configured (CODA_NOTES_BUTTON_ID)' }, 500, cors);
+        let id;
+        try { id = await authIdentity(request, env, base, docId, auth); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        let body;
+        try { body = JSON.parse((await request.text()) || '{}'); }
+        catch (e) { return json({ error: 'bad body' }, 400, cors); }
+        const rowId = body.rowId;
+        if (!rowId) return json({ error: 'rowId required' }, 400, cors);
+        const btnUrl = `${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}/buttons/${encodeURIComponent(buttonId)}`;
+        return pass(await fetch(btnUrl, { method: 'POST', headers: auth }), cors);
       }
       return json({ error: 'not found' }, 404, cors);
     } catch (e) {
