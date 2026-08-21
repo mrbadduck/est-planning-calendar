@@ -586,7 +586,7 @@ function legendHTML(){
       <div style="font-size:11.5px;color:var(--muted)">Ideas without a firm day sit in the left gutter (Calendar) or the month footer (Overview), anchored to their rough week or month.</div>
     </div>
     <div class="fld full" style="border-top:1px dashed var(--hair);padding-top:10px">
-      <div style="font-size:11px;color:var(--faint)"><b style="color:var(--muted)">Mock preview.</b> Edits are in-memory and reset on reload; programs &amp; leads are real, holidays illustrative. The live version reads planning rows from the Coda <b>Mission Control</b> table and pulls holidays from Hebcal.</div>
+      <div style="font-size:11px;color:var(--faint)"><b style="color:var(--muted)">Reference calendars</b> (holidays, partner orgs) are read-only context pulled live from public feeds — toggle them under REFERENCE in the sidebar. Planning events read and write to the Coda <b>Mission Control</b> table.</div>
     </div>`;
 }
 function openInfo(){

@@ -10,8 +10,7 @@
     /* program hues */
     --p-kab:#6D5AE6; --p-din:#C0722E; --p-tot:#1F9488; --p-lit:#CE5590;
     --p-wan:#2F7DC4; --p-lch:#A23A5B; --p-sho:#4E9A3D; --p-oth:#5A5966;
-    /* reference (muted) */
-    --r-us:#9A9AA5; --r-jew:#B0904A; --r-part:#9C86A0; --r-shab:#8E9AB0;
+    /* reference layer colors now come per-calendar (hex) from /references */
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
