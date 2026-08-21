@@ -187,7 +187,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST \
   https://est-planning-proxy.eastsidetribe.workers.dev/notes-doc
 ```
 
-Expected: `401` (no Google token → `authIdentity` throws → invalid token). This proves the route exists and is gated. (A real authed push is exercised end-to-end in Task 6.)
+Expected: `403` (`writes disabled` if `ALLOW_WRITES` is off, otherwise `not authorized` — with no `Authorization` header `authIdentity` returns `null`, so the `!id` gate yields 403; only a *malformed* token would 401). Either way it proves the route exists and is gated. (A real authed push is exercised end-to-end in Task 6.)
 
 - [ ] **Step 6: Commit**
 
