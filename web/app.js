@@ -321,7 +321,9 @@ function planningRowToEvent(r){
     status: String(v['Status'] || 'idea').toLowerCase(),
     description: v['Event Description'] || '',
     planningNotes: v['Planning Notes'] || '',
-    notesDocUrl: v['Notes Doc'] || '',                   // Google Doc for internal notes (Coda-provisioned)
+    // proxy injects notesDocUrl resolved by the stable column id (rename-proof);
+    // Notes Doc is a Coda link column, so the value may be a string or {url,name}.
+    notesDocUrl: (typeof r.notesDocUrl === 'string' ? r.notesDocUrl : (r.notesDocUrl && (r.notesDocUrl.url || r.notesDocUrl.name))) || '',
     createdBy: _asList(v['Created by'])[0] || '', editedBy: _asList(v['Edited by'])[0] || '',
     eventbriteUrl:'', gcalId:'', readOnly:true,          // writes come in Plan 2b
     scheduling: sched,

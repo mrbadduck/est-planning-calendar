@@ -24,6 +24,20 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
+
+// Resolve a column's CURRENT name from its stable id (cached per isolate) so the
+// app can read a value by id even after the column is renamed in Coda.
+const _colNameCache = new Map();   // colId -> { name, exp }
+async function columnName(base, docId, tableId, colId, auth){
+  const hit = _colNameCache.get(colId);
+  if (hit && hit.exp > Date.now()) return hit.name;
+  const r = await fetch(`${base}/docs/${docId}/tables/${tableId}/columns/${encodeURIComponent(colId)}`, { headers: auth });
+  if (!r.ok) return null;
+  const j = await r.json();
+  const name = (j && j.name) || null;
+  if (name) _colNameCache.set(colId, { name, exp: Date.now() + 5 * 60 * 1000 });
+  return name;
+}
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -84,7 +98,11 @@ export default {
 
         if (request.method === 'GET' && !rowId) {
           const out = await readAllRows(rowsUrl, auth);
-          return out.ok ? json({ items: out.items }, 200, cors) : pass(out.resp, cors);
+          if (!out.ok) return pass(out.resp, cors);
+          // Anchor the notes URL to its stable column id, not its (renameable) name.
+          const nm = env.CODA_NOTES_COL_ID ? await columnName(base, docId, tableId, env.CODA_NOTES_COL_ID, auth) : null;
+          if (nm) for (const it of out.items) { it.notesDocUrl = (it.values || {})[nm]; }
+          return json({ items: out.items }, 200, cors);
         }
       }
       if (parts[0] === 'ref' && request.method === 'GET') {
