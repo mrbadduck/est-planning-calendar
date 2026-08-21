@@ -312,6 +312,11 @@
   .ndoc-empty .btn{align-self:flex-start}
   .ndoc-warn{font-size:12px;color:#9A7B2E}
   .legacynotes{white-space:pre-wrap;font-size:12px;color:var(--muted);background:#F7F6F3;border:1px solid var(--hair);border-radius:6px;padding:8px 10px}
+  .refdesc{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.5;color:var(--muted);background:#F7F6F3;border:1px solid var(--hair);border-radius:6px;padding:8px 10px;max-height:220px;overflow-y:auto}
+  .refdesc a{color:var(--accent);text-decoration:none}
+  .refdesc a:hover{text-decoration:underline}
+  .reflink{color:var(--accent);font-weight:500;font-size:12px;text-decoration:none}
+  .reflink:hover{text-decoration:underline}
 
   /* legend footer */
   .legend{max-width:1180px;margin:14px auto 0;padding:0 18px;color:var(--faint);font-size:11px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}

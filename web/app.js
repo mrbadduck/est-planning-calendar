@@ -723,11 +723,16 @@ function openEditor(ev){
   const actions=document.getElementById('mActions');
   const body=document.getElementById('mBody');
   if(isRef){
-    actions.innerHTML = `<span class="badge b-ref">${esc(REF[ev.refLayer].name)}</span>`;
+    const R = REF[ev.refLayer] || {name:'Reference', color:'#888'};
+    actions.innerHTML = `<span class="badge b-ref">${esc(R.name)}</span>`;
+    const when = ev.allDay ? `All day · ${fmtDate(ev.date)}` : fmtDateTimeRange(ev.start, ev.end);
     body.innerHTML = `
       <div class="fld full"><label>Title</label><input value="${esc(ev.title)}" disabled></div>
-      <div class="fld"><label>Date</label><input value="${fmtDate(ev.date)}" disabled></div>
-      <div class="fld"><label>Calendar</label><input value="${REF[ev.refLayer].name}" disabled></div>
+      <div class="fld full"><label>When</label><input value="${esc(when)}" disabled></div>
+      ${ev.location ? `<div class="fld full"><label>Location</label><input value="${esc(ev.location)}" disabled></div>` : ''}
+      ${ev.description ? `<div class="fld full"><label>Description</label><div class="refdesc">${linkify(ev.description)}</div></div>` : ''}
+      ${ev.url ? `<div class="fld full"><a class="reflink" href="${esc(ev.url)}" target="_blank" rel="noopener">Open event ↗</a></div>` : ''}
+      <div class="fld full"><label>Calendar</label><input value="${esc(R.name)}" disabled></div>
       <div class="locknote">Read-only reference calendar. Toggle it off in the top strip to hide this layer.</div>`;
     document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
     show(); return;
@@ -1208,5 +1213,18 @@ async function init(){
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function cap(s){return s?s[0].toUpperCase()+s.slice(1):s;}
 function fmtDate(ds){const [y,m,d]=ds.split('-').map(Number);return `${WD[new Date(y,m-1,d).getDay()]}, ${MONTHS[m-1]} ${d}, ${y}`;}
+// Reference-event datetime formatting. `iso` is a UTC (…Z) or naive datetime;
+// rendered in the viewer's local time zone (EST leaders are in Nashville).
+function fmtTime(iso){ return new Date(iso).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
+function fmtDateTimeAt(iso){ const d=new Date(iso); return `${WD[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} · ${fmtTime(iso)}`; }
+function fmtDateTimeRange(startIso, endIso){
+  if(!startIso) return '';
+  const start=fmtDateTimeAt(startIso);
+  if(!endIso) return start;
+  const sd=new Date(startIso), ed=new Date(endIso);
+  return sd.toDateString()===ed.toDateString() ? `${start} – ${fmtTime(endIso)}` : `${start} – ${fmtDateTimeAt(endIso)}`;
+}
+// Escape text, then turn bare URLs into safe links (used for ref descriptions).
+function linkify(text){ return esc(text).replace(/(https?:\/\/[^\s<]+)/g, u=>`<a href="${u}" target="_blank" rel="noopener">${u}</a>`); }
 
 init();
