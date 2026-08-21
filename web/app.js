@@ -680,10 +680,11 @@ function notesDocPanelHTML(ev, canEdit){
 }
 // Poll the server rows (bypassing the _recent optimistic overlay via listPlanning)
 // until the Copy file button has written the URL into the Notes Doc column, then
-// swap the panel to the embed. ~3s cadence, ~90s ceiling.
+// swap the panel to the embed. ~3s cadence, ~40-tick (~3 min) ceiling — the
+// pack-action URL write-back can lag ~50s in Coda's list-rows API.
 async function pollForNotesDoc(rowId, tries, gen){
   const el = () => document.getElementById('f_ndoc');
-  if(tries >= 30){
+  if(tries >= 40){
     const e=el(); if(e && (!editing || editing.id===rowId))
       e.innerHTML=`<div class="ndoc-warn">Still setting up — this can take a minute. Reopen the event to check.</div>`;
     return;
@@ -700,6 +701,23 @@ async function pollForNotesDoc(rowId, tries, gen){
     return;
   }
   pollForNotesDoc(rowId, tries+1, gen);
+}
+
+// Push the row's notes-doc button, retrying past Coda's read-after-write lag: a
+// just-created row 404s from the buttons API for ~20-30s until Coda settles it.
+// Returns 'ok' | 'failed' | 'cancelled'. Runs under the spinner; the gen token
+// cancels it if the editor closes or a newer create starts.
+async function pushNotesDocButton(rowId, gen){
+  const deadline = performance.now() + 60000;   // Coda row-settle lag observed 25-45s; budget past it
+  for(;;){
+    if(gen !== _ndocGen) return 'cancelled';
+    try{ await DB.createNotesDoc(rowId); return 'ok'; }
+    catch(err){
+      if(err && err.status===404 && performance.now() < deadline){ await new Promise(r=>setTimeout(r, 4000)); continue; }
+      console.warn('notes-doc push failed:', err && err.status, err && err.message);
+      return 'failed';
+    }
+  }
 }
 
 function openEditor(ev){
@@ -783,11 +801,13 @@ function openEditor(ev){
   if(ndoc) ndoc.addEventListener('click', async e=>{
     const b=e.target.closest('[data-act="ndoc-create"]'); if(!b) return;
     if(!editing || !editing.id){ toast('Save the event first','err'); return; }
-    ndoc.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Setting up your notes doc…</div>`;
+    ndoc.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Setting up your notes doc… <span class="hint">(this can take up to a minute)</span></div>`;
     const gen = ++_ndocGen;
-    try{ await DB.createNotesDoc(editing.id); }
-    catch(err){ toast(err.message||'Could not start','err'); ndoc.innerHTML=NDOC_CREATE_HTML; return; }
-    pollForNotesDoc(editing.id, 0, gen);
+    const rowId = editing.id;
+    const pushed = await pushNotesDocButton(rowId, gen);   // retries past Coda's row-settle lag
+    if(pushed==='cancelled') return;                       // editor closed / superseded
+    if(pushed!=='ok'){ toast('Could not start — try again in a moment','err'); if(document.getElementById('f_ndoc')) ndoc.innerHTML=NDOC_CREATE_HTML; return; }
+    pollForNotesDoc(rowId, 0, gen);
   });
 
   // program chips: toggle + append that program's Current Leads when selected
