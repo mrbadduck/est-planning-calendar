@@ -660,8 +660,9 @@ function collectWhen(){
    A Google Doc holds internal planning notes; Coda provisions it and stores the
    URL in the `Notes Doc` column (-> ev.notesDocUrl). We embed a read-only
    /preview iframe (renders only for a viewer signed into Google with access)
-   and link out to /edit for real editing. While the Coda provisioning path is
-   not wired yet, an empty state lets you paste any Doc URL to test the embed. */
+   and link out to /edit for real editing. An empty state offers a "Create notes
+   doc" button that pushes the Coda button via the proxy; we then poll until the
+   URL lands and swap in the read-only /preview embed. */
 const _gdocId = u => { const m=String(u||'').match(/\/document\/d\/([A-Za-z0-9_-]+)/); return m?m[1]:''; };
 const gdocPreviewUrl = u => { const id=_gdocId(u); return id?`https://docs.google.com/document/d/${id}/preview`:''; };
 const gdocEditUrl    = u => { const id=_gdocId(u); return id?`https://docs.google.com/document/d/${id}/edit`:(u||''); };
@@ -674,6 +675,7 @@ function notesDocEmbedHTML(url){
       <span class="hint">Preview needs you signed into Google with access to the doc.</span>
     </div>`;
 }
+let _ndocGen = 0;   // bumped when the editor closes / a new create starts — cancels stale notes-doc polls
 const NDOC_CREATE_HTML = `<div class="ndoc-empty">
   <button type="button" class="btn sm primary" data-act="ndoc-create">Create notes doc</button>
   <span class="hint">Generates a Google Doc from the planning template.</span>
@@ -690,7 +692,7 @@ function notesDocPanelHTML(ev, canEdit){
 // Poll the server rows (bypassing the _recent optimistic overlay via listPlanning)
 // until the Copy file button has written the URL into the Notes Doc column, then
 // swap the panel to the embed. ~3s cadence, ~90s ceiling.
-async function pollForNotesDoc(rowId, tries){
+async function pollForNotesDoc(rowId, tries, gen){
   const el = () => document.getElementById('f_ndoc');
   if(tries >= 30){
     const e=el(); if(e && (!editing || editing.id===rowId))
@@ -698,6 +700,7 @@ async function pollForNotesDoc(rowId, tries){
     return;
   }
   await new Promise(r=>setTimeout(r, 3000));
+  if(gen !== _ndocGen) return;                 // editor closed or a newer create started — stop
   let ev=null;
   try{ const rows=await DB.listPlanning(); ev=rows.find(x=>x.id===rowId); }catch(_){}
   if(ev && ev.notesDocUrl){
@@ -707,7 +710,7 @@ async function pollForNotesDoc(rowId, tries){
     toast('Notes doc ready','ok');
     return;
   }
-  pollForNotesDoc(rowId, tries+1);
+  pollForNotesDoc(rowId, tries+1, gen);
 }
 
 function openEditor(ev){
@@ -792,9 +795,10 @@ function openEditor(ev){
     const b=e.target.closest('[data-act="ndoc-create"]'); if(!b) return;
     if(!editing || !editing.id){ toast('Save the event first','err'); return; }
     ndoc.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Setting up your notes doc…</div>`;
+    const gen = ++_ndocGen;
     try{ await DB.createNotesDoc(editing.id); }
     catch(err){ toast(err.message||'Could not start','err'); ndoc.innerHTML=NDOC_CREATE_HTML; return; }
-    pollForNotesDoc(editing.id, 0);
+    pollForNotesDoc(editing.id, 0, gen);
   });
 
   // program chips: toggle + append that program's Current Leads when selected
@@ -936,7 +940,7 @@ async function deleteEditor(){
    WIRING
    ========================================================================= */
 function show(){ document.getElementById('scrim').classList.add('open'); }
-function close(){ document.getElementById('scrim').classList.remove('open'); editing=null; }
+function close(){ _ndocGen++; document.getElementById('scrim').classList.remove('open'); editing=null; }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
