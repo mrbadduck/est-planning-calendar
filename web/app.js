@@ -674,16 +674,40 @@ function notesDocEmbedHTML(url){
       <span class="hint">Preview needs you signed into Google with access to the doc.</span>
     </div>`;
 }
-function notesDocPanelHTML(ev){
-  const inner = ev.notesDocUrl
-    ? notesDocEmbedHTML(ev.notesDocUrl)
-    : `<div class="ndoc-empty">
-         <input id="f_ndoc_url" type="url" placeholder="Paste a Google Doc URL to preview…" autocomplete="off">
-         <button type="button" class="btn sm" data-act="ndoc-preview">Preview</button>
-         <div class="hint">Spike: provisioning (a “Create notes doc” button backed by Coda) comes later.</div>
-       </div>`;
+const NDOC_CREATE_HTML = `<div class="ndoc-empty">
+  <button type="button" class="btn sm primary" data-act="ndoc-create">Create notes doc</button>
+  <span class="hint">Generates a Google Doc from the planning template.</span>
+</div>`;
+function notesDocPanelHTML(ev, canEdit){
+  let inner;
+  if(ev.notesDocUrl)          inner = notesDocEmbedHTML(ev.notesDocUrl);
+  else if(canEdit && ev.id)   inner = NDOC_CREATE_HTML;
+  else if(canEdit && !ev.id)  inner = `<div class="ndoc-empty"><span class="hint">Save the event first, then add a notes doc.</span></div>`;
+  else                        inner = `<div class="ndoc-empty"><span class="hint">No notes doc yet.</span></div>`;
   return `<div class="fld full"><label>Notes doc <span class="hint">(Google Docs)</span></label>
     <div class="ndoc" id="f_ndoc">${inner}</div></div>`;
+}
+// Poll the server rows (bypassing the _recent optimistic overlay via listPlanning)
+// until the Copy file button has written the URL into the Notes Doc column, then
+// swap the panel to the embed. ~3s cadence, ~90s ceiling.
+async function pollForNotesDoc(rowId, tries){
+  const el = () => document.getElementById('f_ndoc');
+  if(tries >= 30){
+    const e=el(); if(e && (!editing || editing.id===rowId))
+      e.innerHTML=`<div class="ndoc-warn">Still setting up — this can take a minute. Reopen the event to check.</div>`;
+    return;
+  }
+  await new Promise(r=>setTimeout(r, 3000));
+  let ev=null;
+  try{ const rows=await DB.listPlanning(); ev=rows.find(x=>x.id===rowId); }catch(_){}
+  if(ev && ev.notesDocUrl){
+    if(editing && editing.id===rowId) editing.notesDocUrl=ev.notesDocUrl;
+    const item=state.events.find(x=>x.id===rowId); if(item) item.notesDocUrl=ev.notesDocUrl;
+    const e=el(); if(e && (!editing || editing.id===rowId)) e.innerHTML=notesDocEmbedHTML(ev.notesDocUrl);
+    toast('Notes doc ready','ok');
+    return;
+  }
+  pollForNotesDoc(rowId, tries+1);
 }
 
 function openEditor(ev){
@@ -741,7 +765,7 @@ function openEditor(ev){
     </div>
     <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
     <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
-    ${notesDocPanelHTML(ev)}
+    ${notesDocPanelHTML(ev, canEdit && !locked)}
     <div class="fld full"><label>Planning notes <span class="hint">(internal, legacy text)</span></label><textarea id="f_notes" ${dis} placeholder="Internal planning checklist">${esc(ev.planningNotes || (!ev.id ? NOTES_TEMPLATE : ''))}</textarea></div>
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
@@ -762,13 +786,15 @@ function openEditor(ev){
   const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:resolveIds(ev.volunteers, ev.volunteerNames), pool:()=>PEOPLE_LIST });
   const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev);
 
-  // notes doc: spike "paste a URL to preview" (empty state) → swap in the embed
+  // notes doc: "Create notes doc" → push the Coda button via the proxy, then poll
   const ndoc=document.getElementById('f_ndoc');
-  if(ndoc) ndoc.addEventListener('click', e=>{
-    const b=e.target.closest('[data-act="ndoc-preview"]'); if(!b) return;
-    const url=(document.getElementById('f_ndoc_url')||{}).value||'';
-    if(!gdocPreviewUrl(url)){ toast('Not a Google Doc link','err'); return; }
-    ndoc.innerHTML=notesDocEmbedHTML(url);
+  if(ndoc) ndoc.addEventListener('click', async e=>{
+    const b=e.target.closest('[data-act="ndoc-create"]'); if(!b) return;
+    if(!editing || !editing.id){ toast('Save the event first','err'); return; }
+    ndoc.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Setting up your notes doc…</div>`;
+    try{ await DB.createNotesDoc(editing.id); }
+    catch(err){ toast(err.message||'Could not start','err'); ndoc.innerHTML=NDOC_CREATE_HTML; return; }
+    pollForNotesDoc(editing.id, 0);
   });
 
   // program chips: toggle + append that program's Current Leads when selected
