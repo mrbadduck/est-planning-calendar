@@ -20,14 +20,15 @@ let PROGRAMS = [
 ];
 let PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
 const STATUSES = ['idea','draft','confirmed','approved'];
-/* reference layers — muted context, read-only */
-const REF_LAYERS = [
-  {id:'us',   name:'US holidays',            color:'var(--r-us)',   on:true},
-  {id:'jew',  name:'Jewish holidays',        color:'var(--r-jew)',  on:true},
-  {id:'part', name:'Partner orgs (sample)',  color:'var(--r-part)', on:false},
-  {id:'shab', name:'Shabbat',                color:'var(--r-shab)', on:false},
-];
-const REF = Object.fromEntries(REF_LAYERS.map(r=>[r.id,r]));
+/* reference layers — muted context, read-only. Populated live from
+   /references (Reference Calendars SRC in Coda); starts empty. */
+let REF_LAYERS = [];
+let REF = {};
+function rebuildRefs(layers){
+  REF_LAYERS = layers.map(l=>({ id:l.id, name:l.name, color:l.color, on:!!l.defaultOn }));
+  REF = Object.fromEntries(REF_LAYERS.map(r=>[r.id,r]));
+  for(const l of REF_LAYERS){ if(!(l.id in state.layers)) state.layers[l.id] = l.on; }
+}
 
 let progIdByName = Object.fromEntries(PROGRAMS.map(p=>[p.name,p.id]));
 /* live programs: replace the built-in palette with the real EST Programs SRC set */
@@ -242,27 +243,9 @@ function eventToCodaCells(e){
   ];
 }
 
-/* ---- reference events (mock; live = Hebcal + Coda-synced gcals) ---- */
-function refEv(layer,title,date){ return {id:layer+'-'+date+'-'+title.slice(0,4),source:'ref',refLayer:layer,program:'oth',title,date,allDay:true,readOnly:true,status:'ref',leads:[]}; }
-const MOCK_REFS = [
-  // US federal (accurate)
-  refEv('us','Labor Day','2026-09-07'), refEv('us','Indigenous Peoples’ Day','2026-10-12'),
-  refEv('us','Veterans Day','2026-11-11'), refEv('us','Thanksgiving','2026-11-26'),
-  refEv('us','Christmas','2026-12-25'), refEv('us','New Year’s Day','2027-01-01'),
-  refEv('us','MLK Day','2027-01-18'), refEv('us','Presidents’ Day','2027-02-15'),
-  refEv('us','Memorial Day','2027-05-31'), refEv('us','Juneteenth','2027-06-19'),
-  refEv('us','Independence Day','2027-07-04'),
-  // Jewish (fall accurate for 5787; spring = sample)
-  refEv('jew','Erev Rosh Hashanah','2026-09-11'), refEv('jew','Rosh Hashanah','2026-09-12'),
-  refEv('jew','Yom Kippur','2026-09-21'), refEv('jew','Sukkot begins','2026-09-26'),
-  refEv('jew','Simchat Torah','2026-10-04'), refEv('jew','Hanukkah (1st candle)','2026-12-04'),
-  refEv('jew','Tu BiShvat','2027-01-23'), refEv('jew','Purim (sample)','2027-03-23'),
-  refEv('jew','Passover I (sample)','2027-04-22'), refEv('jew','Shavuot (sample)','2027-06-01'),
-  // partner (sample)
-  refEv('part','Partner: Interfaith potluck','2026-10-25'),
-  refEv('part','Partner: JCC family day','2026-11-22'),
-  refEv('part','Partner: MLK service','2027-01-18'),
-];
+/* Reference events are fetched + parsed server-side by the proxy (GET /references)
+   from the council-managed Reference Calendars SRC table, and arrive already
+   normalized to the { source:'ref', refLayer, ... } shape. See DB.listReferences. */
 
 /* ---- CodaSource (live, via the proxy) — the only data source ------------
    READS `EST Planning Events SRC` through the Worker proxy and maps its columns
@@ -332,7 +315,17 @@ const CodaSource = {
     cacheSet('rows-raw', items);                       // instant repaint on next reload
     return items.map(planningRowToEvent);
   },
-  async listReferences(){ return MOCK_REFS.slice(); },
+  async listReferences(){
+    try{
+      const r = await fetch(`${this.base}/references`, { headers:{ 'Accept':'application/json' } });
+      if(!r.ok) return [];
+      const j = await r.json();
+      rebuildRefs(j.layers || []);
+      renderLayers();
+      cacheSet('references', j);                       // instant repaint on next reload
+      return j.events || [];
+    }catch(_){ return []; }
+  },
   _wh(){ return { 'Content-Type':'application/json', 'Authorization':`Bearer ${state.idToken||''}` }; },
   async _fail(r){ let t=await r.text(); try{ t=JSON.parse(t).error||t; }catch(_){} const e=new Error(`save failed (${r.status})${t?': '+t:''}`); e.status=r.status; throw e; },
   async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; }catch(_){} return e; },
@@ -356,7 +349,7 @@ const state = {
   currentUser: 'Eric',
   idToken: null,
   identity: null,            // { signedIn, matched, name, canWrite, canApprove }
-  layers: { planning:true, us:true, jew:true, part:false, shab:false },
+  layers: { planning:true },   // ref-layer keys added dynamically from /references
   events: [],
 };
 
@@ -462,7 +455,6 @@ function renderMonths(){
   const wrap=document.getElementById('months');
   const byDate=eventsByDate();
   const roughMap=roughByMonth();
-  const shabOn=state.layers.shab;
   let html='';
   for(const {y,m} of monthsOfYear()){
     const mk=monthKey(y,m);
@@ -487,11 +479,10 @@ function renderMonths(){
         const ds=ymd(cy,cm,dn);
         const isToday=ds===todayStr;
         const evs=(byDate[ds]||[]).slice().sort(sortEv);
-        const shabMark=(shabOn && k===5 && !other) ? `<div class="chip ref" style="--c:var(--r-shab)" data-noop="1"><span class="t">Shabbat</span></div>` : '';
         body += `<div class="cell ${other?'other':''} ${k===0||k===6?'we':''} ${isToday?'today':''}" data-date="${ds}" ${other?'data-other="1"':''}>
           <span class="add-hint">+</span>
           <span class="dnum">${dn}</span>
-          <div class="chips">${shabMark}${evs.map(chipHTML).join('')}</div>
+          <div class="chips">${evs.map(chipHTML).join('')}</div>
         </div>`;
       }
     }
@@ -1201,7 +1192,9 @@ async function init(){
   loadPrograms(); loadVenues(); loadPeople();
   // Instant paint from the last cached events (maps are hydrated above).
   const cachedRows = cacheGet('rows-raw');
-  if(cachedRows && cachedRows.length){ state.events = [...cachedRows.map(planningRowToEvent), ...MOCK_REFS]; applyView(); layoutSticky(); }
+  const cachedRefs = cacheGet('references');
+  if(cachedRefs && cachedRefs.layers){ rebuildRefs(cachedRefs.layers); renderLayers(); }
+  if(cachedRows && cachedRows.length){ state.events = [...cachedRows.map(planningRowToEvent), ...((cachedRefs&&cachedRefs.events)||[])]; applyView(); layoutSticky(); }
   // Fresh events (renders as soon as /rows returns).
   await refresh();
   setTimeout(()=>{
