@@ -1,6 +1,7 @@
 name = "est-planning-proxy"
 main = "src/worker.js"
 compatibility_date = "2026-01-01"
+account_id = "c68ba18b669e519e535be065dab431f1"   # pin the account so CI wrangler skips the /memberships auto-detect (not a secret — appears in dashboard URLs)
 
 [vars]
 CODA_API_BASE  = "https://coda.io/apis/v1"
