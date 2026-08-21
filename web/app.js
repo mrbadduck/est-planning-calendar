@@ -645,7 +645,7 @@ function collectWhen(){
   return o;
 }
 
-/* ---- Google Doc notes panel (spike) --------------------------------------
+/* ---- Google Doc notes panel ----------------------------------------------
    A Google Doc holds internal planning notes; Coda provisions it and stores the
    URL in the `Notes Doc` column (-> ev.notesDocUrl). We embed a read-only
    /preview iframe (renders only for a viewer signed into Google with access)

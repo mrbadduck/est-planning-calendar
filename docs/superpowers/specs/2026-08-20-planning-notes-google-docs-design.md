@@ -190,14 +190,21 @@ the fast-poll for `Notes Doc` remains the mechanism that surfaces the result.
    frame + our "Edit in Google Docs" fallback. Spike code lives on
    `feat/planning-notes-google-docs` (`notesDocPanelHTML` etc. in `web/app.js`),
    additive — legacy notes textarea preserved.
-3. **Row button: Copy Doc + write-back, pushed via API**: the canvas-button test
-   proves Copy Doc works; confirm a **row button** whose action runs Copy Doc
-   **and writes the returned URL into `thisRow.[Notes Doc]`**, and that
-   **pushing it via the Coda buttons API** fires that action. Measure the
-   round-trip (push → `Notes Doc` populated) to set the loading-wait expectation.
-4. **Proxy button-push route**: confirm the new role-gated route
-   (`POST /notes-doc` → Coda `PushButton`) works with the proxy's existing
-   doc-scoped token and the Google-JWT/role gate.
+3. ~~**Row button: Copy Doc + write-back, pushed via API**~~ — **DONE 2026-08-20.**
+   Verified live: two planning rows carry real provisioned URLs
+   (`https://docs.google.com/document/d/{id}/edit?usp=drivesdk`) in the `Notes Doc`
+   column, so the button's action both copies the template **and writes the URL
+   back**. The `/document/d/{id}/edit?usp=drivesdk` shape parses cleanly through
+   `_gdocId`/`gdocPreviewUrl` → the `/preview` embed renders. (Final in-app
+   Create-button click while signed in as a leader is the last confirmation.)
+4. ~~**Proxy button-push route**~~ — **DONE 2026-08-20.** `POST /notes-doc` is
+   deployed and role-gated: an unauthenticated push returns **403** (no
+   `Authorization` header → `authIdentity` null → `!id`); the read path also
+   works — `GET /rows` now injects `notesDocUrl` on every row.
+   **Bug caught & fixed by this gate:** `columnName()` originally used Coda's
+   single-column GET, which returned non-ok with the doc-scoped token, so
+   `notesDocUrl` was never injected. Switched to the list-columns endpoint
+   (`?limit=200`, find by stable id) — the same family the `/ref` reads use.
 
 ## Risks
 

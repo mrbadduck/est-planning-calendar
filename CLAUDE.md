@@ -168,6 +168,19 @@ App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
      Notes** template seeded on new events. All persist as relations. See
      `docs/phase2-plan-2b-ii-b-relations.md`.
 
+8. **Plan 2b-iii — Planning Notes as per-row Google Docs (Aug 2026, deployed):**
+   internal notes moved out of the Coda `Planning Notes` canvas column into a
+   **per-event Google Doc**. Coda provisions it via a **row button** (official
+   Google Drive pack *Copy file*, template → shared folder) — the app triggers it
+   through a role-gated `POST /notes-doc` proxy route that **pushes the button by
+   its stable id** (`CODA_NOTES_BUTTON_ID`), then fast-polls until the URL lands.
+   The editor shows a read-only `/preview` iframe + "Edit in Google Docs". The URL
+   read is **anchored to the column id** (`CODA_NOTES_COL_ID`), resolved to the
+   current name server-side via list-columns — rename-proof. Legacy `Planning
+   Notes` text is read-only-if-present, no longer written. Design +
+   plan: `docs/superpowers/specs/2026-08-20-planning-notes-google-docs-design.md`,
+   `docs/superpowers/plans/2026-08-20-planning-notes-google-docs.md`.
+
 **Later:**
 
 8. **References live:** Hebcal JSON for Jewish holidays; shared Google Calendars
