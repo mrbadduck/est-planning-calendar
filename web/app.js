@@ -321,6 +321,7 @@ function planningRowToEvent(r){
     status: String(v['Status'] || 'idea').toLowerCase(),
     description: v['Event Description'] || '',
     planningNotes: v['Planning Notes'] || '',
+    notesDocUrl: v['Notes Doc'] || '',                   // Google Doc for internal notes (Coda-provisioned)
     createdBy: _asList(v['Created by'])[0] || '', editedBy: _asList(v['Edited by'])[0] || '',
     eventbriteUrl:'', gcalId:'', readOnly:true,          // writes come in Plan 2b
     scheduling: sched,
@@ -652,6 +653,36 @@ function collectWhen(){
   return o;
 }
 
+/* ---- Google Doc notes panel (spike) --------------------------------------
+   A Google Doc holds internal planning notes; Coda provisions it and stores the
+   URL in the `Notes Doc` column (-> ev.notesDocUrl). We embed a read-only
+   /preview iframe (renders only for a viewer signed into Google with access)
+   and link out to /edit for real editing. While the Coda provisioning path is
+   not wired yet, an empty state lets you paste any Doc URL to test the embed. */
+const _gdocId = u => { const m=String(u||'').match(/\/document\/d\/([A-Za-z0-9_-]+)/); return m?m[1]:''; };
+const gdocPreviewUrl = u => { const id=_gdocId(u); return id?`https://docs.google.com/document/d/${id}/preview`:''; };
+const gdocEditUrl    = u => { const id=_gdocId(u); return id?`https://docs.google.com/document/d/${id}/edit`:(u||''); };
+function notesDocEmbedHTML(url){
+  const pv=gdocPreviewUrl(url);
+  if(!pv) return `<div class="ndoc-warn">That doesn't look like a Google Doc link.</div>`;
+  return `<iframe class="ndoc-frame" src="${esc(pv)}" title="Planning notes (Google Doc)" loading="lazy"></iframe>
+    <div class="ndoc-bar">
+      <a class="btn sm primary" href="${esc(gdocEditUrl(url))}" target="_blank" rel="noopener">Edit in Google Docs ↗</a>
+      <span class="hint">Preview needs you signed into Google with access to the doc.</span>
+    </div>`;
+}
+function notesDocPanelHTML(ev){
+  const inner = ev.notesDocUrl
+    ? notesDocEmbedHTML(ev.notesDocUrl)
+    : `<div class="ndoc-empty">
+         <input id="f_ndoc_url" type="url" placeholder="Paste a Google Doc URL to preview…" autocomplete="off">
+         <button type="button" class="btn sm" data-act="ndoc-preview">Preview</button>
+         <div class="hint">Spike: provisioning (a “Create notes doc” button backed by Coda) comes later.</div>
+       </div>`;
+  return `<div class="fld full"><label>Notes doc <span class="hint">(Google Docs)</span></label>
+    <div class="ndoc" id="f_ndoc">${inner}</div></div>`;
+}
+
 function openEditor(ev){
   editing = ev;
   const isRef = ev.source==='ref';
@@ -707,7 +738,8 @@ function openEditor(ev){
     </div>
     <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
     <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
-    <div class="fld full"><label>Planning notes <span class="hint">(internal)</span></label><textarea id="f_notes" ${dis} placeholder="Internal planning checklist">${esc(ev.planningNotes || (!ev.id ? NOTES_TEMPLATE : ''))}</textarea></div>
+    ${notesDocPanelHTML(ev)}
+    <div class="fld full"><label>Planning notes <span class="hint">(internal, legacy text)</span></label><textarea id="f_notes" ${dis} placeholder="Internal planning checklist">${esc(ev.planningNotes || (!ev.id ? NOTES_TEMPLATE : ''))}</textarea></div>
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
     ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
@@ -726,6 +758,15 @@ function openEditor(ev){
   const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST });
   const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:resolveIds(ev.volunteers, ev.volunteerNames), pool:()=>PEOPLE_LIST });
   const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev);
+
+  // notes doc: spike "paste a URL to preview" (empty state) → swap in the embed
+  const ndoc=document.getElementById('f_ndoc');
+  if(ndoc) ndoc.addEventListener('click', e=>{
+    const b=e.target.closest('[data-act="ndoc-preview"]'); if(!b) return;
+    const url=(document.getElementById('f_ndoc_url')||{}).value||'';
+    if(!gdocPreviewUrl(url)){ toast('Not a Google Doc link','err'); return; }
+    ndoc.innerHTML=notesDocEmbedHTML(url);
+  });
 
   // program chips: toggle + append that program's Current Leads when selected
   if(canEdit && !locked){

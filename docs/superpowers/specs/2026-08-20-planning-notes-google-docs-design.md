@@ -161,9 +161,14 @@ taken now.
    third-party pack; no pricing/vetting concern. Remaining sub-item folded into
    spike #2: confirm the target folder's **sharing** (org-edit) so leaders
    inherit access and `/preview` works.
-2. **`/preview` embed + folder sharing**: confirm an org-shared (private) doc in
-   the target folder renders in an iframe for a signed-in viewer, and confirm the
-   degraded state when the viewer is not Google-authed.
+2. ~~**`/preview` embed + folder sharing**~~ — **DONE 2026-08-20.** Spiked in the
+   app (additive Notes-doc panel in the editor). Confirmed: Google `/preview`
+   embeds in our iframe with **no `X-Frame-Options` refusal**; a real doc from the
+   target folder, shared to a non-owner viewer, **renders inline** in that
+   viewer's authed browser; the not-Google-authed state degrades to Google's own
+   frame + our "Edit in Google Docs" fallback. Spike code lives on
+   `feat/planning-notes-google-docs` (`notesDocPanelHTML` etc. in `web/app.js`),
+   additive — legacy notes textarea preserved.
 3. **Copy Doc in an automation, on API write**: the canvas-button test proves the
    action works; confirm the same **Copy Doc action runs inside a Coda
    automation** triggered by an **API-driven** cell change (the proxy flag

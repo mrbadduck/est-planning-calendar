@@ -295,6 +295,15 @@
   .locknote a{color:var(--accent);font-weight:500;text-decoration:none;white-space:nowrap}
   .locknote a:hover{text-decoration:underline}
 
+  /* notes doc (Google Docs embed) */
+  .ndoc{display:flex;flex-direction:column;gap:6px}
+  .ndoc-frame{width:100%;height:360px;border:1px solid var(--hair-strong);border-radius:8px;background:#fff}
+  .ndoc-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ndoc-empty{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px dashed var(--hair-strong);border-radius:8px;background:#F7F6F3}
+  .ndoc-empty input{border:1px solid var(--hair-strong);border-radius:8px;padding:7px 9px;font:inherit}
+  .ndoc-empty .btn{align-self:flex-start}
+  .ndoc-warn{font-size:12px;color:#9A7B2E}
+
   /* legend footer */
   .legend{max-width:1180px;margin:14px auto 0;padding:0 18px;color:var(--faint);font-size:11px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
   .infogrid{display:flex;flex-wrap:wrap;gap:6px 14px}
