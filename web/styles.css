@@ -305,6 +305,7 @@
   @keyframes ndoc-spin{to{transform:rotate(360deg)}}
   .ndoc-empty .btn{align-self:flex-start}
   .ndoc-warn{font-size:12px;color:#9A7B2E}
+  .legacynotes{white-space:pre-wrap;font-size:12px;color:var(--muted);background:#F7F6F3;border:1px solid var(--hair);border-radius:6px;padding:8px 10px}
 
   /* legend footer */
   .legend{max-width:1180px;margin:14px auto 0;padding:0 18px;color:var(--faint);font-size:11px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}

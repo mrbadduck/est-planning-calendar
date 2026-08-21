@@ -20,16 +20,6 @@ let PROGRAMS = [
 ];
 let PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
 const STATUSES = ['idea','draft','confirmed','approved'];
-// Internal Planning Notes seed for NEW events (from docs/phase2-planning-table.md).
-const NOTES_TEMPLATE = [
-  'Supplies needed? What?',
-  'Hiring vendors? Who / budget?',
-  'Volunteer support needed?',
-  'Budget needed / already approved?',
-  'Collaborators / partner orgs?',
-  'Marketing plan (email, socials)?',
-].map(q => '• ' + q).join('\n');
-
 /* reference layers — muted context, read-only */
 const REF_LAYERS = [
   {id:'us',   name:'US holidays',            color:'var(--r-us)',   on:true},
@@ -247,7 +237,6 @@ function eventToCodaCells(e){
     {column:'Venue',           value:e.venue ? [e.venue] : []},
     {column:'Venue (other)',   value:e.venueOther||''},
     {column:'Event Description',value:e.description||''},
-    {column:'Planning Notes',  value:e.planningNotes||''},
     {column:'Window start',    value:e.rangeStart||''},
     {column:'Window end',      value:e.rangeEnd||''},
   ];
@@ -769,7 +758,7 @@ function openEditor(ev){
     <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
     <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
     ${notesDocPanelHTML(ev, canEdit && !locked)}
-    <div class="fld full"><label>Planning notes <span class="hint">(internal, legacy text)</span></label><textarea id="f_notes" ${dis} placeholder="Internal planning checklist">${esc(ev.planningNotes || (!ev.id ? NOTES_TEMPLATE : ''))}</textarea></div>
+    ${ev.planningNotes ? `<div class="fld full"><label>Planning notes <span class="hint">(legacy)</span></label><div class="legacynotes">${esc(ev.planningNotes)}</div></div>` : ''}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
     ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
@@ -859,7 +848,7 @@ function readForm(){
     allDay, start:(exact && !allDay) ? (w.start||'') : '', end:(exact && !allDay) ? (w.end||'') : '',
     leads, volunteers, venueType, venue, venueOther,
     location:(venue ? ((VENUES.find(v=>v.id===venue)||{}).name||'') : '') || venueOther,   // display fallback
-    description:g('f_desc').value.trim(), planningNotes:g('f_notes')?g('f_notes').value.trim():'',
+    description:g('f_desc').value.trim(), planningNotes:(editing && editing.planningNotes)||'',
     scheduling:whenType, date:'', rangeStart:'', rangeEnd:'', targetMonth:''
   };
   if(exact) o.date=w.date||'';
