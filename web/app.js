@@ -952,6 +952,7 @@ function show(){ document.getElementById('scrim').classList.add('open'); }
 function close(){ _ndocGen++; document.getElementById('scrim').classList.remove('open'); editing=null; }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });
+document.getElementById('mClose').addEventListener('click', close);   // dedicated top-right ✕ (avoids mis-hitting Approve)
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
 
 document.getElementById('mFoot').addEventListener('click',e=>{
