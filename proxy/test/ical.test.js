@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { unfoldLines, icalDateToYMD, unescapeText, parseVEvents, parseRrule, expandRrule } from '../src/ical.js';
+import { unfoldLines, icalDateToYMD, icalDateTime, unescapeText, parseVEvents, parseRrule, expandRrule } from '../src/ical.js';
+
+// Every event parseVEvents emits carries this full field set; helper keeps the
+// expectations readable by filling the empty defaults.
+const ev = (o) => ({ title: '', date: '', allDay: true, start: null, end: null, description: '', location: '', url: '', ...o });
 
 test('unfoldLines rejoins RFC5545 continuation lines, dropping the fold whitespace', () => {
   // RFC 5545: a fold is CRLF + one leading whitespace; unfolding removes BOTH,
@@ -25,6 +29,16 @@ test('unescapeText unescapes commas, semicolons, newlines, backslashes', () => {
   assert.equal(unescapeText('Erev\\, Rosh\\; Hashanah\\nfun\\\\'), 'Erev, Rosh; Hashanah fun\\');
 });
 
+test('unescapeText keeps newlines when asked (for descriptions)', () => {
+  assert.equal(unescapeText('Line one\\, still one\\nLine two', true), 'Line one, still one\nLine two');
+});
+
+test('icalDateTime parses all-day, UTC-timed, and TZID-timed forms', () => {
+  assert.deepEqual(icalDateTime('DTSTART;VALUE=DATE:20260907'), { ymd: '2026-09-07', iso: '2026-09-07', allDay: true });
+  assert.deepEqual(icalDateTime('DTSTART:20260312T210000Z'), { ymd: '2026-03-12', iso: '2026-03-12T21:00:00Z', allDay: false });
+  assert.deepEqual(icalDateTime('DTSTART;TZID=America/Chicago:20260911T180000'), { ymd: '2026-09-11', iso: '2026-09-11T18:00:00', allDay: false });
+});
+
 test('parseVEvents extracts summary + date from folded, escaped VEVENTs', () => {
   const ics = [
     'BEGIN:VCALENDAR',
@@ -40,8 +54,56 @@ test('parseVEvents extracts summary + date from folded, escaped VEVENTs', () => 
     'END:VCALENDAR',
   ].join('\r\n');
   assert.deepEqual(parseVEvents(ics), [
-    { title: 'Labor Day', date: '2026-09-07', allDay: true },
-    { title: 'Yom Kippur, 5787', date: '2026-09-21', allDay: true },
+    ev({ title: 'Labor Day', date: '2026-09-07', allDay: true, start: '2026-09-07' }),
+    ev({ title: 'Yom Kippur, 5787', date: '2026-09-21', allDay: false, start: '2026-09-21T12:00:00Z' }),
+  ]);
+});
+
+test('parseVEvents extracts times, description (multiline), location, url', () => {
+  const ics = [
+    'BEGIN:VEVENT',
+    'DTSTART:20260312T210000Z',
+    'DTEND:20260312T223000Z',
+    'SUMMARY:Rooted Ruach',
+    'DESCRIPTION:Line one\\, still one\\nLine two',
+    'LOCATION:2002 Eastland Ave\\, Nashville\\, TN',
+    'URL:https://example.org/e/1',
+    'END:VEVENT',
+  ].join('\r\n');
+  assert.deepEqual(parseVEvents(ics), [ev({
+    title: 'Rooted Ruach', date: '2026-03-12', allDay: false,
+    start: '2026-03-12T21:00:00Z', end: '2026-03-12T22:30:00Z',
+    description: 'Line one, still one\nLine two',
+    location: '2002 Eastland Ave, Nashville, TN', url: 'https://example.org/e/1',
+  })]);
+});
+
+test('parseVEvents keeps DTEND on its own date when it crosses midnight UTC', () => {
+  const ics = [
+    'BEGIN:VEVENT',
+    'DTSTART:20260908T233000Z',
+    'DTEND:20260909T020000Z',
+    'SUMMARY:Late Trivia',
+    'END:VEVENT',
+  ].join('\r\n');
+  assert.deepEqual(parseVEvents(ics), [ev({
+    title: 'Late Trivia', date: '2026-09-08', allDay: false,
+    start: '2026-09-08T23:30:00Z', end: '2026-09-09T02:00:00Z',
+  })]);
+});
+
+test('parseVEvents shifts a recurring timed event by whole days, preserving duration', () => {
+  const ics = [
+    'BEGIN:VEVENT',
+    'DTSTART:20260101T230000Z',
+    'DTEND:20260102T003000Z',
+    'SUMMARY:Nightly',
+    'RRULE:FREQ=DAILY;COUNT=2',
+    'END:VEVENT',
+  ].join('\r\n');
+  assert.deepEqual(parseVEvents(ics), [
+    ev({ title: 'Nightly', date: '2026-01-01', allDay: false, start: '2026-01-01T23:00:00Z', end: '2026-01-02T00:30:00Z' }),
+    ev({ title: 'Nightly', date: '2026-01-02', allDay: false, start: '2026-01-02T23:00:00Z', end: '2026-01-03T00:30:00Z' }),
   ]);
 });
 
@@ -92,7 +154,7 @@ test('parseVEvents expands RRULE and honors EXDATE', () => {
     'END:VEVENT',
   ].join('\r\n');
   assert.deepEqual(parseVEvents(ics), [
-    { title: 'Weekly Thing', date: '2026-01-01', allDay: true },
-    { title: 'Weekly Thing', date: '2026-01-15', allDay: true },
+    ev({ title: 'Weekly Thing', date: '2026-01-01', allDay: true, start: '2026-01-01' }),
+    ev({ title: 'Weekly Thing', date: '2026-01-15', allDay: true, start: '2026-01-15' }),
   ]);
 });

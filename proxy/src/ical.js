@@ -14,14 +14,28 @@ export function unfoldLines(raw) {
   return String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n[ \t]/g, '');
 }
 
-// Unescape TEXT values per RFC 5545 (\\ \, \; \n \N). Newlines -> a space
-// (ref events render as a single-line chip title).
-export function unescapeText(s) {
+// Unescape TEXT values per RFC 5545 (\\ \, \; \n \N). By default newlines
+// collapse to a space (single-line titles/locations); pass keepNewlines=true to
+// preserve real line breaks (multi-line descriptions).
+export function unescapeText(s, keepNewlines = false) {
   return String(s)
-    .replace(/\\n/gi, ' ')
+    .replace(/\\n/gi, keepNewlines ? '\n' : ' ')
     .replace(/\\,/g, ',')
     .replace(/\\;/g, ';')
     .replace(/\\\\/g, '\\');
+}
+
+// A DTSTART/DTEND property line -> { ymd:'YYYY-MM-DD', iso, allDay } or null.
+// all-day (VALUE=DATE or no time) -> iso is the date; timed -> iso is a full
+// datetime, carrying the trailing `Z` for UTC (naive wall-clock otherwise).
+export function icalDateTime(line) {
+  const isDate = /VALUE=DATE\b/i.test(line);
+  const v = String(line).slice(String(line).indexOf(':') + 1).trim();
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
+  if (!m) return null;
+  const ymd = `${m[1]}-${m[2]}-${m[3]}`;
+  if (isDate || !m[4]) return { ymd, iso: ymd, allDay: true };
+  return { ymd, iso: `${ymd}T${m[4]}:${m[5]}:${m[6]}${m[7] ? 'Z' : ''}`, allDay: false };
 }
 
 // A DTSTART property line -> { date:'YYYY-MM-DD', allDay:true } or null.
@@ -61,6 +75,10 @@ function _ymd(ms) {
   const d = new Date(ms);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
+function ymdToMs(ymd) { const [y, m, d] = ymd.split('-').map(Number); return Date.UTC(y, m - 1, d); }
+// Shift the date part of an ISO value by whole days, leaving the time-of-day (and
+// any trailing `Z`) untouched — used to move a recurrence's start/end together.
+function shiftIsoDays(iso, days) { return _ymd(ymdToMs(iso.slice(0, 10)) + days * _DAY) + iso.slice(10); }
 
 // Expand a recurrence into [YMD, ...] (including the start), bounded three ways:
 // the rule's own COUNT/UNTIL, an optional window-end `cap` (YMD), and a hard
@@ -118,38 +136,63 @@ export function expandRrule(startYMD, rule, cap, max = 750) {
   return out;
 }
 
-// Parse a whole .ics document into [{ title, date, allDay:true }], skipping any
-// VEVENT missing SUMMARY or a parseable DTSTART. A VEVENT with an RRULE is
-// expanded (bounded by opts.expandUntil, a window-end YMD) with its EXDATEs
-// removed; without an RRULE a single occurrence is emitted.
+// Parse a whole .ics document into normalized event objects:
+//   { title, date:'YYYY-MM-DD', allDay, start, end, description, location, url }
+// `start`/`end` are ISO strings (date for all-day, datetime for timed; `end` may
+// be null). Skips any VEVENT missing SUMMARY or a parseable DTSTART. A VEVENT
+// with an RRULE is expanded (bounded by opts.expandUntil, a window-end YMD) with
+// its EXDATEs removed, each occurrence rebased onto its own date; without an
+// RRULE a single occurrence is emitted. `opts.descriptionMax` caps description
+// length (default 4000).
 export function parseVEvents(raw, opts = {}) {
   const cap = opts.expandUntil || null;
+  const descCap = opts.descriptionMax || 4000;
   const lines = unfoldLines(raw).split('\n');
   const out = [];
   let cur = null;
-  for (const line of lines) {
-    if (line === 'BEGIN:VEVENT') { cur = { exdates: [] }; continue; }
-    if (line === 'END:VEVENT') {
-      if (cur && cur.summary && cur.dt) {
-        const d = icalDateToYMD(cur.dt);
-        if (d) {
-          const title = unescapeText(cur.summary).trim();
-          if (cur.rrule) {
-            const ex = new Set(cur.exdates);
-            for (const ymd of expandRrule(d.date, parseRrule(cur.rrule), cap)) {
-              if (!ex.has(ymd)) out.push({ title, date: ymd, allDay: true });
-            }
-          } else {
-            out.push({ title, date: d.date, allDay: true });
-          }
+
+  const flush = () => {
+    if (cur && cur.summary && cur.dtstart) {
+      const s = icalDateTime(cur.dtstart);
+      if (s) {
+        const e = cur.dtend ? icalDateTime(cur.dtend) : null;
+        const base = {
+          title: unescapeText(cur.summary).trim(),
+          allDay: s.allDay,
+          description: cur.description ? unescapeText(cur.description, true).trim().slice(0, descCap) : '',
+          location: cur.location ? unescapeText(cur.location).trim() : '',
+          url: cur.url ? cur.url.trim() : '',
+        };
+        // Emit one occurrence. For a plain event that's start/end as-is; for a
+        // recurrence, the whole event (start AND end) shifts by the same whole
+        // number of days, so its duration — and any midnight-UTC crossing — is
+        // preserved rather than collapsed onto the occurrence's date.
+        const emit = (occ) => {
+          if (occ === s.ymd) { out.push({ ...base, date: occ, start: s.iso, end: e ? e.iso : null }); return; }
+          const shift = Math.round((ymdToMs(occ) - ymdToMs(s.ymd)) / _DAY);
+          out.push({ ...base, date: occ, start: shiftIsoDays(s.iso, shift), end: e ? shiftIsoDays(e.iso, shift) : null });
+        };
+        if (cur.rrule) {
+          const ex = new Set(cur.exdates);
+          for (const ymd of expandRrule(s.ymd, parseRrule(cur.rrule), cap)) if (!ex.has(ymd)) emit(ymd);
+        } else {
+          emit(s.ymd);
         }
       }
-      cur = null;
-      continue;
     }
+    cur = null;
+  };
+
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') { cur = { exdates: [] }; continue; }
+    if (line === 'END:VEVENT') { flush(); continue; }
     if (!cur) continue;
     if (line.startsWith('SUMMARY')) cur.summary = line.slice(line.indexOf(':') + 1);
-    else if (line.startsWith('DTSTART')) cur.dt = line;
+    else if (line.startsWith('DTSTART')) cur.dtstart = line;
+    else if (line.startsWith('DTEND')) cur.dtend = line;
+    else if (line.startsWith('DESCRIPTION')) cur.description = line.slice(line.indexOf(':') + 1);
+    else if (line.startsWith('LOCATION')) cur.location = line.slice(line.indexOf(':') + 1);
+    else if (line.startsWith('URL')) cur.url = line.slice(line.indexOf(':') + 1);
     else if (line.startsWith('RRULE')) cur.rrule = line;
     else if (line.startsWith('EXDATE')) {
       const v = line.slice(line.indexOf(':') + 1);

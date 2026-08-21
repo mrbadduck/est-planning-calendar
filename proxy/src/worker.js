@@ -269,13 +269,15 @@ async function buildReferences(base, docId, auth) {
     try {
       const r = await fetch(url);
       if (!r.ok) { console.log(`references: ${name} feed HTTP ${r.status}, skipped`); continue; }
-      const parsed = parseVEvents(await r.text(), { expandUntil: hi });
+      const parsed = parseVEvents(await r.text(), { expandUntil: hi, descriptionMax: 2000 });
       for (const ev of parsed) {
         if (ev.date < lo || ev.date > hi) continue;
         events.push({
           id: `${id}-${ev.date}-${slugId(ev.title).slice(0, 8)}`,
           source: 'ref', refLayer: id, program: 'oth',
-          title: ev.title, date: ev.date, allDay: true,
+          title: ev.title, date: ev.date, allDay: ev.allDay,
+          start: ev.start, end: ev.end,
+          description: ev.description, location: ev.location, url: ev.url,
           readOnly: true, status: 'ref', leads: [],
         });
       }
