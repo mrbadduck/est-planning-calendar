@@ -32,10 +32,14 @@ const COL_NAME_CACHE = new Map();   // colId -> { name, exp }
 async function columnName(base, docId, tableId, colId, auth){
   const hit = COL_NAME_CACHE.get(colId);
   if (hit && hit.exp > Date.now()) return hit.name;
-  const r = await fetch(`${base}/docs/${docId}/tables/${tableId}/columns/${encodeURIComponent(colId)}`, { headers: auth });
+  // List columns (limit high enough to cover all of them — the notes column was
+  // added last) and find ours by stable id. The list endpoint is the same family
+  // the /ref reads use; the single-column GET proved unreliable with this token.
+  const r = await fetch(`${base}/docs/${docId}/tables/${tableId}/columns?limit=200`, { headers: auth });
   if (!r.ok) return null;
   const j = await r.json();
-  const name = (j && j.name) || null;
+  const col = (j.items || []).find(c => c.id === colId);
+  const name = (col && col.name) || null;
   if (name) COL_NAME_CACHE.set(colId, { name, exp: Date.now() + 5 * 60 * 1000 });
   return name;
 }
