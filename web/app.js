@@ -240,6 +240,8 @@ function eventToCodaCells(e){
     {column:'Event Description',value:e.description||''},
     {column:'Window start',    value:e.rangeStart||''},
     {column:'Window end',      value:e.rangeEnd||''},
+    {column:'Capacity',           value:(e.capacity===''||e.capacity==null)?'':Number(e.capacity)},
+    {column:'Address visibility', value:e.addressVisibility||'Public'},
   ];
 }
 
@@ -292,12 +294,17 @@ function planningRowToEvent(r){
     location: venueName || venueOther,                   // display fallback
     status: String(v['Status'] || 'idea').toLowerCase(),
     description: v['Event Description'] || '',
+    capacity: (v['Capacity'] === '' || v['Capacity'] == null) ? '' : Number(v['Capacity']),
+    addressVisibility: v['Address visibility'] || 'Public',
+    publishStatus: v['Publish status'] || 'Unpublished',
+    eventbriteId: v['Eventbrite Event ID'] || '',
+    lastPublishError: v['Last publish error'] || '',
     planningNotes: v['Planning Notes'] || '',
     // proxy injects notesDocUrl resolved by the stable column id (rename-proof);
     // Notes Doc is a Coda link column, so the value may be a string or {url,name}.
     notesDocUrl: (typeof r.notesDocUrl === 'string' ? r.notesDocUrl : (r.notesDocUrl && (r.notesDocUrl.url || r.notesDocUrl.name))) || '',
     createdBy: _asList(v['Created by'])[0] || '', editedBy: _asList(v['Edited by'])[0] || '',
-    eventbriteUrl:'', gcalId:'', readOnly:true,          // writes come in Plan 2b
+    eventbriteUrl: (typeof v['Eventbrite URL'] === 'string' ? v['Eventbrite URL'] : '') || '', gcalId:'', readOnly:true,          // writes come in Plan 2b
     scheduling: sched,
     rangeStart: String(v['Window start'] || '').slice(0,10),
     rangeEnd: String(v['Window end'] || '').slice(0,10),
@@ -332,6 +339,7 @@ const CodaSource = {
   async update(e){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(e.id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); if(!r.ok) await this._fail(r); return e; },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
+  async publishEventbrite(rowId){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; throw e; } return j; },
 };
 
 // The live proxy is the only data source. Reads are unauthenticated (CORS-gated,
@@ -669,6 +677,54 @@ function notesDocPanelHTML(ev, canEdit){
   return `<div class="fld full"><label>Notes doc <span class="hint">(Google Docs)</span></label>
     <div class="ndoc" id="f_ndoc">${inner}</div></div>`;
 }
+
+/* ---- publish-to-Eventbrite panel — mirrors the notes-doc panel's shape:
+   a small `<div id="f_publish">` whose contents swap between a button, a
+   "publishing…" spinner, and a linked/badge state. The Worker owns the
+   Eventbrite fields (publishStatus/eventbriteId/eventbriteUrl/lastPublishError);
+   this panel only ever reads them off `ev`, never writes them locally except
+   as an optimistic reflection of what the Worker just told us. */
+function publishPanelHTML(ev, canEdit){
+  if(!canEdit) return '';
+  if(ev.status!=='approved') return `<div class="fld full"><label>Eventbrite</label><div class="pubpanel"><span class="hint">Approve this event to publish it to Eventbrite.</span></div></div>`;
+  const linked = !!ev.eventbriteId;
+  const badge = `<span class="badge b-${(ev.publishStatus||'').toLowerCase()}">${esc(ev.publishStatus||'Unpublished')}</span>`;
+  let inner;
+  if(!linked){
+    inner = `<button type="button" class="btn sm primary" data-act="publish-eb">Publish to Eventbrite</button>`;
+  } else {
+    inner = `<a class="reflink" href="${esc(ev.eventbriteUrl||'#')}" target="_blank" rel="noopener">Open in Eventbrite ↗</a>
+      <button type="button" class="btn sm" data-act="publish-eb">Update Eventbrite</button> ${badge}
+      <div class="hint" style="margin-top:6px">Opens this event in Eventbrite — on your phone, tap through to Check-In in the Eventbrite Organizer app.</div>`;
+  }
+  const err = ev.lastPublishError && (ev.publishStatus==='Error') ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
+  return `<div class="fld full"><label>Eventbrite</label><div class="pubpanel" id="f_publish">${inner}${err}</div></div>`;
+}
+// Wires (and, after each outerHTML swap, re-wires) the publish panel's click
+// handler. Named function instead of arguments.callee so it can rebind itself
+// onto the fresh DOM node `outerHTML` produces.
+function wirePublishPanel(pub){
+  if(!pub) return;
+  pub.addEventListener('click', async e=>{
+    const b=e.target.closest('[data-act="publish-eb"]'); if(!b) return;
+    if(!editing || !editing.id){ toast('Save the event first','err'); return; }
+    const rowId=editing.id;
+    pub.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Publishing to Eventbrite… <span class="hint">(a few seconds)</span></div>`;
+    try{
+      const res=await DB.publishEventbrite(rowId);
+      if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus='Published'; editing.lastPublishError=''; }
+      const item=state.events.find(x=>x.id===rowId); if(item){ item.eventbriteId=editing.eventbriteId; item.eventbriteUrl=editing.eventbriteUrl; item.publishStatus='Published'; }
+      if(document.getElementById('f_publish') && (!editing||editing.id===rowId)){ document.getElementById('f_publish').outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
+      toast('Published to Eventbrite','ok');
+      refresh();
+    }catch(err){
+      if(editing && editing.id===rowId){ editing.publishStatus='Error'; editing.lastPublishError=(err&&err.message)||'Publish failed'; }
+      if(document.getElementById('f_publish')){ document.getElementById('f_publish').outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
+      if(err && err.status===401 && typeof sessionExpired==='function') sessionExpired();
+      else toast((err&&err.message)||'Publish failed','err');
+    }
+  });
+}
 // Poll the server rows (bypassing the _recent optimistic overlay via listPlanning)
 // until the Copy file button has written the URL into the Notes Doc column, then
 // swap the panel to the embed. ~3s cadence, ~40-tick (~3 min) ceiling — the
@@ -770,8 +826,16 @@ function openEditor(ev){
       </div>
     </div>
     <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
+    <div class="fld"><label>Capacity <span class="hint">(Eventbrite)</span></label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40"></div>
+    <div class="fld"><label>Address on listing</label>
+      <div class="whenseg" id="f_addrvis">
+        <button type="button" data-addrvis="Public" aria-pressed="${(ev.addressVisibility||'Public')==='Public'}" ${dis}>Public</button>
+        <button type="button" data-addrvis="Registrants only" aria-pressed="${ev.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button>
+      </div>
+    </div>
     <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
     ${notesDocPanelHTML(ev, canEdit && !locked)}
+    ${publishPanelHTML(ev, canEdit && !locked)}
     ${ev.planningNotes ? `<div class="fld full"><label>Planning notes <span class="hint">(legacy)</span></label><div class="legacynotes">${esc(ev.planningNotes)}</div></div>` : ''}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
@@ -806,6 +870,9 @@ function openEditor(ev){
     pollForNotesDoc(rowId, 0, gen);
   });
 
+  // publish-to-Eventbrite: push the row id to the Worker, then reflect its result
+  wirePublishPanel(document.getElementById('f_publish'));
+
   // program chips: toggle + append that program's Current Leads when selected
   if(canEdit && !locked){
     document.getElementById('f_progs').addEventListener('click', e=>{
@@ -822,6 +889,8 @@ function openEditor(ev){
       const b=e.target.closest('button[data-vtype]'); if(!b) return;
       [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
     });
+    const av=document.getElementById('f_addrvis');
+    if(av) av.addEventListener('click',e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); });
   }
 
   // when control: mode switch + all-day toggle both re-render the time fields
@@ -865,6 +934,9 @@ function readForm(){
     leads, volunteers, venueType, venue, venueOther,
     location:(venue ? ((VENUES.find(v=>v.id===venue)||{}).name||'') : '') || venueOther,   // display fallback
     description:g('f_desc').value.trim(), planningNotes:(editing && editing.planningNotes)||'',
+    capacity: (g('f_capacity') && g('f_capacity').value.trim()!=='') ? Number(g('f_capacity').value) : '',
+    addressVisibility: (document.querySelector('#f_addrvis button[aria-pressed="true"]')?.dataset.addrvis) || (editing && editing.addressVisibility) || 'Public',
+    publishStatus:(editing&&editing.publishStatus)||'Unpublished', eventbriteId:(editing&&editing.eventbriteId)||'', eventbriteUrl:(editing&&editing.eventbriteUrl)||'', lastPublishError:(editing&&editing.lastPublishError)||'',
     scheduling:whenType, date:'', rangeStart:'', rangeEnd:'', targetMonth:''
   };
   if(exact) o.date=w.date||'';

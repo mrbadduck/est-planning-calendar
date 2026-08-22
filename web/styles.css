@@ -318,6 +318,12 @@
   .reflink{color:var(--accent);font-weight:500;font-size:12px;text-decoration:none}
   .reflink:hover{text-decoration:underline}
 
+  /* publish to Eventbrite */
+  .pubpanel{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px}
+  .b-published{background:#E7F4E9;color:#2F7D3B;border:1px solid #BFE3C6;border-radius:10px;padding:1px 7px;font-size:11px}
+  .b-error{background:#FBEAEA;color:#B23A3A;border:1px solid #EEC3C3;border-radius:10px;padding:1px 7px;font-size:11px}
+  .b-unpublished,.b-publishing{background:#F0EFEC;color:#6b6960;border:1px solid var(--hair);border-radius:10px;padding:1px 7px;font-size:11px}
+
   /* legend footer */
   .legend{max-width:1180px;margin:14px auto 0;padding:0 18px;color:var(--faint);font-size:11px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
   .infogrid{display:flex;flex-wrap:wrap;gap:6px 14px}
