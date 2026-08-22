@@ -26,8 +26,8 @@ The planning app already lets leads plan → approve events (`EST Planning Event
 
 **In:**
 - Create an Eventbrite event (draft) from a planning event's fields.
-- Capacity + one basic ticket class: **free**, or **single paid tier** (price + currency USD).
-- Map the app's venue relation → an Eventbrite venue (create under the org, cache the id); or **online** if no venue.
+- Capacity + one **free** ticket class. *(Paid single-tier is designed and the org is already set up for it → **v2**.)*
+- Map the app's venue relation → an Eventbrite venue (create under the org, cache the id); or **online** if no venue. Respect a per-event **Address visibility** (public / registrants-only) — see §5a. **Never leak a registrants-only street address to the public listing.**
 - Rich description via **Structured Content** (the app's `Event Description` body).
 - **Publish** the event.
 - **Idempotent re-push** ("Update Eventbrite") — editing then re-publishing updates the same event, never duplicates.
@@ -82,11 +82,8 @@ Orchestration (each step idempotent; store progress so a retry resumes, never du
    - `event.currency` = `"USD"`, `event.capacity` = capacity, `event.listed` per a "listed?" flag (default true)
    - `event.summary` = first ≤140 chars of description (plain)
    - **Immediately write the returned `id` + `url` back to the planning row** (before later steps) so a mid-sequence failure can't cause a duplicate on retry.
-3. **Venue:** if the event has a venue relation → ensure an Eventbrite venue: reuse the cached `Eventbrite Venue ID` from `EST Venues SRC` if present, else `POST /organizations/{org}/venues/` (name + address) and **cache the id back on the venue row**; set `event.venue_id`. If no venue → set `event.online_event = true`.
-4. **Ticket class:** ensure exactly one basic ticket class for v1:
-   - free → `{ name, free:true, quantity_total: capacity }`
-   - paid → `{ name, cost: "USD,<cents>", quantity_total: capacity }`
-   - create if none stored; update if a stored ticket-class id exists (capacity/price changes). Store the ticket-class id on the row.
+3. **Venue:** per **Address visibility** (§5a): *public* → reuse/create an Eventbrite venue with the full address (cache its id on `EST Venues SRC`) and set `event.venue_id`; *registrants-only* → set a venue with **name + city/region only, no street** (or `online_event=true` if there's truly no public location) so the exact address never reaches the public listing.
+4. **Ticket class:** ensure exactly one **free** ticket class for v1: `{ name, free:true, quantity_total: capacity }` — create if none stored, update `quantity_total` if a stored ticket-class id exists. Store the ticket-class id on the row. *(Paid tier = v2; the builder is designed to emit `cost:"USD,<cents>"` when we get there.)*
 5. **Description:** `GET /events/{id}/structured_content/` → take `page_version_number` (or 0) + 1 → `POST /events/{id}/structured_content/{v+1}/` with a single `text` module carrying the description HTML. (Versioned write; re-POSTing the same version is a silent no-op — always increment.)
 6. **Publish:** `POST /events/{id}/publish/`. (Prereqs now satisfied: ticket class + venue/online + start/end/tz/currency.)
 7. **Write-back & log:** set `Publish status=published`, `Last published at=now`, clear `Last publish error`; append a `Publish Log` success row.
@@ -101,6 +98,17 @@ On any step failure: set `Publish status=error`, `Last publish error=<verbatim E
 - `structuredContentBody(htmlDescription)` → the `modules:[{type:'text',...}]` shape.
 - `venuePayload(venue)` → name + address.
 - `toEventbriteUtc(date, time, tz)` → `{ timezone, utc }` (reuses the app's date/time semantics; all-day and timed).
+
+### 5a. Address visibility (safety)
+
+Many EST events (e.g. private homes) must **not** show the street address publicly — the exact location is emailed to registrants only. So the planning row carries an **Address visibility** field (`public` / `registrants-only`, default per venue type — private homes default to registrants-only).
+
+- **public** → full venue address pushed to the Eventbrite venue (as in §5 step 3).
+- **registrants-only** → the public Eventbrite listing gets a **coarse** location (venue name + city/region, no street) or `online`; the **exact address is never sent to the public venue**.
+
+**Open (needs a short spike): how the exact address reaches registrants.** The natural vehicle is Eventbrite's **order-confirmation message / confirmation email**, which can carry the real address only after someone registers. Whether that message is settable via the public API (vs. only in Eventbrite's UI) is **unverified** — it needs a focused research spike. Proposed handling:
+- **v1:** push the coarse location; put the exact address into the confirmation-message field **if the API supports it**; otherwise surface a clear in-app reminder ("set the registrant address in Eventbrite → Order confirmation") and leave that one field for the lead. Either way, v1 is **safe by construction** — the address is never on the public listing.
+- **fast-follow:** fully automate the confirmation-message push once the spike confirms the API path.
 
 ## 6. Observability (the linchpin)
 
@@ -145,22 +153,25 @@ Four layers, cheapest to deepest:
 
 ## 8. App UX
 
-- Editor gains (for a write-authorized lead on an **approved** event): **Capacity**, a **Ticket** control (Free / Paid + price when paid), and a **Publish to Eventbrite** button. Once linked, the button becomes **Update Eventbrite** and an **Open in Eventbrite ↗** link appears; `Publish status` shows as a badge.
+- Editor gains (for a write-authorized lead on an **approved** event): **Capacity**, **Address visibility** (public / registrants-only), and a **Publish to Eventbrite** button. *(Ticket is free-only in v1 — no ticket UI needed yet beyond capacity; the Free/Paid control arrives with v2 paid tickets.)* Once linked, the button becomes **Update Eventbrite** and an **Open in Eventbrite ↗** link appears; `Publish status` shows as a badge.
 - Errors render inline (the verbatim Eventbrite message).
 - Copy near "Open in Eventbrite": "Opens this event in Eventbrite — on your phone, tap through to Check-In in the Eventbrite Organizer app."
 - All new fields read/write through the existing normalized-event seam (`planningRowToEvent` / `eventToCodaCells`); the UI never learns Eventbrite's shapes.
 
-## 9. Open decisions (resolve during spec review or planning)
+## 9. Decisions (resolved 2026-08-22)
 
-1. **Publish gating:** proposed = `canWrite` + row `Status==Approved`. Alternative = require `canApprove` (Tribal Council) to publish. *Recommendation:* the proposed rule (leads publish their approved events) matches req 1; confirm.
-2. **Paid tickets in v1:** confirm single paid tier is in v1 (needs the org's Eventbrite payout setup, which is Eventbrite's concern, not ours), or restrict v1 to **free only** and add paid with banners later.
-3. **Venue caching location:** proposed = an `Eventbrite Venue ID` column on `EST Venues SRC`. Confirm writing to the venues table is acceptable (vs a separate map table).
-4. **`listed` default:** public (listed) by default, with a per-event "unlisted" toggle? Proposed default = listed/public.
-5. **gCal method** (fast-follow, not now): Worker service-account vs official Coda gCal pack — deferred.
+1. **Publish gating — RESOLVED:** `canWrite` + row `Status==Approved`. A program lead publishes their approved event; approval stays Tribal-Council-only upstream.
+2. **Tickets — RESOLVED:** **free only in v1.** Paid single-tier → **v2** (the org is already set up for paid; the ticket builder is written to extend to `cost:"USD,<cents>"`).
+3. **Venue caching — RESOLVED:** an `Eventbrite Venue ID` column on `EST Venues SRC` is fine.
+4. **`listed` default — RESOLVED:** public/listed.
+
+**Still open:**
+5. **Registrants-only address delivery (§5a):** how the exact address reaches registrants — needs a short spike on whether Eventbrite's order-confirmation message is API-settable. v1 is safe regardless (coarse public location); the delivery mechanism is the open piece.
+6. **gCal method** (fast-follow, not now): Worker service-account vs official Coda gCal pack — deferred.
 
 ## 10. Test plan
 
-- **Unit (`node --test`, no deps — mirrors the `ical.js` pattern):** the pure payload builders — `eventToEventbritePayload`, `ticketClassPayload` (free & paid), `structuredContentBody`, `venuePayload`, `toEventbriteUtc` (timed + all-day, tz→UTC). These are the correctness-critical mappers.
+- **Unit (`node --test`, no deps — mirrors the `ical.js` pattern):** the pure payload builders — `eventToEventbritePayload`, `ticketClassPayload` (free; a paid case guards the v2 extension), `structuredContentBody`, `venuePayload`, `toEventbriteUtc` (timed + all-day, tz→UTC), and `venuePayload` under **registrants-only** (asserts **no street address** in the emitted body — the safety invariant). These are the correctness-critical mappers.
 - **Idempotency:** a unit-level orchestration test with a **mocked fetcher** asserting: (a) create is skipped when an EB id is already stored; (b) a failure after "create" still stores the id so a retry doesn't create a second event; (c) re-push updates rather than duplicates ticket class / structured content.
 - **End-to-end (manual/scripted against the real EST org — Eventbrite has no true sandbox):** create a **draft** test event via the route, verify fields/ticket/description in Eventbrite, publish, confirm `Publish status=published` + `Publish Log` success row + `Open in Eventbrite` link, then **unpublish/delete** the test event. Repeat once to prove idempotency.
 - **Observability:** assert a `Publish Log` row is written on both success and a forced failure (e.g. missing required field), with the verbatim message.
@@ -168,7 +179,8 @@ Four layers, cheapest to deepest:
 
 ## 11. Suggested build sequence (for writing-plans)
 
-1. Coda schema: add planning-row status columns + create the `Publish Log` table (+ `Eventbrite Venue ID` on venues). *(MCP, no code.)*
+1. Coda schema: add planning-row status columns + `Address visibility` + create the `Publish Log` table (+ `Eventbrite Venue ID` on venues). *(MCP, no code.)*
+   - **Spike (parallel):** confirm whether Eventbrite's order-confirmation message is API-settable (§5a) — decides how much of the registrants-only address delivery is automated in v1.
 2. Worker: Eventbrite client + pure payload builders + unit tests.
 3. Worker: `POST /publish/eventbrite` orchestration + write-back + Publish Log; config/secrets.
 4. App: capacity + ticket fields, Publish/Update button + states, Open-in-Eventbrite, error surfacing.
