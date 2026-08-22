@@ -293,7 +293,7 @@ EVENTBRITE_TOKEN="eb-private-token"
 ```
 EVENTBRITE_ORG_ID = "1080997994263"
 EVENTBRITE_TZ = "America/Chicago"
-CODA_PUBLISH_LOG_TABLE = "grid-XXXXXX"   # from Task 1
+CODA_PUBLISH_LOG_TABLE = "grid-CJNl0A1OGZ"   # Publish Log (Task 1)
 ```
 
 - [ ] **Step 2: Add the Publish-Log append helper**
