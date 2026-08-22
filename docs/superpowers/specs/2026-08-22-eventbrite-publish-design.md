@@ -106,9 +106,7 @@ Many EST events (e.g. private homes) must **not** show the street address public
 - **public** → full venue address pushed to the Eventbrite venue (as in §5 step 3).
 - **registrants-only** → the public Eventbrite listing gets a **coarse** location (venue name + city/region, no street) or `online`; the **exact address is never sent to the public venue**.
 
-**Open (needs a short spike): how the exact address reaches registrants.** The natural vehicle is Eventbrite's **order-confirmation message / confirmation email**, which can carry the real address only after someone registers. Whether that message is settable via the public API (vs. only in Eventbrite's UI) is **unverified** — it needs a focused research spike. Proposed handling:
-- **v1:** push the coarse location; put the exact address into the confirmation-message field **if the API supports it**; otherwise surface a clear in-app reminder ("set the registrant address in Eventbrite → Order confirmation") and leave that one field for the lead. Either way, v1 is **safe by construction** — the address is never on the public listing.
-- **fast-follow:** fully automate the confirmation-message push once the spike confirms the API path.
+**Delivering the exact address to registrants is OUT of v1** (deferred — EST will design the release/comms flow later; likely Eventbrite's order-confirmation email or a separate mailing). v1's only obligation is the **safety invariant**: for registrants-only events, the exact street address is **never sent to Eventbrite at all** — the public listing shows the coarse location (or online), and the real address stays in the planning row / EST's own channels. No confirmation-message automation and no spike in v1.
 
 ## 6. Observability (the linchpin)
 
@@ -165,9 +163,9 @@ Four layers, cheapest to deepest:
 3. **Venue caching — RESOLVED:** an `Eventbrite Venue ID` column on `EST Venues SRC` is fine.
 4. **`listed` default — RESOLVED:** public/listed.
 
-**Still open:**
-5. **Registrants-only address delivery (§5a):** how the exact address reaches registrants — needs a short spike on whether Eventbrite's order-confirmation message is API-settable. v1 is safe regardless (coarse public location); the delivery mechanism is the open piece.
-6. **gCal method** (fast-follow, not now): Worker service-account vs official Coda gCal pack — deferred.
+**Deferred (not v1):**
+5. **Registrants-only address *delivery* to registrants (§5a):** EST will design the release/comms flow later. v1 only guarantees the safety invariant (exact address never sent to Eventbrite).
+6. **gCal method** (fast-follow): Worker service-account vs official Coda gCal pack — deferred.
 
 ## 10. Test plan
 
@@ -180,7 +178,6 @@ Four layers, cheapest to deepest:
 ## 11. Suggested build sequence (for writing-plans)
 
 1. Coda schema: add planning-row status columns + `Address visibility` + create the `Publish Log` table (+ `Eventbrite Venue ID` on venues). *(MCP, no code.)*
-   - **Spike (parallel):** confirm whether Eventbrite's order-confirmation message is API-settable (§5a) — decides how much of the registrants-only address delivery is automated in v1.
 2. Worker: Eventbrite client + pure payload builders + unit tests.
 3. Worker: `POST /publish/eventbrite` orchestration + write-back + Publish Log; config/secrets.
 4. App: capacity + ticket fields, Publish/Update button + states, Open-in-Eventbrite, error surfacing.
