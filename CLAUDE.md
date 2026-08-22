@@ -65,8 +65,19 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
    in client-side JS is readable (embed or standalone). So the token lives in the
    **proxy**. Use a **doc/table-scoped** token — **read-scoped** until writes are
    turned on — to limit blast radius.
-3. **Downstream lives in Superhuman Docs, not here.** The app's scope ends at
-   "approved." Eventbrite/gCal/Mailchimp/socials are Superhuman Docs automations.
+3. **Downstream publish is a *server-side* concern (the Worker), never the
+   browser.** *(Revised Aug 2026 — was "downstream lives in Superhuman Docs
+   automations, not this app.")* Publish-out (Eventbrite now; gCal next) runs
+   **in the proxy** on demand via a role-gated route (`POST /publish/eventbrite`),
+   holding an Eventbrite **private token** as a Worker secret — same posture as
+   the Coda token; the app stays a thin view. We went direct-from-Worker (not
+   through a Coda pack action) because Coda's eventual-consistency lag made a
+   synchronous "Publish" button janky. Coda still owns **aggregation +
+   observability**: the `eventbrite-coda-pack` keeps syncing Eventbrite → Coda
+   for metrics/`EST Events SRC`, and every publish attempt is logged to a
+   `Publish Log` Coda table (+ status fields on the planning row). Mailchimp/
+   socials remain future downstream work. Design:
+   `docs/superpowers/specs/2026-08-22-eventbrite-publish-design.md`.
 4. **Keep the data-layer seam clean.** The app normalizes every event to one
    shape and converts Coda rows via `planningRowToEvent` / `eventToCodaCells`
    inside `CodaSource` (the single data source; the in-memory mock was removed).
@@ -208,6 +219,9 @@ field on `EST Events SRC`) — the app originates events, inverting the flow.
 
 - `main` is always deployable. Work on branches, PR into `main`.
 - **Never commit secrets.** Tokens live in Worker secrets / `.dev.vars`
-  (gitignored). `proxy/.dev.vars.example` is the template.
+  (gitignored). `proxy/.dev.vars.example` is the template. Secrets in use:
+  `CODA_API_TOKEN`, and `EVENTBRITE_TOKEN` (EST-org private token for publish-out —
+  `wrangler secret put EVENTBRITE_TOKEN`). **To rotate:** the `eventbrite-coda-pack`
+  repo had a Coda API key committed in `.coda.json` — rotate it.
 - Keep the app self-contained and buildless unless there's a strong reason to add
   tooling.
