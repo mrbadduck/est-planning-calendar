@@ -24,7 +24,11 @@
  *   GOOGLE_CLIENT_ID (var)     OAuth client id; verified as the JWT `aud` for sign-in
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
+import { parseVEvents } from './ical.js';
+
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
+let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
+const REFERENCES_TABLE = 'grid-vg-fRbtoyr';   // Reference Calendars SRC (council-managed)
 
 // Resolve a column's CURRENT name from its stable id (cached per isolate) so the
 // app can read a value by id even after the column is renamed in Coda.
@@ -141,6 +145,16 @@ export default {
         REF_CACHE.set(name, { items, exp: Date.now() + 5 * 60 * 1000 });
         return json({ items }, 200, cors);
       }
+      if (parts[0] === 'references' && request.method === 'GET') {
+        // Public reference calendars: read the config table, fetch + parse each
+        // enabled .ics server-side (browser fetch is CORS-blocked). No auth (public
+        // data), GET only — same posture as /rows and /ref. Cached ~1h per isolate.
+        if (REFERENCES_CACHE && REFERENCES_CACHE.exp > Date.now())
+          return json(REFERENCES_CACHE.data, 200, cors);
+        const data = await buildReferences(base, docId, auth);
+        REFERENCES_CACHE = { data, exp: Date.now() + 3600_000 };
+        return json(data, 200, cors);
+      }
       if (parts[0] === 'me' && request.method === 'GET') {
         let id = null;
         try { id = await authIdentity(request, env, base, docId, auth); }
@@ -212,6 +226,66 @@ async function readAllRows(rowsUrl, auth) {
     pageToken = j.nextPageToken || null;
   } while (pageToken && ++pages < 6);
   return { ok: true, items };
+}
+
+// Coerce a Coda cell that may be a plain URL string or a { url } urlref object.
+function cellUrl(v) {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v)) return cellUrl(v[0]);
+  if (typeof v === 'object' && v.url) return String(v.url);
+  return '';
+}
+
+// Slug a calendar name into a stable, url-safe layer id.
+function slugId(name) {
+  return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'ref';
+}
+
+// Read the config table, fetch + parse each enabled feed, return {layers, events}.
+// One bad feed is skipped (logged) so it can't break the rest. Events are bounded
+// to ~6 months back .. ~18 months ahead to keep payloads sane.
+async function buildReferences(base, docId, auth) {
+  const out = await readAllRows(`${base}/docs/${docId}/tables/${REFERENCES_TABLE}/rows`, auth);
+  if (!out.ok) throw new Error('references config read failed');
+
+  const now = new Date();
+  const lo = new Date(now.getFullYear(), now.getMonth() - 6, 1).toISOString().slice(0, 10);
+  const hi = new Date(now.getFullYear(), now.getMonth() + 18, 1).toISOString().slice(0, 10);
+
+  const layers = [];
+  const events = [];
+  const seen = new Set();
+  for (const row of out.items) {
+    const v = row.values || {};
+    if (v['Enabled'] !== true) continue;
+    const name = row.name || v['Name'] || '';
+    const url = cellUrl(v['iCal URL']);
+    if (!name || !url) continue;
+    let id = slugId(name);
+    while (seen.has(id)) id = `${id}-x`;
+    seen.add(id);
+    layers.push({ id, name, color: v['Color'] || '#888', defaultOn: v['Default on'] === true });
+    try {
+      const r = await fetch(url);
+      if (!r.ok) { console.log(`references: ${name} feed HTTP ${r.status}, skipped`); continue; }
+      const parsed = parseVEvents(await r.text(), { expandUntil: hi, descriptionMax: 2000 });
+      for (const ev of parsed) {
+        if (ev.date < lo || ev.date > hi) continue;
+        events.push({
+          id: `${id}-${ev.date}-${slugId(ev.title).slice(0, 8)}`,
+          source: 'ref', refLayer: id, program: 'oth',
+          title: ev.title, date: ev.date, allDay: ev.allDay,
+          start: ev.start, end: ev.end,
+          description: ev.description, location: ev.location, url: ev.url,
+          readOnly: true, status: 'ref', leads: [],
+        });
+      }
+    } catch (e) {
+      console.log(`references: ${name} feed error ${(e && e.message) || e}, skipped`);
+    }
+  }
+  return { layers, events };
 }
 
 // Replace (or append) a cell by column name in a Coda cells array.
