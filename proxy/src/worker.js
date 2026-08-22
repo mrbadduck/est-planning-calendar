@@ -25,6 +25,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
+import { zonedToUtcISO, eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl } from './eventbrite.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -161,6 +162,96 @@ export default {
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id) return json({ signedIn: false }, 200, cors);
         return json({ signedIn: true, matched: id.matched, name: id.name || null, canWrite: id.canWrite, canApprove: id.canApprove }, 200, cors);
+      }
+      if (parts[0] === 'publish' && parts[1] === 'eventbrite' && request.method === 'POST') {
+        // Publish an Approved planning row out to Eventbrite: create-once (idempotent
+        // via the stored Eventbrite Event ID), venue, ticket class, structured-content
+        // description, then publish — writing status/ids back to the row and appending
+        // to the Publish Log at each significant step. Same write gate as row writes.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        if (!env.EVENTBRITE_TOKEN || !env.EVENTBRITE_ORG_ID) return json({ error: 'eventbrite not configured' }, 500, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+
+        let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
+        const rowId = body.rowId;
+        if (!rowId) return json({ error: 'rowId required' }, 400, cors);
+
+        const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
+        const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+        const row = await one.json();
+        const V = row.values || {};
+        if (String(V['Status'] || '').toLowerCase() !== 'approved') return json({ error: 'event must be Approved before publishing' }, 409, cors);
+        if (String(V['Scheduling'] || 'Exact').toLowerCase() !== 'exact' || !V['Date'] || !V['Start'])
+          return json({ error: 'publish needs an exact date and start time' }, 409, cors);
+
+        const setRow = (cells) => fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
+        const fail = async (action, r) => {
+          const msg = (r.body && (r.body.error_description || r.body.error)) || `HTTP ${r.status}`;
+          await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: String(msg) }]);
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ok: false, status: r.status, message: String(msg) });
+          return json({ error: msg, step: action }, 502, cors);
+        };
+
+        const ev = {
+          title: V['Title'] || '', date: String(V['Date']).slice(0, 10),
+          start: (String(V['Start']).match(/(?:T|^)(\d{2}:\d{2})/) || [])[1] || '',
+          end:   (String(V['End']  || '').match(/(?:T|^)(\d{2}:\d{2})/) || [])[1] || '',
+          capacity: Number(V['Capacity']) || undefined,
+          description: V['Event Description'] || '',
+          addressVisibility: V['Address visibility'] || 'Public',
+          ebId: V['Eventbrite Event ID'] || '', tcId: V['Eventbrite Ticket Class ID'] || '',
+        };
+        const tz = env.EVENTBRITE_TZ || 'America/Chicago';
+        await setRow([{ column: 'Publish status', value: 'Publishing' }]);
+
+        // 1. create-once (store id immediately so a retry never duplicates)
+        let ebId = ev.ebId;
+        if (!ebId) {
+          const r = await ebCreateEvent(env, eventToEventbritePayload(ev, tz));
+          if (!r.ok) return fail('create', r);
+          ebId = r.body.id;
+          await setRow([{ column: 'Eventbrite Event ID', value: ebId }, { column: 'Eventbrite URL', value: eventbriteWebUrl(ebId) }]);
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'create', ok: true, status: r.status, ebId, ebUrl: eventbriteWebUrl(ebId) });
+        } else {
+          const r = await ebUpdateEvent(env, ebId, eventToEventbritePayload(ev, tz));
+          if (!r.ok) return fail('update', r);
+        }
+
+        // 2. venue (empty -> online; named -> resolve/create + attach)
+        const venueRes = await ensureEbVenue(env, base, docId, auth, V, ev.addressVisibility, ebId);
+        if (venueRes && venueRes.error) return fail('venue', venueRes.error);
+
+        // 3. ticket class (free v1)
+        if (!ev.tcId) {
+          const r = await ebCreateTicket(env, ebId, ticketClassPayload(ev));
+          if (!r.ok) return fail('ticket', r);
+          await setRow([{ column: 'Eventbrite Ticket Class ID', value: r.body.id }]);
+        } else {
+          const r = await ebUpdateTicket(env, ebId, ev.tcId, ticketClassPayload(ev));
+          if (!r.ok) return fail('ticket', r);
+        }
+
+        // 4. structured content (description body) — read version, write version+1
+        const sc = await ebGetStructuredContent(env, ebId);
+        const ver = ((sc.body && sc.body.page_version_number) || 0) + 1;
+        const { _version, ...scBody } = structuredContentBody(ev.description, ver);
+        const scr = await ebSetStructuredContent(env, ebId, ver, scBody);
+        if (!scr.ok) return fail('structured-content', scr);
+
+        // 5. publish
+        const pub = await ebPublish(env, ebId);
+        if (!pub.ok) return fail('publish', pub);
+
+        // 6. success write-back + log
+        await setRow([
+          { column: 'Publish status', value: 'Published' }, { column: 'Published?', value: true },
+          { column: 'Last published at', value: new Date().toISOString() }, { column: 'Last publish error', value: '' },
+        ]);
+        await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'publish', ok: true, status: pub.status, ebId, ebUrl: eventbriteWebUrl(ebId) });
+        return json({ ok: true, eventbriteId: ebId, url: eventbriteWebUrl(ebId) }, 200, cors);
       }
       if (parts[0] === 'notes-doc' && request.method === 'POST') {
         // Provision a Planning-Notes Google Doc by pushing the row's notes-doc
@@ -369,4 +460,84 @@ async function authIdentity(request, env, base, docId, auth) {
   const person = await resolvePerson(email, base, docId, auth);
   if (!person) return { matched: false, email, canWrite: false, canApprove: false };
   return { matched: true, ...person };
+}
+
+// --- Eventbrite v3 I/O client -------------------------------------------------
+// Thin wrappers over the Eventbrite REST API. Each returns {ok,status,body}; the
+// route inspects those and never lets a non-2xx pass silently. The pure payload
+// builders live in ./eventbrite.js (imported above) — this file only does I/O.
+const EB_BASE = 'https://www.eventbriteapi.com/v3';
+async function ebFetch(env, path, method = 'GET', body) {
+  const r = await fetch(`${EB_BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${env.EVENTBRITE_TOKEN}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let j = null; try { j = await r.json(); } catch (_) {}
+  return { ok: r.ok, status: r.status, body: j };
+}
+const ebCreateEvent = (env, payload) => ebFetch(env, `/organizations/${env.EVENTBRITE_ORG_ID}/events/`, 'POST', payload);
+const ebUpdateEvent = (env, id, payload) => ebFetch(env, `/events/${id}/`, 'POST', payload);
+const ebCreateVenue = (env, payload) => ebFetch(env, `/organizations/${env.EVENTBRITE_ORG_ID}/venues/`, 'POST', payload);
+const ebCreateTicket = (env, id, payload) => ebFetch(env, `/events/${id}/ticket_classes/`, 'POST', payload);
+const ebUpdateTicket = (env, id, tcId, payload) => ebFetch(env, `/events/${id}/ticket_classes/${tcId}/`, 'POST', payload);
+const ebGetStructuredContent = (env, id) => ebFetch(env, `/events/${id}/structured_content/`, 'GET');
+const ebSetStructuredContent = (env, id, version, body) => ebFetch(env, `/events/${id}/structured_content/${version}/`, 'POST', body);
+const ebPublish = (env, id) => ebFetch(env, `/events/${id}/publish/`, 'POST');
+
+// Append one row to the Publish Log table. Logging must NEVER throw — a failed
+// log write can't be allowed to break (or falsely fail) the publish path.
+async function logPublish(env, base, docId, auth, rec) {
+  if (!env.CODA_PUBLISH_LOG_TABLE) return;
+  const cells = [
+    { column: 'When', value: new Date().toISOString() },
+    { column: 'Planning Event', value: rec.rowId ? [rec.rowId] : [] },
+    { column: 'Actor', value: rec.actorId ? [rec.actorId] : [] },
+    { column: 'Target', value: 'Eventbrite' },
+    { column: 'Action', value: rec.action },
+    { column: 'Result', value: rec.ok ? 'ok' : 'error' },
+    { column: 'Eventbrite ID', value: rec.ebId || '' },
+    { column: 'Eventbrite URL', value: rec.ebUrl || '' },
+    { column: 'HTTP status', value: rec.status || 0 },
+    { column: 'Message', value: rec.message || '' },
+  ];
+  try {
+    await fetch(`${base}/docs/${docId}/tables/${env.CODA_PUBLISH_LOG_TABLE}/rows`,
+      { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
+  } catch (_) { /* logging must never break the publish path */ }
+}
+
+// Resolve the planning row's venue to an Eventbrite venue and attach it to the
+// event. `V['Venue']` is an array of venue display-name strings (or empty).
+//   - empty -> mark the event online, return null (or {error:r} if that update fails)
+//   - named -> look the venue up in EST Venues SRC; reuse its cached Eventbrite
+//     Venue ID if present, else create the venue on Eventbrite (passing
+//     addressVisibility through so registrants-only never leaks an address) and
+//     cache the id back into the row (non-fatal if that write fails). Then set
+//     venue_id on the event.
+// Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
+const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
+async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId) {
+  const names = Array.isArray(V['Venue']) ? V['Venue'] : (V['Venue'] ? [V['Venue']] : []);
+  const name = names[0];
+  if (!name) {
+    const r = await ebUpdateEvent(env, ebId, { event: { online_event: true } });
+    return r.ok ? null : { error: r };
+  }
+  const out = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth);
+  const found = out.ok ? out.items.find(row => String((row.values || {})['Venue Name'] || '') === String(name)) : null;
+  let venueId = found && (found.values || {})['Eventbrite Venue ID'];
+  if (!venueId) {
+    const r = await ebCreateVenue(env, venuePayload({ name, address: (found && found.values['Address']) || '' }, addressVisibility));
+    if (!r.ok) return { error: r };
+    venueId = r.body.id;
+    if (found) {
+      try {
+        await fetch(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`,
+          { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: [{ column: 'Eventbrite Venue ID', value: venueId }] } }) });
+      } catch (_) { /* caching the id back is best-effort; still use it below */ }
+    }
+  }
+  const u = await ebUpdateEvent(env, ebId, { event: { venue_id: venueId } });
+  return u.ok ? null : { error: u };
 }

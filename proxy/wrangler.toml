@@ -12,7 +12,11 @@ CODA_NOTES_BUTTON_ID = "c-Xa89eEgVN5"   # notes-doc button ("Create Notes Doc") 
 ALLOWED_ORIGIN = "https://plan.eastsidetribe.org,http://localhost:8080,http://127.0.0.1:8080"  # first entry = canonical; localhost entries are for local dev
 ALLOW_WRITES   = "true"                 # Plan 2b: writes enabled (still require a write-authorized identity)
 GOOGLE_CLIENT_ID = "463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com"  # OAuth Web client (public); verified as the JWT aud
+EVENTBRITE_ORG_ID = "1080997994263"     # EST Eventbrite organization id (public)
+EVENTBRITE_TZ = "America/Chicago"       # wall-clock timezone for published event start/end
+CODA_PUBLISH_LOG_TABLE = "grid-CJNl0A1OGZ"  # Publish Log table — append-only audit of publish attempts
 
 # Secrets are NOT stored here. Set them once with:
 #   npx wrangler secret put CODA_API_TOKEN     # a READ+WRITE, doc-scoped token (Plan 2b)
+#   npx wrangler secret put EVENTBRITE_TOKEN   # Eventbrite private token (publish-out)
 #   npx wrangler secret put APP_KEY            # optional, unused in the phased plan
