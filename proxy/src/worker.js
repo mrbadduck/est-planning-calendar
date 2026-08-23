@@ -202,6 +202,8 @@ export default {
           end:   (String(V['End']  || '').match(/(?:T|^)(\d{2}:\d{2})/) || [])[1] || '',
           capacity: Number(V['Capacity']) || undefined,
           description: V['Event Description'] || '',
+          publicSummary: V['Public summary'] || '',
+          publicDescription: V['Public description'] || '',
           addressVisibility: V['Address visibility'] || 'Public',
           ebId: V['Eventbrite Event ID'] || '', tcId: V['Eventbrite Ticket Class ID'] || '',
         };
@@ -249,8 +251,9 @@ export default {
           // 4. structured content (description body) — read version, write version+1
           // SC write shape ({publish:true}+modules, version in path) verified against the live API in Task 6.
           const sc = await ebGetStructuredContent(env, ebId);
-          const ver = ((sc.body && sc.body.page_version_number) || 0) + 1;
-          const { _version, ...scBody } = structuredContentBody(ev.description, ver);
+          const pv = sc.body && sc.body.page_version_number;
+          const ver = (typeof pv === 'number') ? pv + 1 : 0;   // brand-new description → version 0
+          const { _version, ...scBody } = structuredContentBody(ev.publicDescription || V['Event Description'] || '', ver);
           const scr = await ebSetStructuredContent(env, ebId, ver, scBody);
           if (!scr.ok) return fail('structured-content', scr);
 

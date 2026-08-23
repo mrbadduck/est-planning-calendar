@@ -27,6 +27,14 @@ test('eventToEventbritePayload builds create body with utc+tz, currency, capacit
   assert.ok(p.event.summary.length <= 140);
 });
 
+test('eventToEventbritePayload prefers publicSummary for summary (<=140)', () => {
+  const ev = { title: 'Kabbalat Shabbat', date: '2026-09-01', start: '18:00', end: '20:00',
+    publicSummary: 'Sing in Shabbat with us.', description: '<p>Long internal planning copy.</p>' };
+  const p = eventToEventbritePayload(ev, TZ);
+  assert.equal(p.event.summary, 'Sing in Shabbat with us.');
+  assert.ok(p.event.summary.length <= 140);
+});
+
 test('ticketClassPayload — free ticket uses capacity', () => {
   assert.deepEqual(ticketClassPayload({ capacity: 40 }), {
     ticket_class: { name: 'General Admission', free: true, quantity_total: 40 },
@@ -42,6 +50,7 @@ test('structuredContentBody wraps html in a single text module at the given vers
   const b = structuredContentBody('<p>Hi</p>', 3);
   assert.equal(b.modules[0].type, 'text');
   assert.equal(b.modules[0].data.body.text, '<p>Hi</p>');
+  assert.equal(b.modules[0].data.body.alignment, 'left');
   assert.equal(b.publish, true);
 });
 

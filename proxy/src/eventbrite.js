@@ -32,7 +32,7 @@ const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g,
 
 // event.* create/update body. Times are exact wall-clock (HH:MM) in `tz`.
 export function eventToEventbritePayload(ev, tz) {
-  const summary = stripHtml(ev.description).slice(0, 140);
+  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140)) || stripHtml(ev.description).slice(0, 140);
   return {
     event: {
       'name': { html: ev.title || '' },
@@ -59,7 +59,7 @@ export function ticketClassPayload(ev) {
 export function structuredContentBody(html, versionToWrite) {
   return {
     publish: true,
-    modules: [{ type: 'text', data: { body: { text: String(html || '') } } }],
+    modules: [{ type: 'text', data: { body: { text: String(html || ''), alignment: 'left' } } }],
     // version is carried in the URL path, not the body; kept here for callers/tests
     _version: versionToWrite,
   };
