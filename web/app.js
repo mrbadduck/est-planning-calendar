@@ -606,6 +606,7 @@ function legendHTML(){
 }
 function openInfo(){
   editing={id:'__info__'};
+  document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent='Legend & key';
   document.getElementById('mActions').innerHTML='';
@@ -808,6 +809,7 @@ function openEditor(ev, section){
   document.getElementById('mTitle').textContent = ev.id ? (isRef?'Reference event':'Edit event') : 'New event';
   const actions=document.getElementById('mActions');
   const body=document.getElementById('mBody');
+  document.getElementById('modal').classList.remove('ws'); body.classList.remove('ws');   // workspace mode only for the planning editor
   if(isRef){
     const R = REF[ev.refLayer] || {name:'Reference', color:'#888'};
     actions.innerHTML = `<span class="badge b-ref">${esc(R.name)}</span>`;
@@ -843,12 +845,14 @@ function openEditor(ev, section){
   if(canEdit && !locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
   foot.innerHTML=acts;
 
-  // workspace: left rail + active-section panel
+  // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
+  document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
   body.innerHTML = `<div class="wsplit"><nav class="wrail" id="wrail">${railHTML()}</nav><div class="wpanel" id="wpanel"></div></div>`;
   renderSection(activeSection, ev, canEdit, locked, canApprove);
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
-    const id=b.dataset.sect;
+    const id=b.dataset.sect; if(id===activeSection) return;
+    if(canEdit && !locked) Object.assign(ev, readForm());   // capture the outgoing section's edits so nothing is lost on switch
     setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove);
     const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live && typeof syncUrl==='function') syncUrl(ev, id);
   });
@@ -1023,16 +1027,43 @@ function feedbackBoardHTML(context){
     <div class="fblist" aria-live="polite"><div class="hint">Loading ideas…</div></div>
   </div>`;
 }
+// Ideas of every status show (New included) so newly-submitted, un-triaged ideas
+// are visible + differentiable from ones the council has Planned/Shipped.
+const _fbStatusLabel = s => ({New:'New',Planned:'Planned',Shipped:'Shipped',Declined:'Declined'}[s]||'New');
+function fbItemHTML(it){
+  const canVote = !!(state.identity && state.identity.matched);
+  const st = it.status||'New';
+  return `<div class="fbitem"><button type="button" class="fbvote${it.votedByMe?' on':''}" data-vote="${esc(it.id)}" ${canVote?'':'disabled'} aria-label="Upvote">▲ ${it.votes||0}</button>`
+    + `<span class="fbidea">${esc(it.idea)}</span><span class="fbstatus fbst-${st.toLowerCase()}">${esc(_fbStatusLabel(st))}</span></div>`;
+}
 async function wireFeedback(root, context){
   const board=root.querySelector('.fbboard'); if(!board) return;
   const list=board.querySelector('.fblist');
-  const paint=(items)=>{ list.innerHTML = items.length ? items.map(it=>`<div class="fbitem"><button type="button" class="fbvote${it.votedByMe?' on':''}" data-vote="${it.id}" ${state.identity&&state.identity.matched?'':'disabled'}>▲ ${it.votes}</button><span class="fbidea">${esc(it.idea)}</span></div>`).join('') : `<div class="hint">No ideas yet — be the first.</div>`; };
-  paint(await DB.listFeedback(context));
+  let items=[];
+  const paint=()=>{ list.innerHTML = items.length ? items.map(fbItemHTML).join('') : `<div class="hint">No ideas yet — be the first.</div>`; };
+  const reload=async()=>{ items=await DB.listFeedback(context); paint(); };
+  await reload();
   board.addEventListener('click', async e=>{
     const sb=e.target.closest('[data-act="fb-submit"]');
-    if(sb){ const ta=board.querySelector('.fbtext'); const val=ta.value.trim(); if(!val){ toast('Write an idea first','err'); return; } try{ await DB.submitFeedback(val, context); ta.value=''; paint(await DB.listFeedback(context)); toast('Idea submitted','ok'); }catch(err){ toast(err.message||'Submit failed','err'); } return; }
+    if(sb){
+      const ta=board.querySelector('.fbtext'); const val=(ta.value||'').trim();
+      if(!val){ toast('Write an idea first','err'); return; }
+      try{
+        await DB.submitFeedback(val, context); ta.value='';
+        // Optimistic: show it immediately (Coda's read-after-write lag can hide it
+        // from an instant re-fetch). Reconcile shortly after.
+        items.unshift({ id:'_tmp'+Date.now(), idea:val, context, votes:0, votedByMe:false, status:'New', submittedByName:(state.identity&&state.identity.name)||'' });
+        paint(); toast('Idea submitted','ok');
+        setTimeout(reload, 2500);
+      }catch(err){ toast(err.message||'Submit failed','err'); }
+      return;
+    }
     const vb=e.target.closest('[data-vote]');
-    if(vb){ try{ await DB.voteFeedback(vb.dataset.vote); paint(await DB.listFeedback(context)); }catch(err){ if(err.status===401&&typeof sessionExpired==='function') sessionExpired(); else toast(err.message||'Vote failed','err'); } }
+    if(vb){
+      const id=vb.dataset.vote; if(id.startsWith('_tmp')){ toast('Just a sec — saving…','busy'); return; }
+      try{ const r=await DB.voteFeedback(id); const it=items.find(x=>x.id===id); if(it){ it.votes=r.votes; it.votedByMe=r.votedByMe; paint(); } }
+      catch(err){ if(err.status===401&&typeof sessionExpired==='function') sessionExpired(); else toast(err.message||'Vote failed','err'); }
+    }
   });
 }
 
@@ -1257,6 +1288,7 @@ document.getElementById('infoBtn').addEventListener('click',openInfo);
 /* feedback / ideas modal */
 document.getElementById('feedbackBtn').addEventListener('click', ()=>{
   editing={id:'__feedback__'};
+  document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent='Feedback & ideas';
   document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
