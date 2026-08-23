@@ -85,9 +85,40 @@ Worker `POST /publish/eventbrite`:
 - Header keeps the title stripe + ✕ close; add a **Copy link** icon.
 - Mobile (<600px): the rail collapses to a top **section chip row** (horizontal scroll) above the panel — same section model, compact chrome. (Two live sections keep this trivial now.)
 
-## 8. Coming-soon teaser + feedback
+## 8. Feedback / Ideas board (a real, votable board — baked into the roadmap)
 
-Clicking a `live:false` section shows a panel: the facet name, a one-line "what this will do," and a **feedback prompt**. v1 keeps it lightweight — a textarea + "Send feedback" that writes a row to a small Coda **`Roadmap Feedback`** table (via a role-gated Worker route reusing the write path) OR, to avoid new backend, a `mailto:` to the council. **Decision:** start with the Coda `Roadmap Feedback` table if cheap; else `mailto:` placeholder. (Flagged as a small open choice for the plan.)
+A lightweight ideas board wired into the workspace. Two entry points, one shared board, upvoting to surface priorities.
+
+**Entry points**
+- **Global "Feedback / Ideas" CTA in the page header** — submit a general idea/suggestion (context = `General`) and browse all ideas.
+- **Per coming-soon section** — each `live:false` section panel shows a **context-aware** mini-form whose submissions are tagged with that section's id (e.g. `budget`), and **below the form, the list of ideas already submitted for that context**, each with a **+1** affordance. So a lead opening "Budget & expenses" sees "here's what's coming, tell us what you'd want, and +1 what others already asked for."
+
+**Voting**
+- Each idea shows a vote count + a **+1** button that **toggles** the current person's vote (no double-voting). Lists sort by votes desc, then recency.
+- The signed-in person's own vote state is reflected (`votedByMe`), so the button reads as pressed/unpressed.
+- Submitting and voting require a **matched, signed-in identity** (a known `EST People SRC` person) — low friction (any signed-in lead), attributed, spam-resistant. Reads (browsing ideas) are open like `/rows`.
+
+**Coda `Roadmap Feedback` table** (new):
+| Column | Type |
+|---|---|
+| Idea | text (the suggestion) |
+| Context | SelectList (`General`, `planning`, `publish`, `budget`, `comms`, `volunteers`, `attendance`, `feedback`) |
+| Submitted by | relation → `EST People SRC` |
+| Submitted at | text (ISO) |
+| Voters | relation → `EST People SRC` (multiple) — who +1'd; count = votes |
+| Status | SelectList (`New`, `Planned`, `Shipped`, `Declined`) — council triage (display-only in app) |
+
+**Worker routes** (reuse existing token + `authIdentity`):
+- `GET /feedback[?context=<id>]` — list ideas (optionally by context), sorted by vote count. **Auth-aware:** if a Google token is sent, resolve the person and mark `votedByMe` per idea (same optional-token pattern as `/me`). Returns `{ id, idea, context, submittedByName, votes, votedByMe, status }[]`.
+- `POST /feedback` — body `{ idea, context }`; requires a matched identity; injects `Submitted by` + `Submitted at`; `context` defaults to `General`.
+- `POST /feedback/:id/vote` — toggles the caller's person in `Voters`; requires a matched identity; returns the new `{ votes, votedByMe }`.
+
+**App**
+- Header CTA opens a small **Ideas** modal: a submit box (context `General`) + the full list with +1.
+- Each coming-soon section renders: teaser line → mini submit form (context = section id) → that context's idea list with +1. Reuses one `feedbackBoardHTML(context)` + `wireFeedback(context)` component for both the modal and the section panels.
+- The app already knows the current user (`state.identity`); it sends the Google token on `GET /feedback` so `votedByMe` is authoritative.
+
+This turns the "Coming soon" rail from a static teaser into a **prioritized, self-serve feedback stream** the council can triage in Coda.
 
 ## 9. Non-goals / later
 
@@ -112,6 +143,9 @@ Clicking a `live:false` section shows a panel: the facet name, a one-line "what 
 2. App model: `planningRowToEvent`/`eventToCodaCells` for the new fields; reframe internal-description label.
 3. App: section registry + modal rail + panel host; move existing fields into Planning; assemble Publish section (summary, public description + copy-from-internal, capacity, ticket, address, publish panel).
 4. App: URL param sync (open/close/section) + deep-link-on-load + Copy link.
-5. App: Coming-soon rail group + teaser + feedback affordance.
+5. App: Coming-soon rail group + teaser panels.
 6. Worker: publish route reads `Public summary`/`Public description` (fallbacks); SC `alignment` + version-0 fixes.
-7. Verify (browser + a draft publish) + docs.
+7. **Feedback board** (own phase): create the Coda `Roadmap Feedback` table; Worker `GET/POST /feedback` + `POST /feedback/:id/vote`; app `feedbackBoardHTML(context)`/`wireFeedback(context)` reused by the header Ideas modal and each coming-soon section.
+8. Verify (browser + a draft publish + submit/vote round-trip) + docs.
+
+Phases 1–6 are the workspace/publish core; phase 7 (feedback board) is a cohesive add-on that can land right after — same branch.
