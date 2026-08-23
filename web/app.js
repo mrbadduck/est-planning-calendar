@@ -344,6 +344,9 @@ const CodaSource = {
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
   async publishEventbrite(rowId, draftOnly){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; throw e; } return j; },
+  async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
+  async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
+  async voteFeedback(id){ const r=await fetch(`${this.base}/feedback/${encodeURIComponent(id)}/vote`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||'vote failed'); e.status=r.status; throw e; } return j; },
 };
 
 // The live proxy is the only data source. Reads are unauthenticated (CORS-gated,
@@ -1013,6 +1016,26 @@ function comingSoonHTML(sec){
   return `<div class="soon-teaser"><div class="soon-h">${esc(sec.label)} — coming soon</div><div class="hint">On our roadmap. Tell us what you'd want here, or +1 an idea below.</div>${typeof feedbackBoardHTML==='function'?feedbackBoardHTML(sec.id):''}</div>`;
 }
 
+function feedbackBoardHTML(context){
+  const signedIn = !!(state.identity && state.identity.matched);
+  return `<div class="fbboard" data-ctx="${context}">
+    ${signedIn ? `<div class="fbform"><textarea class="fbtext" rows="2" placeholder="Suggest an idea…"></textarea><button type="button" class="btn sm primary" data-act="fb-submit">Submit</button></div>` : `<div class="hint">Sign in to add or +1 ideas.</div>`}
+    <div class="fblist" aria-live="polite"><div class="hint">Loading ideas…</div></div>
+  </div>`;
+}
+async function wireFeedback(root, context){
+  const board=root.querySelector('.fbboard'); if(!board) return;
+  const list=board.querySelector('.fblist');
+  const paint=(items)=>{ list.innerHTML = items.length ? items.map(it=>`<div class="fbitem"><button type="button" class="fbvote${it.votedByMe?' on':''}" data-vote="${it.id}" ${state.identity&&state.identity.matched?'':'disabled'}>▲ ${it.votes}</button><span class="fbidea">${esc(it.idea)}</span></div>`).join('') : `<div class="hint">No ideas yet — be the first.</div>`; };
+  paint(await DB.listFeedback(context));
+  board.addEventListener('click', async e=>{
+    const sb=e.target.closest('[data-act="fb-submit"]');
+    if(sb){ const ta=board.querySelector('.fbtext'); const val=ta.value.trim(); if(!val){ toast('Write an idea first','err'); return; } try{ await DB.submitFeedback(val, context); ta.value=''; paint(await DB.listFeedback(context)); toast('Idea submitted','ok'); }catch(err){ toast(err.message||'Submit failed','err'); } return; }
+    const vb=e.target.closest('[data-vote]');
+    if(vb){ try{ await DB.voteFeedback(vb.dataset.vote); paint(await DB.listFeedback(context)); }catch(err){ if(err.status===401&&typeof sessionExpired==='function') sessionExpired(); else toast(err.message||'Vote failed','err'); } }
+  });
+}
+
 function readForm(){
   // Fields now live in whichever section is rendered — so any field may be
   // absent from the DOM. For every read, fall back to `editing.<field>` when its
@@ -1230,6 +1253,16 @@ document.getElementById('viewSeg').addEventListener('click',e=>{
 
 /* legend / info modal */
 document.getElementById('infoBtn').addEventListener('click',openInfo);
+
+/* feedback / ideas modal */
+document.getElementById('feedbackBtn').addEventListener('click', ()=>{
+  editing={id:'__feedback__'};
+  document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
+  document.getElementById('mTitle').textContent='Feedback & ideas';
+  document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
+  const body=document.getElementById('mBody'); body.innerHTML=`<div class="fld full"><div class="hint">Suggest anything, or +1 an idea. For section-specific ideas, open an event and visit that section.</div>${feedbackBoardHTML('General')}</div>`;
+  wireFeedback(body,'General'); show();
+});
 
 /* close the account + overflow menus on outside click / Esc */
 document.addEventListener('click', e=>{
