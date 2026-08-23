@@ -793,8 +793,9 @@ async function pushNotesDocButton(rowId, gen){
   }
 }
 
-function openEditor(ev){
+function openEditor(ev, section){
   editing = ev;
+  activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'planning';   // reset per open; honor a deep-linked section
   const isRef = ev.source==='ref';
   const canEdit = !isRef && !!(state.identity && state.identity.canWrite);
   const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
@@ -827,6 +828,7 @@ function openEditor(ev){
   if(canApprove) head += (ev.status==='approved')
     ? `<button class="btn sm" data-act="reopen">Reopen</button>`
     : `<button class="btn primary sm" data-act="approve">Approve${ev.id?'':' & save'}</button>`;
+  if(ev.id) head += `<button class="btn sm" data-act="copylink" title="Copy a link to this event">Copy link</button>`;
   actions.innerHTML = head;
 
   // footer: Delete / Cancel / Save (approve + reopen live in the header now)
@@ -849,7 +851,29 @@ function openEditor(ev){
   });
 
   show();
+  if(ev.id) syncUrl(ev, activeSection);
   const t=document.getElementById('f_title'); if(t && !ev.id) t.focus();
+}
+
+/* ---- URL deep-linking: ?event=<rowId>&section=<id>, two-way synced ---------- */
+function syncUrl(ev, section){
+  if(!ev || !ev.id) return;
+  const u=new URL(location.href);
+  u.searchParams.set('event', ev.id); u.searchParams.set('section', section||activeSection);
+  history.replaceState(null,'',u);
+}
+function clearUrl(){
+  const u=new URL(location.href);
+  if(!u.searchParams.has('event') && !u.searchParams.has('section')) return;
+  u.searchParams.delete('event'); u.searchParams.delete('section');
+  history.replaceState(null,'',u);
+}
+// Open the event named in the URL (once events are loaded). Silent if absent.
+function openFromUrl(){
+  const p=new URL(location.href).searchParams;
+  const id=p.get('event'); if(!id) return;
+  const ev=state.events.find(x=>x.id===id); if(!ev) return;
+  openEditor(ev, p.get('section')||'planning');
 }
 
 /* ---- editor workspace: rail + section panels ------------------------------
@@ -1112,7 +1136,7 @@ async function deleteEditor(){
    WIRING
    ========================================================================= */
 function show(){ document.getElementById('scrim').classList.add('open'); }
-function close(){ _ndocGen++; document.getElementById('scrim').classList.remove('open'); editing=null; }
+function close(){ _ndocGen++; document.getElementById('scrim').classList.remove('open'); editing=null; clearUrl(); }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });
 document.getElementById('mClose').addEventListener('click', close);   // dedicated top-right ✕ (avoids mis-hitting Approve)
@@ -1131,6 +1155,7 @@ document.getElementById('mActions').addEventListener('click',e=>{
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='approve') saveEditor(true);
   else if(act==='reopen') reopenEditor();
+  else if(act==='copylink'){ navigator.clipboard.writeText(location.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }
 });
 document.getElementById('mBody').addEventListener('click',e=>{
   if(e.target.closest('[data-act="coda"]')){ e.preventDefault(); alert('Live version: deep-links to this row in the Mission Control Coda doc for full editing (ticketing, banner, promotion).'); }
@@ -1369,6 +1394,7 @@ async function init(){
   if(cachedRows && cachedRows.length){ state.events = [...cachedRows.map(planningRowToEvent), ...((cachedRefs&&cachedRefs.events)||[])]; applyView(); layoutSticky(); }
   // Fresh events (renders as soon as /rows returns).
   await refresh();
+  openFromUrl();                 // deep-link: ?event=<id>&section=<id> opens that event
   setTimeout(()=>{
     const t=new Date();
     if(state.view==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
