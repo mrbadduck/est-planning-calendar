@@ -567,10 +567,12 @@ async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId)
   }
   let venueId = found && (found.values || {})[cacheCol];
   if (!venueId) {
-    const privateArea = env.EVENTBRITE_PRIVATE_AREA || 'Nashville, TN';
+    // Structured coarse area (Eventbrite requires city + country). EST is Nashville
+    // metro; the real street is only ever sent for PUBLIC events via address_1.
+    const area = { city: env.EVENTBRITE_AREA_CITY || 'Nashville', region: env.EVENTBRITE_AREA_REGION || 'TN', country: env.EVENTBRITE_COUNTRY || 'US' };
     // venuePayload enforces the safety split: registrants-only ignores realAddress
     // and emits the generic name + coarse area; public uses the real address.
-    const r = await ebCreateVenue(env, venuePayload({ name, address: realAddress }, addressVisibility, privateArea));
+    const r = await ebCreateVenue(env, venuePayload({ name, address: realAddress }, addressVisibility, area));
     if (!r.ok) return { error: r };
     venueId = r.body.id;
     if (found) {

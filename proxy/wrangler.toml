@@ -14,7 +14,9 @@ ALLOW_WRITES   = "true"                 # Plan 2b: writes enabled (still require
 GOOGLE_CLIENT_ID = "463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com"  # OAuth Web client (public); verified as the JWT aud
 EVENTBRITE_ORG_ID = "1080997994263"     # EST Eventbrite organization id (public)
 EVENTBRITE_TZ = "America/Chicago"       # wall-clock timezone for published event start/end
-EVENTBRITE_PRIVATE_AREA = "Nashville, TN"  # coarse public location for registrants-only events (real address delivered out-of-band)
+EVENTBRITE_COUNTRY = "US"                   # ISO country for EB venues
+EVENTBRITE_AREA_CITY = "Nashville"          # coarse public city (registrants-only shows only this; public also tags it)
+EVENTBRITE_AREA_REGION = "TN"               # coarse public region/state
 CODA_PUBLISH_LOG_TABLE = "grid-CJNl0A1OGZ"  # Publish Log table — append-only audit of publish attempts
 
 # Secrets are NOT stored here. Set them once with:

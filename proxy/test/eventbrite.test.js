@@ -45,15 +45,20 @@ test('structuredContentBody wraps html in a single text module at the given vers
   assert.equal(b.publish, true);
 });
 
-test('venuePayload — public sends the full address', () => {
-  const v = venuePayload({ name: 'JCC', address: '801 Percy Warner Blvd, Nashville, TN' }, 'Public');
+const AREA = { city: 'Nashville', region: 'TN', country: 'US' };
+test('venuePayload — public sends the full street address + structured city/region/country', () => {
+  const v = venuePayload({ name: 'JCC', address: '801 Percy Warner Blvd, Nashville, TN' }, 'Public', AREA);
   assert.equal(v.venue.name, 'JCC');
   assert.equal(v.venue.address.address_1, '801 Percy Warner Blvd, Nashville, TN');
+  assert.equal(v.venue.address.city, 'Nashville');
+  assert.equal(v.venue.address.country, 'US');
 });
-test('venuePayload — registrants-only sends a coarse area + generic name, never the real street/name (safety invariant)', () => {
-  const v = venuePayload({ name: "Eric & Hilary's House", address: '1115 Delmas Ave Nashville, TN 37216' }, 'Registrants only', 'Nashville, TN');
+test('venuePayload — registrants-only sends only a coarse area + generic name, never the real street/name (safety invariant)', () => {
+  const v = venuePayload({ name: "Eric & Hilary's House", address: '1115 Delmas Ave Nashville, TN 37216' }, 'Registrants only', AREA);
   assert.equal(v.venue.name, 'Address shared upon registration');   // generic — no host name
-  assert.equal(v.venue.address.address_1, 'Nashville, TN');          // coarse area only
+  assert.equal(v.venue.address.city, 'Nashville');                  // coarse area only
+  assert.equal(v.venue.address.country, 'US');
+  assert.equal(v.venue.address.address_1, undefined);               // NO street line
   const blob = JSON.stringify(v);
   assert.ok(!blob.includes('Delmas'), 'must not leak the street');
   assert.ok(!blob.includes('Eric & Hilary'), 'must not leak the host-identifying name');
