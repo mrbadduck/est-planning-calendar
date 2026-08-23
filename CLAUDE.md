@@ -135,6 +135,22 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   exist in the DOM). Status lifecycle idea→draft→confirmed→approved; approve gated
   server-side (Tribal Council). **Internal** description lives in Planning;
   **Public summary/description** (sent to Eventbrite) live in Publish.
+- **Save model (create-then-workspace + on-blur autosave):** a NEW event opens a
+  one-shot compact Planning modal (`openNewEventForm`, Cancel/Create) — not the
+  workspace, so no premature empty rows; on Create it persists once and
+  transitions into the workspace via `openEditor(saved)`. An EXISTING event's
+  workspace **autosaves every field on blur** (`autosaveEditor`, debounced 800ms,
+  in place — modal stays open; reuses the `applyLocal`/`markRecent`/`_recent`/
+  `scheduleReconcile` optimistic stack; no-op saves skipped via a `readForm()`
+  snapshot diff). Footer = **Delete** + a **save-status pill** (`#saveStatus`:
+  Saved/Unsaved/Saving…/failed-retry); the global Save/Cancel is gone. `close()`
+  flushes a pending edit so a fast Done/Esc/✕ can't drop the last change.
+  Typeahead/venue pickers take an `onChange` (guarded against initial seeding) so
+  chip/segment mutations schedule a save. **Approve** stays deliberate
+  (`saveEditor(true)`, header). Publish push (`Create draft`/`Publish`) calls
+  `flushAutosave()` first (Worker reads the freshest Coda copy); a session-local
+  `_ebDirty` flag shows an "Eventbrite is behind your latest edits" hint. Design/
+  plan: `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*`.
 - **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
   `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
 - **Feedback/Ideas board** (`feedbackBoardHTML`/`wireFeedback`): a votable roadmap
