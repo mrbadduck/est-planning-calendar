@@ -126,9 +126,23 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 - **Two views**: `renderOverview()` (default — whole year, months as cards, weeks
   bucketed **weeknight Mon–Thu / weekend Fri–Sun**) and `renderMonths()`
   (detailed month grids with a left "Ideas" gutter). `applyView()` toggles them.
-- **Editor**: `openEditor()` + `readForm()`; status lifecycle
-  idea→draft→confirmed→approved; approve is VP-only (`state.role` is hardcoded
-  `'vp'` in the mock — real gating comes with **Phase 2** Google auth + allowlist).
+- **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
+  live sections **Planning** (`renderPlanning`/`wirePlanning`) + **Publish**
+  (`renderPublish`/`wirePublish`, gated on approved), plus a muted **Coming soon**
+  group (Budget/Comms/Volunteers/Attendance/Feedback) whose panels host the
+  feedback board. `openEditor(ev, section)` resets to Planning unless a section is
+  passed; `readForm()` null-guards every field (only the active section's inputs
+  exist in the DOM). Status lifecycle idea→draft→confirmed→approved; approve gated
+  server-side (Tribal Council). **Internal** description lives in Planning;
+  **Public summary/description** (sent to Eventbrite) live in Publish.
+- **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
+  `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
+- **Feedback/Ideas board** (`feedbackBoardHTML`/`wireFeedback`): a votable roadmap
+  board — a global header CTA (`#feedbackBtn`) + a context-tagged board in each
+  coming-soon section. Backed by the Coda `Roadmap Feedback` table
+  (`grid-pP5rwauO2j`) via Worker `GET/POST /feedback` + `POST /feedback/:id/vote`
+  (new var `CODA_FEEDBACK_TABLE`). Design/plan:
+  `docs/superpowers/specs|plans/2026-08-22-event-workspace*`.
 - **`openInfo()`**: the legend/key modal (the round "i" button).
 - **`layoutSticky()`**: measures header heights into `--bar-h`/`--wh-h` so the
   sticky weekday row + month headers stack correctly; self-corrects on load,
