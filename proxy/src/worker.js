@@ -177,6 +177,7 @@ export default {
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         const rowId = body.rowId;
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
+        const draftOnly = body.draftOnly === true;   // build/sync the EB draft but do NOT publish (go live)
 
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
         const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
@@ -253,17 +254,23 @@ export default {
           const scr = await ebSetStructuredContent(env, ebId, ver, scBody);
           if (!scr.ok) return fail('structured-content', scr);
 
-          // 5. publish
-          const pub = await ebPublish(env, ebId);
-          if (!pub.ok) return fail('publish', pub);
+          // 5. publish — skipped for a draft-only build (event stays a draft in Eventbrite)
+          let pubStatus = 200;
+          if (!draftOnly) {
+            const pub = await ebPublish(env, ebId);
+            if (!pub.ok) return fail('publish', pub);
+            pubStatus = pub.status;
+          }
 
           // 6. success write-back + log
-          await setRow([
-            { column: 'Publish status', value: 'Published' }, { column: 'Published?', value: true },
-            { column: 'Last published at', value: new Date().toISOString() }, { column: 'Last publish error', value: '' },
-          ]);
-          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'publish', ok: true, status: pub.status, ebId, ebUrl: eventbriteWebUrl(ebId) });
-          return json({ ok: true, eventbriteId: ebId, url: eventbriteWebUrl(ebId) }, 200, cors);
+          const okCells = [
+            { column: 'Publish status', value: draftOnly ? 'Draft' : 'Published' },
+            { column: 'Last publish error', value: '' },
+          ];
+          if (!draftOnly) okCells.push({ column: 'Published?', value: true }, { column: 'Last published at', value: new Date().toISOString() });
+          await setRow(okCells);
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: draftOnly ? 'update' : 'publish', ok: true, status: pubStatus, ebId, ebUrl: eventbriteWebUrl(ebId), message: draftOnly ? 'draft synced (not published)' : '' });
+          return json({ ok: true, eventbriteId: ebId, url: eventbriteWebUrl(ebId), draft: draftOnly }, 200, cors);
         } catch (err) {
           const msg = String((err && err.message) || err);
           try { await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]); } catch (_) {}

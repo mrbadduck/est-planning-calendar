@@ -322,6 +322,7 @@
   .pubpanel{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px}
   .b-published{background:#E7F4E9;color:#2F7D3B;border:1px solid #BFE3C6;border-radius:10px;padding:1px 7px;font-size:11px}
   .b-error{background:#FBEAEA;color:#B23A3A;border:1px solid #EEC3C3;border-radius:10px;padding:1px 7px;font-size:11px}
+  .b-draft{background:#EAF1FB;color:#2F5FA3;border:1px solid #C4D8F0;border-radius:10px;padding:1px 7px;font-size:11px}
   .b-unpublished,.b-publishing{background:#F0EFEC;color:#6b6960;border:1px solid var(--hair);border-radius:10px;padding:1px 7px;font-size:11px}
 
   /* legend footer */

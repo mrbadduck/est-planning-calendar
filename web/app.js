@@ -339,7 +339,7 @@ const CodaSource = {
   async update(e){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(e.id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); if(!r.ok) await this._fail(r); return e; },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
-  async publishEventbrite(rowId){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; throw e; } return j; },
+  async publishEventbrite(rowId, draftOnly){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; throw e; } return j; },
 };
 
 // The live proxy is the only data source. Reads are unauthenticated (CORS-gated,
@@ -689,13 +689,20 @@ function publishPanelHTML(ev, canEdit){
   if(ev.status!=='approved') return `<div class="fld full"><label>Eventbrite</label><div class="pubpanel"><span class="hint">Approve this event to publish it to Eventbrite.</span></div></div>`;
   const linked = !!ev.eventbriteId;
   const badge = `<span class="badge b-${(ev.publishStatus||'').toLowerCase()}">${esc(ev.publishStatus||'Unpublished')}</span>`;
+  // Draft-first: build/sync a draft in Eventbrite (data-act="publish-eb-draft"),
+  // review it there, then Publish for real (data-act="publish-eb-publish").
+  const st = ev.publishStatus||'Unpublished';
   let inner;
   if(!linked){
-    inner = `<button type="button" class="btn sm primary" data-act="publish-eb">Publish to Eventbrite</button>`;
+    inner = `<button type="button" class="btn sm primary" data-act="publish-eb-draft">Create Eventbrite draft</button>
+      <span class="hint">Builds a draft in Eventbrite — review it there, then Publish.</span>`;
   } else {
-    inner = `<a class="reflink" href="${esc(ev.eventbriteUrl||'#')}" target="_blank" rel="noopener">Open in Eventbrite ↗</a>
-      <button type="button" class="btn sm" data-act="publish-eb">Update Eventbrite</button> ${badge}
-      <div class="hint" style="margin-top:6px">Opens this event in Eventbrite — on your phone, tap through to Check-In in the Eventbrite Organizer app.</div>`;
+    const open = `<a class="reflink" href="${esc(ev.eventbriteUrl||'#')}" target="_blank" rel="noopener">Open in Eventbrite ↗</a>`;
+    const btns = st==='Published'
+      ? `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Update &amp; re-publish</button>`
+      : `<button type="button" class="btn sm" data-act="publish-eb-draft">Update draft</button><button type="button" class="btn sm primary" data-act="publish-eb-publish">Publish</button>`;
+    inner = `${open} ${btns} ${badge}
+      <div class="hint" style="margin-top:6px">On your phone, tap through to Check-In in the Eventbrite Organizer app.</div>`;
   }
   const err = ev.lastPublishError && (ev.publishStatus==='Error') ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
   return `<div class="fld full"><label>Eventbrite</label><div class="pubpanel" id="f_publish">${inner}${err}</div></div>`;
@@ -706,16 +713,18 @@ function publishPanelHTML(ev, canEdit){
 function wirePublishPanel(pub){
   if(!pub) return;
   pub.addEventListener('click', async e=>{
-    const b=e.target.closest('[data-act="publish-eb"]'); if(!b) return;
+    const b=e.target.closest('[data-act="publish-eb-draft"],[data-act="publish-eb-publish"]'); if(!b) return;
     if(!editing || !editing.id){ toast('Save the event first','err'); return; }
+    const draftOnly = b.dataset.act==='publish-eb-draft';
     const rowId=editing.id;
-    pub.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Publishing to Eventbrite… <span class="hint">(a few seconds)</span></div>`;
+    pub.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> ${draftOnly?'Creating Eventbrite draft':'Publishing to Eventbrite'}… <span class="hint">(a few seconds)</span></div>`;
     try{
-      const res=await DB.publishEventbrite(rowId);
-      if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus='Published'; editing.lastPublishError=''; }
-      const item=state.events.find(x=>x.id===rowId); if(item){ item.eventbriteId=editing.eventbriteId; item.eventbriteUrl=editing.eventbriteUrl; item.publishStatus='Published'; }
+      const res=await DB.publishEventbrite(rowId, draftOnly);
+      const newStatus = res.draft ? 'Draft' : 'Published';
+      if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus=newStatus; editing.lastPublishError=''; }
+      const item=state.events.find(x=>x.id===rowId); if(item){ item.eventbriteId=editing.eventbriteId; item.eventbriteUrl=editing.eventbriteUrl; item.publishStatus=newStatus; }
       if(document.getElementById('f_publish') && (!editing||editing.id===rowId)){ document.getElementById('f_publish').outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
-      toast('Published to Eventbrite','ok');
+      toast(draftOnly?'Eventbrite draft ready':'Published to Eventbrite','ok');
       refresh();
     }catch(err){
       if(editing && editing.id===rowId){ editing.publishStatus='Error'; editing.lastPublishError=(err&&err.message)||'Publish failed'; }
