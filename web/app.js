@@ -242,6 +242,8 @@ function eventToCodaCells(e){
     {column:'Window end',      value:e.rangeEnd||''},
     {column:'Capacity',           value:(e.capacity===''||e.capacity==null)?'':Number(e.capacity)},
     {column:'Address visibility', value:e.addressVisibility||'Public'},
+    {column:'Public summary',     value:e.publicSummary||''},
+    {column:'Public description', value:e.publicDescription||''},
   ];
 }
 
@@ -296,6 +298,8 @@ function planningRowToEvent(r){
     description: v['Event Description'] || '',
     capacity: (v['Capacity'] === '' || v['Capacity'] == null) ? '' : Number(v['Capacity']),
     addressVisibility: v['Address visibility'] || 'Public',
+    publicSummary: v['Public summary'] || '',
+    publicDescription: v['Public description'] || '',
     publishStatus: v['Publish status'] || 'Unpublished',
     eventbriteId: v['Eventbrite Event ID'] || '',
     lastPublishError: v['Last publish error'] || '',
