@@ -617,6 +617,19 @@ function openInfo(){
 let editing=null; // event being edited, or null
 let whenType='exact';
 
+// Editor workspace sections (left rail). `live` sections have real panels;
+// the rest render a muted "coming soon" teaser. No icon webfont — text labels.
+const SECTIONS = [
+  { id:'planning', label:'Planning', live:true },
+  { id:'publish',  label:'Publish',  live:true },
+  { id:'budget',    label:'Budget & expenses',   live:false },
+  { id:'comms',     label:'Comms',               live:false },
+  { id:'volunteers',label:'Volunteers & potluck', live:false },
+  { id:'attendance',label:'Attendance',          live:false },
+  { id:'feedback',  label:'Feedback',            live:false },
+];
+let activeSection = 'planning';
+
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
 function whenFieldsHTML(type,ev,dis){
   if(type==='range') return `<div class="timerow">
@@ -807,9 +820,6 @@ function openEditor(ev){
     show(); return;
   }
 
-  const dis = (!canEdit || locked) ? 'disabled' : '';
-  const sched = ev.scheduling || 'exact';
-
   // header (top-right): status control + approve / reopen
   let head = (canEdit && !locked)
     ? `<select id="f_status" class="statussel" aria-label="Status">${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select>`
@@ -819,9 +829,58 @@ function openEditor(ev){
     : `<button class="btn primary sm" data-act="approve">Approve${ev.id?'':' & save'}</button>`;
   actions.innerHTML = head;
 
-  body.innerHTML = `
+  // footer: Delete / Cancel / Save (approve + reopen live in the header now)
+  const foot=document.getElementById('mFoot');
+  let acts='';
+  if(ev.id && canEdit && !locked) acts+=`<button class="btn danger" data-act="delete">Delete</button>`;
+  acts+=`<span class="push"></span>`;
+  acts+=`<button class="btn" data-act="close">${canEdit&&!locked?'Cancel':'Close'}</button>`;
+  if(canEdit && !locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
+  foot.innerHTML=acts;
+
+  // workspace: left rail + active-section panel
+  body.innerHTML = `<div class="wsplit"><nav class="wrail" id="wrail">${railHTML()}</nav><div class="wpanel" id="wpanel"></div></div>`;
+  renderSection(activeSection, ev, canEdit, locked, canApprove);
+  document.getElementById('wrail').addEventListener('click', e=>{
+    const b=e.target.closest('[data-sect]'); if(!b) return;
+    const id=b.dataset.sect;
+    setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove);
+    const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live && typeof syncUrl==='function') syncUrl(ev, id);
+  });
+
+  show();
+  const t=document.getElementById('f_title'); if(t && !ev.id) t.focus();
+}
+
+/* ---- editor workspace: rail + section panels ------------------------------
+   The planning editor is a rail of sections. Two are live (Planning / Publish);
+   the rest render a muted "coming soon" teaser. Each section owns its own render
+   (markup) + wire (post-render listeners) pair. Field ids stay globally unique
+   within the open editor, so readForm()/collectWhen() still find them by id. */
+function railHTML(){
+  const item = s=>`<button type="button" class="wrail-item${s.id===activeSection?' on':''}${s.live?'':' soon'}" data-sect="${s.id}">${esc(s.label)}</button>`;
+  const live=SECTIONS.filter(s=>s.live), soon=SECTIONS.filter(s=>!s.live);
+  return live.map(item).join('') + `<div class="wrail-soon">Coming soon…</div>` + soon.map(item).join('');
+}
+function setActiveRail(id){ activeSection=id; document.querySelectorAll('#wrail .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
+
+function renderSection(id, ev, canEdit, locked, canApprove){
+  const panel=document.getElementById('wpanel'); if(!panel) return;
+  const sec=SECTIONS.find(s=>s.id===id);
+  if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
+  if(id==='publish'){ panel.innerHTML=renderPublish(ev, canEdit, locked); wirePublish(panel, ev, canEdit, locked); return; }
+  panel.innerHTML=renderPlanning(ev, canEdit, locked, canApprove); wirePlanning(panel, ev, canEdit, locked, canApprove);
+}
+
+/* Planning section — every planning field EXCEPT capacity / address-visibility /
+   the publish panel (those live in Publish now). `#whenFields` is filled by
+   wirePlanning after render. */
+function renderPlanning(ev, canEdit, locked, canApprove){
+  const dis = (!canEdit || locked) ? 'disabled' : '';
+  const sched = ev.scheduling || 'exact';
+  return `
     <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
-    <div class="fld full"><label>Description <span class="hint">(public promo)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
+    <div class="fld full"><label>Internal description <span class="hint">(planning copy — not shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
     <div class="fld full"><label>Program(s)</label><div class="leadchips" id="f_progs">${PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id)))).map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.programs&&ev.programs.length?ev.programs:[ev.program]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('')}</div></div>
     <div class="fld full"><label>Leads <span class="hint">(program leads auto-added)</span></label><div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
     <div class="fld full"><label>When</label>
@@ -839,30 +898,16 @@ function openEditor(ev){
       </div>
     </div>
     <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
-    <div class="fld"><label>Capacity <span class="hint">(Eventbrite)</span></label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40"></div>
-    <div class="fld"><label>Address on listing</label>
-      <div class="whenseg" id="f_addrvis">
-        <button type="button" data-addrvis="Public" aria-pressed="${(ev.addressVisibility||'Public')==='Public'}" ${dis}>Public</button>
-        <button type="button" data-addrvis="Registrants only" aria-pressed="${ev.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button>
-      </div>
-    </div>
     <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
     ${notesDocPanelHTML(ev, canEdit && !locked)}
-    ${publishPanelHTML(ev, canEdit && !locked)}
     ${ev.planningNotes ? `<div class="fld full"><label>Planning notes <span class="hint">(legacy)</span></label><div class="legacynotes">${esc(ev.planningNotes)}</div></div>` : ''}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
     ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
+}
 
-  // footer: Delete / Cancel / Save (approve + reopen live in the header now)
-  const foot=document.getElementById('mFoot');
-  let acts='';
-  if(ev.id && canEdit && !locked) acts+=`<button class="btn danger" data-act="delete">Delete</button>`;
-  acts+=`<span class="push"></span>`;
-  acts+=`<button class="btn" data-act="close">${canEdit&&!locked?'Cancel':'Close'}</button>`;
-  if(canEdit && !locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
-  foot.innerHTML=acts;
-
+function wirePlanning(panel, ev, canEdit, locked, canApprove){
+  const sched = ev.scheduling || 'exact';
   // leads (leadership cohort) + volunteers (all people) + venue typeaheads
   const resolveIds = (ids, names) => (ids && ids.length) ? ids : (names||[]).map(n=>peopleIdByName[n]).filter(Boolean);
   const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST });
@@ -883,9 +928,6 @@ function openEditor(ev){
     pollForNotesDoc(rowId, 0, gen);
   });
 
-  // publish-to-Eventbrite: push the row id to the Worker, then reflect its result
-  wirePublishPanel(document.getElementById('f_publish'));
-
   // program chips: toggle + append that program's Current Leads when selected
   if(canEdit && !locked){
     document.getElementById('f_progs').addEventListener('click', e=>{
@@ -902,14 +944,12 @@ function openEditor(ev){
       const b=e.target.closest('button[data-vtype]'); if(!b) return;
       [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
     });
-    const av=document.getElementById('f_addrvis');
-    if(av) av.addEventListener('click',e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); });
   }
 
   // when control: mode switch + all-day toggle both re-render the time fields
   whenType = sched;
   const wf=document.getElementById('whenFields');
-  wf.innerHTML = whenFieldsHTML(whenType, ev, dis);
+  wf.innerHTML = whenFieldsHTML(whenType, ev, (!canEdit || locked) ? 'disabled' : '');
   if(canEdit && !locked){
     document.getElementById('f_when').addEventListener('click',e=>{
       const b=e.target.closest('button[data-when]'); if(!b) return;
@@ -923,38 +963,80 @@ function openEditor(ev){
       wf.innerHTML=whenFieldsHTML('exact', Object.assign({},ev,collectWhen()), '');
     });
   }
+}
 
-  show();
-  const t=document.getElementById('f_title'); if(t && !ev.id) t.focus();
+/* Publish section — public listing copy + capacity + address visibility + the
+   Eventbrite publish panel. Only meaningful once the event is approved. */
+function renderPublish(ev, canEdit, locked){
+  if(ev.status!=='approved') return `<div class="fld full"><div class="locknote">Approve this event under Planning to publish it to Eventbrite.</div></div>`;
+  const dis=(!canEdit||locked)?'disabled':'';
+  return `
+    <div class="fld full"><label>Public summary <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing"></div>
+    <div class="fld full"><label>Public description <span class="hint">(listing body)</span> <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea></div>
+    <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40"></div>
+    <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(ev.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${ev.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>
+    ${publishPanelHTML(ev, canEdit && !locked)}`;
+}
+function wirePublish(panel, ev, canEdit, locked){
+  const ci=panel.querySelector('[data-act="copy-internal"]');
+  if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; } });
+  const av=panel.querySelector('#f_addrvis');
+  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); });
+  wirePublishPanel(panel.querySelector('#f_publish'));
+}
+
+function comingSoonHTML(sec){
+  return `<div class="soon-teaser"><div class="soon-h">${esc(sec.label)} — coming soon</div><div class="hint">On our roadmap. Tell us what you'd want here, or +1 an idea below.</div>${typeof feedbackBoardHTML==='function'?feedbackBoardHTML(sec.id):''}</div>`;
 }
 
 function readForm(){
+  // Fields now live in whichever section is rendered — so any field may be
+  // absent from the DOM. For every read, fall back to `editing.<field>` when its
+  // element isn't present, so a save from a section that doesn't own that field
+  // never throws and never wipes the stored value.
   const g=id=>document.getElementById(id);
   const chipIds=sel=>[...document.querySelectorAll(sel)].map(c=>c.dataset.id);
-  const programs=[...document.querySelectorAll('#f_progs .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p);
-  const leads=chipIds('#f_leads .ta-chip');
-  const volunteers=chipIds('#f_vols .ta-chip');
+  const hasProgs=!!g('f_progs');
+  const programs=hasProgs
+    ? [...document.querySelectorAll('#f_progs .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p)
+    : ((editing&&editing.programs&&editing.programs.length) ? editing.programs.slice() : ((editing&&editing.program)?[editing.program]:[]));
+  const leads=g('f_leads') ? chipIds('#f_leads .ta-chip') : ((editing&&editing.leads)||[]);
+  const volunteers=g('f_vols') ? chipIds('#f_vols .ta-chip') : ((editing&&editing.volunteers)||[]);
   const venBox=g('f_venue_box'), venOther=venBox && venBox.querySelector('.venue-other-wrap');
-  const venue=venBox ? (venBox.dataset.venueId||'') : '';
-  const venueOther=(venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '';
+  const venue=venBox ? (venBox.dataset.venueId||'') : ((editing&&editing.venue)||'');
+  const venueOther=venBox ? ((venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '') : ((editing&&editing.venueOther)||'');
   const vtBtn=document.querySelector('#f_vtype_seg button[aria-pressed="true"]');
-  const venueType=vtBtn ? (vtBtn.dataset.vtype||'') : '';
-  const w=collectWhen();
-  const exact=whenType==='exact', allDay= exact ? !!w.allDay : true;   // range/month are all-day
+  const venueType=g('f_vtype_seg') ? (vtBtn ? (vtBtn.dataset.vtype||'') : '') : ((editing&&editing.venueType)||'');
+  const whenRendered=!!g('f_when');
+  const wt=whenRendered ? whenType : ((editing&&editing.scheduling)||'exact');
+  const w=whenRendered ? collectWhen() : {};
+  const exact=wt==='exact';
+  const allDay= exact ? (whenRendered ? !!w.allDay : !!(editing&&editing.allDay)) : true;   // range/month are all-day
+  const capEl=g('f_capacity');
   const o={
-    program:programs[0]||'oth', programs, status:g('f_status').value, title:g('f_title').value.trim()||'Untitled',
-    allDay, start:(exact && !allDay) ? (w.start||'') : '', end:(exact && !allDay) ? (w.end||'') : '',
+    program:programs[0]||'oth', programs,
+    status:g('f_status') ? g('f_status').value : ((editing&&editing.status)||'idea'),
+    title:g('f_title') ? (g('f_title').value.trim()||'Untitled') : ((editing&&editing.title)||'Untitled'),
+    allDay,
+    start:(exact && !allDay) ? (whenRendered ? (w.start||'') : ((editing&&editing.start)||'')) : '',
+    end:(exact && !allDay) ? (whenRendered ? (w.end||'') : ((editing&&editing.end)||'')) : '',
     leads, volunteers, venueType, venue, venueOther,
     location:(venue ? ((VENUES.find(v=>v.id===venue)||{}).name||'') : '') || venueOther,   // display fallback
-    description:g('f_desc').value.trim(), planningNotes:(editing && editing.planningNotes)||'',
-    capacity: (g('f_capacity') && g('f_capacity').value.trim()!=='') ? Number(g('f_capacity').value) : '',
+    description:g('f_desc') ? g('f_desc').value.trim() : ((editing&&editing.description)||''),
+    planningNotes:(editing && editing.planningNotes)||'',
+    capacity: capEl ? (capEl.value.trim()!=='' ? Number(capEl.value) : '') : ((editing&&editing.capacity!=null)?editing.capacity:''),
     addressVisibility: (document.querySelector('#f_addrvis button[aria-pressed="true"]')?.dataset.addrvis) || (editing && editing.addressVisibility) || 'Public',
+    publicSummary:(g('f_pubsummary')?g('f_pubsummary').value:(editing&&editing.publicSummary)||''),
+    publicDescription:(g('f_pubdesc')?g('f_pubdesc').value:(editing&&editing.publicDescription)||''),
     publishStatus:(editing&&editing.publishStatus)||'Unpublished', eventbriteId:(editing&&editing.eventbriteId)||'', eventbriteUrl:(editing&&editing.eventbriteUrl)||'', lastPublishError:(editing&&editing.lastPublishError)||'',
-    scheduling:whenType, date:'', rangeStart:'', rangeEnd:'', targetMonth:''
+    scheduling:wt, date:'', rangeStart:'', rangeEnd:'', targetMonth:''
   };
-  if(exact) o.date=w.date||'';
-  else if(whenType==='range'){ o.rangeStart=w.rangeStart||''; o.rangeEnd=w.rangeEnd||w.rangeStart||''; }
-  else if(whenType==='month') o.targetMonth=w.targetMonth||'';
+  if(exact) o.date = whenRendered ? (w.date||'') : ((editing&&editing.date)||'');
+  else if(wt==='range'){
+    if(whenRendered){ o.rangeStart=w.rangeStart||''; o.rangeEnd=w.rangeEnd||w.rangeStart||''; }
+    else { o.rangeStart=(editing&&editing.rangeStart)||''; o.rangeEnd=(editing&&editing.rangeEnd)||''; }
+  }
+  else if(wt==='month') o.targetMonth = whenRendered ? (w.targetMonth||'') : ((editing&&editing.targetMonth)||'');
   return o;
 }
 

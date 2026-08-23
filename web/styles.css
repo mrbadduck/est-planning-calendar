@@ -402,3 +402,16 @@
     .whenseg button{flex:1;text-align:center}
     .mfoot .btn{padding:9px 13px}          /* comfier tap targets */
   }
+
+  /* editor workspace: left rail + section panel */
+  .wsplit{display:flex;gap:14px}
+  .wrail{flex:0 0 168px;display:flex;flex-direction:column;gap:2px;border-right:.5px solid var(--hair);padding-right:10px}
+  .wrail-item{text-align:left;background:none;border:0;padding:7px 9px;border-radius:7px;font:inherit;color:inherit;cursor:pointer}
+  .wrail-item:hover{background:#F7F6F3}
+  .wrail-item.on{background:#EEF;font-weight:500}
+  .wrail-item.soon{color:var(--muted)}
+  .wrail-soon{font-size:10px;color:var(--faint);padding:8px 9px 3px;letter-spacing:.04em}
+  .wpanel{flex:1;min-width:0}
+  .soon-h{font-weight:500;margin-bottom:4px}
+  .btn.xs{font-size:11px;padding:1px 7px}
+  @media(max-width:600px){ .wsplit{flex-direction:column} .wrail{flex:none;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:.5px solid var(--hair);padding:0 0 8px} .wrail-soon{display:none} }
