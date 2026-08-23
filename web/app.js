@@ -121,15 +121,17 @@ function initTypeahead(container, opts){
   const disabled = input.disabled;
   const pool = opts.pool || (() => PEOPLE_LIST);           // candidate list [{id,name}]
   const nameOf = id => peopleById[id] || id;
-  let matches = [], active = -1;
+  let matches = [], active = -1, ready = false;
+  const fire = () => { if(ready && opts.onChange) opts.onChange(); };   // user edits only (not initial seed)
   const has = id => [...container.querySelectorAll('.ta-chip')].some(c=>c.dataset.id===id);
   const addChip = (id, name) => {
     if(!id || has(id)) return;
     const chip = document.createElement('span');
     chip.className = 'ta-chip'; chip.dataset.id = id;
     chip.innerHTML = esc(name) + (disabled ? '' : ' <button type="button" aria-label="Remove" tabindex="-1">×</button>');
-    if(!disabled) chip.querySelector('button').addEventListener('click', ()=>chip.remove());
+    if(!disabled) chip.querySelector('button').addEventListener('click', ()=>{ chip.remove(); fire(); });
     container.insertBefore(chip, input);
+    fire();
   };
   container.addPerson = id => addChip(id, nameOf(id));      // external append (program → leads)
   const closeMenu = () => { menu.hidden = true; active = -1; };
@@ -144,6 +146,7 @@ function initTypeahead(container, opts){
   };
   const pick = p => { if(!p) return; addChip(p.id, p.name); input.value=''; closeMenu(); input.focus(); };
   (opts.selected || []).forEach(id => addChip(id, nameOf(id)));
+  ready = true;   // seed done — subsequent adds/removes are user edits
   if(disabled) return;
   input.addEventListener('input', ()=>openMenu(input.value.trim().toLowerCase()));
   input.addEventListener('focus', ()=>{ const q=input.value.trim().toLowerCase(); if(q) openMenu(q); });
@@ -163,18 +166,21 @@ function initTypeahead(container, opts){
    Venue Type select, closed hidden). No match → "＋ New venue" which drops the text
    into other-mode (an editable field with a clear ✕ that returns to select mode).
    State lives on container.dataset.venueId / the visible other input. */
-function initVenuePicker(container, ev){
+function initVenuePicker(container, ev, opts){
+  opts = opts || {};
   const input = container.querySelector('.ta-input');
   const menu  = container.querySelector('.ta-menu');
   const otherWrap = container.querySelector('.venue-other-wrap');
   const otherInput = container.querySelector('.venue-other');
   const disabled = input.disabled;
+  let ready = false;
+  const fire = () => { if(ready && opts.onChange) opts.onChange(); };   // user edits only (not initial state)
   const selTypeId = () => { const b=document.querySelector('#f_vtype_seg button[aria-pressed="true"]'); return b?b.dataset.vtype:''; };
   const typeName = () => (VENUE_TYPES.find(x=>x.id===selTypeId())||{}).name;
   const pool = () => { const tn=typeName(); return VENUES.filter(v=>!v.closed && (!tn || v.type===tn)).slice().sort((a,b)=>a.name.localeCompare(b.name)); };
   let active = -1;
   const clearPill = () => [...container.querySelectorAll('.ta-chip')].forEach(c=>c.remove());
-  function showSelect(){ container.dataset.venueId=''; clearPill(); otherWrap.hidden=true; otherInput.value=''; input.hidden=false; input.value=''; menu.hidden=true; if(!disabled) input.focus(); }
+  function showSelect(){ container.dataset.venueId=''; clearPill(); otherWrap.hidden=true; otherInput.value=''; input.hidden=false; input.value=''; menu.hidden=true; if(!disabled) input.focus(); fire(); }
   function selectVenue(v){
     container.dataset.venueId=v.id; clearPill(); otherWrap.hidden=true; input.hidden=true; menu.hidden=true;
     const tid=venueTypeIdByName[v.type], seg=document.getElementById('f_vtype_seg');   // sync the type switcher to the venue
@@ -183,8 +189,9 @@ function initVenuePicker(container, ev){
     chip.innerHTML=esc(v.name)+(disabled?'':' <button type="button" aria-label="Clear" tabindex="-1">×</button>');
     if(!disabled) chip.querySelector('button').addEventListener('click', showSelect);
     container.insertBefore(chip, input);
+    fire();
   }
-  function enterOther(text){ container.dataset.venueId=''; clearPill(); input.hidden=true; menu.hidden=true; otherWrap.hidden=false; otherInput.value=text; if(!disabled) otherInput.focus(); }
+  function enterOther(text){ container.dataset.venueId=''; clearPill(); input.hidden=true; menu.hidden=true; otherWrap.hidden=false; otherInput.value=text; if(!disabled) otherInput.focus(); fire(); }
   const closeMenu=()=>{ menu.hidden=true; active=-1; };
   const paint=()=>[...menu.querySelectorAll('.ta-opt')].forEach((el,i)=>el.classList.toggle('active', i===active));
   function openMenu(q){
@@ -198,6 +205,7 @@ function initVenuePicker(container, ev){
   if(ev.venue && VENUES.some(v=>v.id===ev.venue)) selectVenue(VENUES.find(v=>v.id===ev.venue));
   else if(ev.venueOther) enterOther(ev.venueOther);
   else showSelect();
+  ready = true;   // initial state set — subsequent changes are user edits
   if(disabled){ if(!container.dataset.venueId && otherWrap.hidden){ /* empty: leave disabled input */ } return; }
   if(otherInput) container.querySelector('.venue-clear').addEventListener('click', showSelect);
   input.addEventListener('input', ()=>openMenu(input.value.trim().toLowerCase()));
@@ -719,10 +727,12 @@ function publishPanelHTML(ev, canEdit){
       <span class="hint">Builds a draft in Eventbrite — review it there, then Publish.</span>`;
   } else {
     const open = `<a class="reflink" href="${esc(ev.eventbriteUrl||'#')}" target="_blank" rel="noopener">Open in Eventbrite ↗</a>`;
+    const dirty = !!ev._ebDirty;
     const btns = st==='Published'
       ? `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Update &amp; re-publish</button>`
-      : `<button type="button" class="btn sm" data-act="publish-eb-draft">Update draft</button><button type="button" class="btn sm primary" data-act="publish-eb-publish">Publish</button>`;
-    inner = `${open} ${btns} ${badge}
+      : `<button type="button" class="btn sm${dirty?' primary':''}" data-act="publish-eb-draft">Update draft</button><button type="button" class="btn sm${dirty?'':' primary'}" data-act="publish-eb-publish">Publish</button>`;
+    const sync = dirty ? `<div class="ndoc-warn">Eventbrite is behind your latest edits — ${st==='Published'?'update &amp; re-publish':'update the draft'} to sync.</div>` : '';
+    inner = `${sync}${open} ${btns} ${badge}
       <div class="hint" style="margin-top:6px">On your phone, tap through to Check-In in the Eventbrite Organizer app.</div>`;
   }
   const err = ev.lastPublishError && (ev.publishStatus==='Error') ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
@@ -738,11 +748,12 @@ function wirePublishPanel(pub){
     if(!editing || !editing.id){ toast('Save the event first','err'); return; }
     const draftOnly = b.dataset.act==='publish-eb-draft';
     const rowId=editing.id;
+    await flushAutosave();   // ensure Coda has the latest public copy the Worker reads
     pub.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> ${draftOnly?'Creating Eventbrite draft':'Publishing to Eventbrite'}… <span class="hint">(a few seconds)</span></div>`;
     try{
       const res=await DB.publishEventbrite(rowId, draftOnly);
       const newStatus = res.draft ? 'Draft' : 'Published';
-      if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus=newStatus; editing.lastPublishError=''; }
+      if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus=newStatus; editing.lastPublishError=''; editing._ebDirty=false; }
       const item=state.events.find(x=>x.id===rowId); if(item){ item.eventbriteId=editing.eventbriteId; item.eventbriteUrl=editing.eventbriteUrl; item.publishStatus=newStatus; }
       if(document.getElementById('f_publish') && (!editing||editing.id===rowId)){ document.getElementById('f_publish').outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
       toast(draftOnly?'Eventbrite draft ready':'Published to Eventbrite','ok');
@@ -836,13 +847,14 @@ function openEditor(ev, section){
   if(ev.id) head += `<button class="btn sm" data-act="copylink" title="Copy a link to this event">Copy link</button>`;
   actions.innerHTML = head;
 
-  // footer: Delete / Cancel / Save (approve + reopen live in the header now)
+  // footer: Delete + save-status indicator (autosave replaces the global Save;
+  // approve/reopen live in the header). Locked/read-only get just a Close button.
   const foot=document.getElementById('mFoot');
   let acts='';
   if(ev.id && canEdit && !locked) acts+=`<button class="btn danger" data-act="delete">Delete</button>`;
   acts+=`<span class="push"></span>`;
-  acts+=`<button class="btn" data-act="close">${canEdit&&!locked?'Cancel':'Close'}</button>`;
-  if(canEdit && !locked) acts+=`<button class="btn primary" data-act="save">${ev.id?'Save':'Create'}</button>`;
+  if(ev.id && canEdit && !locked) acts+=`<span class="savestat clean" id="saveStatus">Saved</span>`;
+  acts+=`<button class="btn" data-act="close">${canEdit&&!locked?'Done':'Close'}</button>`;
   foot.innerHTML=acts;
 
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
@@ -859,7 +871,51 @@ function openEditor(ev, section){
 
   show();
   if(ev.id) syncUrl(ev, activeSection);
-  const t=document.getElementById('f_title'); if(t && !ev.id) t.focus();
+  _lastSavedSnap = (canEdit && !locked && ev.id) ? snap(readForm()) : null;   // baseline so a section-switch focusout doesn't trigger a spurious first save
+  if(canEdit && !locked){
+    document.getElementById('wpanel').addEventListener('focusout', ()=>scheduleAutosave());
+  }
+}
+
+/* ---- create flow: a one-shot Planning form in its OWN compact modal ---------
+   A brand-new event is NOT the workspace — just the Planning fields with a clear
+   Cancel / Create. On Create it persists once (no premature empty rows) and
+   transitions into the full workspace via openEditor(savedEvent). */
+function openNewEventForm(seed){
+  if(!(state.identity && state.identity.canWrite)){ toast('Sign in as a program lead to add events','err'); return; }
+  editing = seed;
+  _lastSavedSnap = null;
+  document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
+  document.getElementById('mTitle').textContent = 'New event';
+  document.getElementById('mActions').innerHTML = '';   // no status/approve until the row exists
+  document.getElementById('modal').classList.remove('ws');
+  const body=document.getElementById('mBody'); body.classList.remove('ws');
+  body.innerHTML = renderPlanning(seed, true, false, false);
+  wirePlanning(body, seed, true, false, false);
+  document.getElementById('mFoot').innerHTML =
+    `<span class="push"></span><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="create">Create</button>`;
+  show();
+  const t=document.getElementById('f_title'); if(t) t.focus();
+}
+async function createFromForm(){
+  if(_saving) return;
+  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }
+  const f=readForm();
+  const me=(state.identity && state.identity.name) || '';
+  const e=Object.assign({}, {source:'planning', eventbriteUrl:'', gcalId:'', createdBy:me, editedBy:me}, f);
+  e.id='tmp-'+Date.now();
+  _saving=true; applyLocal(e); rerender(); toast('Creating…','busy');
+  try{
+    const saved=await DB.create(e);
+    if(saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); }  // swap temp → real id
+    markRecent(e.id, {e}); rerender(); toast('Created','ok'); scheduleReconcile();
+    _saving=false;
+    openEditor(e);                 // land in the workspace for the just-created event
+  }catch(err){
+    applyLocal(e, true); rerender(); _saving=false;
+    if(err && err.status===401) sessionExpired();
+    else toast('Create failed — try again','err');   // leave the create modal open; input is preserved
+  }
 }
 
 /* ---- URL deep-linking: ?event=<rowId>&section=<id>, two-way synced ---------- */
@@ -941,9 +997,9 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
   const sched = ev.scheduling || 'exact';
   // leads (leadership cohort) + volunteers (all people) + venue typeaheads
   const resolveIds = (ids, names) => (ids && ids.length) ? ids : (names||[]).map(n=>peopleIdByName[n]).filter(Boolean);
-  const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST });
-  const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:resolveIds(ev.volunteers, ev.volunteerNames), pool:()=>PEOPLE_LIST });
-  const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev);
+  const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST, onChange:scheduleAutosave });
+  const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:resolveIds(ev.volunteers, ev.volunteerNames), pool:()=>PEOPLE_LIST, onChange:scheduleAutosave });
+  const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev, { onChange:scheduleAutosave });
 
   // notes doc: "Create notes doc" → push the Coda button via the proxy, then poll
   const ndoc=document.getElementById('f_ndoc');
@@ -969,11 +1025,13 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
         const prog=PROG[b.dataset.p];
         (prog && prog.currentLeadNames || []).forEach(nm=>{ const id=peopleIdByName[nm]; if(id) leadsBox.addPerson(id); });
       }
+      scheduleAutosave();
     });
     // Where: venue-type switcher (single-select) — filters the venue typeahead pool
     document.getElementById('f_vtype_seg').addEventListener('click', e=>{
       const b=e.target.closest('button[data-vtype]'); if(!b) return;
       [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
+      scheduleAutosave();
     });
   }
 
@@ -988,10 +1046,12 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
       whenType=b.dataset.when;
       [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
       wf.innerHTML=whenFieldsHTML(whenType, Object.assign({},ev,cur), '');
+      scheduleAutosave();
     });
     wf.addEventListener('change', e=>{                 // All-day toggled → show/hide the times
       if(e.target.id!=='f_allday') return;
       wf.innerHTML=whenFieldsHTML('exact', Object.assign({},ev,collectWhen()), '');
+      scheduleAutosave();
     });
   }
 }
@@ -1010,9 +1070,9 @@ function renderPublish(ev, canEdit, locked){
 }
 function wirePublish(panel, ev, canEdit, locked){
   const ci=panel.querySelector('[data-act="copy-internal"]');
-  if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; } });
+  if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
-  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); });
+  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); scheduleAutosave(); });
   wirePublishPanel(panel.querySelector('#f_publish'));
 }
 
@@ -1128,6 +1188,47 @@ function toast(msg, kind){
 }
 let _saving=false, _reconcileT=null;
 function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(()=>refresh(), 2500); }  // let Coda index, then pull server truth (recent guard prevents flicker)
+
+/* ---- workspace auto-save (existing events) --------------------------------
+   Every editable workspace field saves on blur, debounced, in place — the modal
+   stays open (unlike saveEditor, which closes). Reuses the optimistic stack
+   (applyLocal/markRecent/_recent guard/scheduleReconcile). No-op saves are
+   skipped by diffing readForm() against the last-saved snapshot. */
+let _autosaveT=null, _lastSavedSnap=null;
+const snap = f => JSON.stringify(f);
+function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'error'
+  const el=document.getElementById('saveStatus'); if(!el) return;
+  el.className='savestat '+s;
+  el.textContent = s==='saving'?'Saving…' : s==='error'?'Save failed — retry' : s==='dirty'?'Unsaved changes' : 'Saved';
+}
+function scheduleAutosave(){
+  if(!editing || !editing.id) return;          // create modal / read-only: nothing to auto-save into
+  setSaveStatus('dirty');
+  clearTimeout(_autosaveT); _autosaveT=setTimeout(()=>autosaveEditor(), 800);
+}
+async function flushAutosave(){ clearTimeout(_autosaveT); if(editing && editing.id) await autosaveEditor(); }
+async function autosaveEditor(){
+  if(!editing || !editing.id) return;
+  if(_saving){ clearTimeout(_autosaveT); _autosaveT=setTimeout(()=>autosaveEditor(), 300); return; }  // coalesce behind an in-flight save
+  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }   // dead token → don't lose the edit to a revert
+  const f=readForm();
+  if(_lastSavedSnap && snap(f)===_lastSavedSnap){ setSaveStatus('clean'); return; } // nothing changed
+  markEbDirtyIfPublicChanged(f);
+  Object.assign(editing, f);
+  editing.editedBy=(state.identity && state.identity.name) || editing.editedBy;
+  _saving=true; setSaveStatus('saving');
+  applyLocal(editing); markRecent(editing.id, {e:editing}); rerender();   // reflect in the calendar behind the modal
+  try{ await DB.update(editing); _lastSavedSnap=snap(f); setSaveStatus('clean'); scheduleReconcile(); }
+  catch(err){ if(err && err.status===401) sessionExpired(); else { setSaveStatus('error'); console.warn('autosave failed:', err); } }
+  finally{ _saving=false; }
+}
+// EB draft/listing goes out of sync when a public-facing field changes after a
+// push. Session-local flag (resets on reload — see design's accepted limitation).
+const EB_PUBLIC_KEYS=['publicSummary','publicDescription','capacity','addressVisibility','title','date','start','end','venue'];
+function markEbDirtyIfPublicChanged(f){
+  if(!editing || !editing.eventbriteId) return;
+  if(EB_PUBLIC_KEYS.some(k=>String(editing[k]??'')!==String(f[k]??''))) editing._ebDirty=true;
+}
 function applyLocal(e, remove){
   const i=state.events.findIndex(x=>x.id===e.id);
   if(remove){ if(i>=0) state.events.splice(i,1); return; }
@@ -1190,16 +1291,25 @@ async function deleteEditor(){
    WIRING
    ========================================================================= */
 function show(){ document.getElementById('scrim').classList.add('open'); }
-function close(){ _ndocGen++; document.getElementById('scrim').classList.remove('open'); editing=null; clearUrl(); }
+function close(){
+  _ndocGen++; clearTimeout(_autosaveT);
+  // Flush a pending/failed edit before tearing down so a fast Done/Esc/✕ doesn't
+  // drop the last change. autosaveEditor runs its prelude synchronously (reading
+  // `editing` and firing DB.update) before we null it below; not awaited.
+  const st=document.getElementById('saveStatus');
+  if(editing && editing.id && st && (st.classList.contains('dirty')||st.classList.contains('error'))) autosaveEditor();
+  document.getElementById('scrim').classList.remove('open'); editing=null; clearUrl();
+}
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });
 document.getElementById('mClose').addEventListener('click', close);   // dedicated top-right ✕ (avoids mis-hitting Approve)
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
 
 document.getElementById('mFoot').addEventListener('click',e=>{
+  if(e.target.id==='saveStatus' && e.target.classList.contains('error')){ flushAutosave(); return; }
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='close') close();
-  else if(act==='save') saveEditor(false);
+  else if(act==='create') createFromForm();
   else if(act==='approve') saveEditor(true);
   else if(act==='reopen'){ reopenEditor(); }
   else if(act==='delete') deleteEditor();
@@ -1217,7 +1327,7 @@ document.getElementById('mBody').addEventListener('click',e=>{
 
 document.getElementById('months').addEventListener('click',e=>{
   const gchip=e.target.closest('.gchip'); if(gchip){ const ev=state.events.find(x=>x.id===gchip.dataset.id); if(ev) openEditor(ev); return; }
-  const gadd=e.target.closest('[data-newidea]'); if(gadd){ openEditor(newIdeaInMonth(gadd.dataset.newidea)); return; }
+  const gadd=e.target.closest('[data-newidea]'); if(gadd){ openNewEventForm(newIdeaInMonth(gadd.dataset.newidea)); return; }
   const chip=e.target.closest('.chip');
   if(chip){
     if(chip.dataset.noop) return;
@@ -1230,13 +1340,13 @@ document.getElementById('months').addEventListener('click',e=>{
     return;
   }
   const cell=e.target.closest('.cell'); if(!cell) return;
-  openEditor(newEventOn(cell.dataset.date));
+  openNewEventForm(newEventOn(cell.dataset.date));
 });
 
 document.getElementById('quarter').addEventListener('click',e=>{
   const chip=e.target.closest('.qchip');
   if(chip){ const ev=state.events.find(x=>x.id===chip.dataset.id); if(ev) openEditor(ev); return; }
-  const z=e.target.closest('.qzone'); if(z && z.dataset.add) openEditor(newEventOn(z.dataset.add));
+  const z=e.target.closest('.qzone'); if(z && z.dataset.add) openNewEventForm(newEventOn(z.dataset.add));
 });
 
 function newEventOn(date){
@@ -1255,7 +1365,7 @@ function openDayPicker(ds,list){
   document.getElementById('mBody').innerHTML=`<div class="fld full"><div class="chips" id="dp">${list.map(chipHTML).join('')}</div></div>`;
   document.getElementById('mFoot').innerHTML=`<button class="btn primary" data-act="newhere">+ New on this day</button><span class="push"></span><button class="btn" data-act="close">Close</button>`;
   document.getElementById('dp').addEventListener('click',ev=>{ const c=ev.target.closest('.chip'); if(!c) return; const item=state.events.find(x=>x.id===c.dataset.id); if(item) openEditor(item); });
-  document.getElementById('mFoot').querySelector('[data-act="newhere"]').addEventListener('click',()=>openEditor(newEventOn(ds)));
+  document.getElementById('mFoot').querySelector('[data-act="newhere"]').addEventListener('click',()=>openNewEventForm(newEventOn(ds)));
   show();
 }
 
@@ -1320,7 +1430,7 @@ function updateNavLabel(){
 }
 document.getElementById('prevYr').addEventListener('click',()=>navStep(-1));
 document.getElementById('nextYr').addEventListener('click',()=>navStep(1));
-document.getElementById('addBtn').addEventListener('click',()=>openEditor(newEventOn(inProgramYear(todayStr)?todayStr:firstOfProgramYear())));
+document.getElementById('addBtn').addEventListener('click',()=>openNewEventForm(newEventOn(inProgramYear(todayStr)?todayStr:firstOfProgramYear())));
 function firstOfProgramYear(){ return ymd(state.startYear,8,1); }
 function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state.startYear+1,7,31); }
 
