@@ -54,6 +54,23 @@ export function ticketClassPayload(ev) {
   return { ticket_class: tc };
 }
 
+// Compute the version number to POST next for an event's Structured Content,
+// given the body of `GET /events/{id}/structured_content/`.
+//
+// Eventbrite versions Structured Content: a write goes to `current + 1`. Two
+// gotchas this guards against:
+//   1. `page_version_number` comes back as a STRING ("12"), so a `typeof === 'number'`
+//      check silently fails and would rewrite version 0 forever — a stale write that
+//      Eventbrite rejects as a page-version discontinuity ("UNKNOWN — Something went
+//      wrong"). Coerce with Number() instead.
+//   2. Brand-new events have no Structured Content yet — GET returns an error body
+//      with no page_version_number. Non-finite → start at version 0.
+export function nextScVersion(getBody) {
+  const raw = getBody && getBody.page_version_number;
+  const cur = Number(raw);
+  return (raw != null && Number.isFinite(cur)) ? cur + 1 : 0;
+}
+
 // Structured Content write body: one text module carrying the description HTML.
 // `versionToWrite` is the next version number (current + 1).
 export function structuredContentBody(html, versionToWrite) {

@@ -25,7 +25,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl } from './eventbrite.js';
+import { eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion } from './eventbrite.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -242,9 +242,16 @@ export default {
 
         const setRow = (cells) => fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
         const fail = async (action, r) => {
-          const msg = (r.body && (r.body.error_description || r.body.error)) || `HTTP ${r.status}`;
-          await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: String(msg) }]);
-          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ok: false, status: r.status, message: String(msg) });
+          // Build the most specific message Eventbrite gives us. error_detail carries
+          // the per-argument reasons that error_description flattens to an unhelpful
+          // "UNKNOWN — Something went wrong"; append it so the log is diagnosable.
+          const b = r.body || {};
+          let msg = b.error_description || b.error || `HTTP ${r.status}`;
+          if (b.error_detail) { try { msg += ` — ${JSON.stringify(b.error_detail)}`; } catch (_) {} }
+          if (!r.body && r.text) msg += ` — ${String(r.text).slice(0, 500)}`;
+          msg = String(msg).slice(0, 900);
+          await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]);
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ok: false, status: r.status, message: msg });
           return json({ error: msg, step: action }, 502, cors);
         };
 
@@ -300,13 +307,21 @@ export default {
             if (!r.ok) return fail('ticket', r);
           }
 
-          // 4. structured content (description body) — read version, write version+1
+          // 4. structured content (description body) — read current version, write current+1.
           // SC write shape ({publish:true}+modules, version in path) verified against the live API in Task 6.
-          const sc = await ebGetStructuredContent(env, ebId);
-          const pv = sc.body && sc.body.page_version_number;
-          const ver = (typeof pv === 'number') ? pv + 1 : 0;   // brand-new description → version 0
-          const { _version, ...scBody } = structuredContentBody(ev.publicDescription || V['Event Description'] || '', ver);
-          const scr = await ebSetStructuredContent(env, ebId, ver, scBody);
+          // page_version_number comes back as a STRING; nextScVersion coerces it (see helper).
+          const scText = ev.publicDescription || V['Event Description'] || '';
+          const writeSc = async () => {
+            const sc = await ebGetStructuredContent(env, ebId);
+            const ver = nextScVersion(sc.body);
+            const { _version, ...scBody } = structuredContentBody(scText, ver);
+            return { ver, res: await ebSetStructuredContent(env, ebId, ver, scBody) };
+          };
+          let { res: scr } = await writeSc();
+          // Self-heal a page-version race/discontinuity: re-read the current version
+          // and write once more (a concurrent edit could have advanced it between our
+          // GET and POST). One retry is enough; a persistent failure still surfaces.
+          if (!scr.ok) ({ res: scr } = await writeSc());
           if (!scr.ok) return fail('structured-content', scr);
 
           // 5. publish — skipped for a draft-only build (event stays a draft in Eventbrite)
@@ -548,13 +563,24 @@ async function authIdentity(request, env, base, docId, auth) {
 // builders live in ./eventbrite.js (imported above) — this file only does I/O.
 const EB_BASE = 'https://www.eventbriteapi.com/v3';
 async function ebFetch(env, path, method = 'GET', body) {
+  const reqBody = body ? JSON.stringify(body) : undefined;
   const r = await fetch(`${EB_BASE}${path}`, {
     method,
     headers: { Authorization: `Bearer ${env.EVENTBRITE_TOKEN}`, 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    body: reqBody,
   });
-  let j = null; try { j = await r.json(); } catch (_) {}
-  return { ok: r.ok, status: r.status, body: j };
+  const text = await r.text();
+  let j = null; try { j = JSON.parse(text); } catch (_) {}
+  // Full request/response trace for wrangler tail + Workers Logs. The bearer token
+  // is never in `path`/`reqBody`, so this is safe to log verbatim. Response headers
+  // included (rate-limit + request-id help when Eventbrite is flaky).
+  try {
+    console.log('eb', JSON.stringify({
+      req: { method, path, body: reqBody },
+      res: { status: r.status, headers: Object.fromEntries(r.headers), body: text },
+    }));
+  } catch (_) {}
+  return { ok: r.ok, status: r.status, body: j, text };
 }
 const ebCreateEvent = (env, payload) => ebFetch(env, `/organizations/${env.EVENTBRITE_ORG_ID}/events/`, 'POST', payload);
 const ebUpdateEvent = (env, id, payload) => ebFetch(env, `/events/${id}/`, 'POST', payload);

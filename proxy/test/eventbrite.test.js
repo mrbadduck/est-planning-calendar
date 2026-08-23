@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   zonedToUtcISO, eventToEventbritePayload, ticketClassPayload,
-  structuredContentBody, venuePayload, eventbriteWebUrl,
+  structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
 } from '../src/eventbrite.js';
 
 const TZ = 'America/Chicago';
@@ -52,6 +52,20 @@ test('structuredContentBody wraps html in a single text module at the given vers
   assert.equal(b.modules[0].data.body.text, '<p>Hi</p>');
   assert.equal(b.modules[0].data.body.alignment, 'left');
   assert.equal(b.publish, true);
+});
+
+test('nextScVersion — string page_version_number (Eventbrite returns "12") → 13', () => {
+  // The real §B bug: EB returns page_version_number as a STRING; a typeof-number
+  // check silently rewrote version 0 forever → page-version discontinuity.
+  assert.equal(nextScVersion({ page_version_number: '12' }), 13);
+});
+test('nextScVersion — numeric page_version_number → +1', () => {
+  assert.equal(nextScVersion({ page_version_number: 4 }), 5);
+});
+test('nextScVersion — brand-new event (no structured content yet) → 0', () => {
+  assert.equal(nextScVersion({ error: 'NOT_FOUND' }), 0);
+  assert.equal(nextScVersion(null), 0);
+  assert.equal(nextScVersion({}), 0);
 });
 
 const AREA = { city: 'Nashville', region: 'TN', country: 'US' };
