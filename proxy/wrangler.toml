@@ -18,6 +18,7 @@ EVENTBRITE_COUNTRY = "US"                   # ISO country for EB venues
 EVENTBRITE_AREA_CITY = "Nashville"          # coarse public city (registrants-only shows only this; public also tags it)
 EVENTBRITE_AREA_REGION = "TN"               # coarse public region/state
 CODA_PUBLISH_LOG_TABLE = "grid-CJNl0A1OGZ"  # Publish Log table — append-only audit of publish attempts
+CODA_FEEDBACK_TABLE = "grid-pP5rwauO2j"     # Roadmap Feedback table — votable ideas board
 
 # Secrets are NOT stored here. Set them once with:
 #   npx wrangler secret put CODA_API_TOKEN     # a READ+WRITE, doc-scoped token (Plan 2b)

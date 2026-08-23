@@ -163,6 +163,58 @@ export default {
         if (!id) return json({ signedIn: false }, 200, cors);
         return json({ signedIn: true, matched: id.matched, name: id.name || null, canWrite: id.canWrite, canApprove: id.canApprove }, 200, cors);
       }
+      if (parts[0] === 'feedback' && parts.length === 1 && request.method === 'GET') {
+        // Votable roadmap-ideas board. Public read; auth-aware `votedByMe` when a
+        // (optional) Bearer token is present. Relation cells come back as display
+        // names (simpleWithArrays), so votedByMe compares against the caller's name.
+        const ft = env.CODA_FEEDBACK_TABLE; if (!ft) return json({ items: [] }, 200, cors);
+        let me = null; try { me = await authIdentity(request, env, base, docId, auth); } catch (_) {}
+        const out = await readAllRows(`${base}/docs/${docId}/tables/${ft}/rows`, auth);
+        if (!out.ok) return pass(out.resp, cors);
+        const ctx = url.searchParams.get('context');
+        const items = out.items.map(r => {
+          const v = r.values || {};
+          const voters = (v['Voters'] == null || v['Voters'] === '') ? [] : (Array.isArray(v['Voters']) ? v['Voters'] : [v['Voters']]);
+          return { id: r.id, idea: v['Idea'] || '', context: v['Context'] || 'General', submittedByName: (Array.isArray(v['Submitted by']) ? v['Submitted by'][0] : v['Submitted by']) || '', votes: voters.length, votedByMe: !!(me && me.name && voters.map(String).includes(me.name)), status: v['Status'] || 'New' };
+        }).filter(it => !ctx || it.context === ctx).sort((a, b) => b.votes - a.votes);
+        return json({ items }, 200, cors);
+      }
+      if (parts[0] === 'feedback' && parts.length === 1 && request.method === 'POST') {
+        // Submit an idea (requires a matched identity). Attribution is derived
+        // server-side from the verified token — never trusted from the client.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.matched) return json({ error: 'sign in to submit' }, 403, cors);
+        let b; try { b = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
+        const idea = String(b.idea || '').trim(); if (!idea) return json({ error: 'empty' }, 400, cors);
+        const context = String(b.context || 'General');
+        const cells = [{ column: 'Idea', value: idea }, { column: 'Context', value: context }, { column: 'Submitted by', value: [id.personId] }, { column: 'Submitted at', value: new Date().toISOString() }, { column: 'Status', value: 'New' }];
+        const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_FEEDBACK_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
+        return pass(r, cors);
+      }
+      if (parts[0] === 'feedback' && parts[2] === 'vote' && request.method === 'POST') {
+        // Toggle the caller in/out of a row's Voters relation. simpleWithArrays
+        // returns voter DISPLAY NAMES, but the relation must be WRITTEN as person
+        // ids — so resolve current voter names -> ids via peopleRows, toggle the
+        // caller's own id, and PUT the id set back.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.matched) return json({ error: 'sign in to vote' }, 403, cors);
+        const fid = decodeURIComponent(parts[1]);
+        const ft = env.CODA_FEEDBACK_TABLE;
+        const one = await fetch(`${base}/docs/${docId}/tables/${ft}/rows/${encodeURIComponent(fid)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        if (!one.ok) return json({ error: 'not found' }, 404, cors);
+        const v = (await one.json()).values || {};
+        const names = (v['Voters'] == null || v['Voters'] === '') ? [] : (Array.isArray(v['Voters']) ? v['Voters'] : [v['Voters']]).map(String);
+        const rows = await peopleRows(base, docId, auth);
+        const idByName = {}; for (const p of rows) { const nm = p.values['Full Name']; if (nm) idByName[nm] = p.id; }
+        let ids = names.map(n => idByName[n]).filter(Boolean);
+        const mine = id.personId; const has = ids.includes(mine);
+        ids = has ? ids.filter(x => x !== mine) : ids.concat([mine]);
+        const w = await fetch(`${base}/docs/${docId}/tables/${ft}/rows/${encodeURIComponent(fid)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: [{ column: 'Voters', value: ids }] } }) });
+        if (!w.ok) return pass(w, cors);
+        return json({ votes: ids.length, votedByMe: !has }, 200, cors);
+      }
       if (parts[0] === 'publish' && parts[1] === 'eventbrite' && request.method === 'POST') {
         // Publish an Approved planning row out to Eventbrite: create-once (idempotent
         // via the stored Eventbrite Event ID), venue, ticket class, structured-content
