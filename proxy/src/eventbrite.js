@@ -65,12 +65,17 @@ export function structuredContentBody(html, versionToWrite) {
   };
 }
 
-// Venue body. SAFETY: registrants-only never includes an address.
-export function venuePayload(venue, addressVisibility) {
-  const v = { name: venue.name || 'Venue' };
-  if (addressVisibility !== 'Registrants only' && venue.address) {
-    v.address = { address_1: venue.address };
+// Venue body. Public → the real name + street address. Registrants-only → a
+// generic name + a COARSE area (`privateArea`, e.g. "Nashville, TN") — NEVER the
+// real street address and NEVER the (possibly host-identifying) venue name.
+// Eventbrite rejects an addressless venue, and has no hide-address feature, so a
+// coarse area is the only safe way to list an in-person private-home event.
+export function venuePayload(venue, addressVisibility, privateArea) {
+  if (addressVisibility === 'Registrants only') {
+    return { venue: { name: 'Address shared upon registration', address: { address_1: privateArea || 'Nashville, TN' } } };
   }
+  const v = { name: venue.name || 'Venue' };
+  if (venue.address) v.address = { address_1: venue.address };
   return { venue: v };
 }
 

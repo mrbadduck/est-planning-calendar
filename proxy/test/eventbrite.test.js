@@ -50,10 +50,13 @@ test('venuePayload — public sends the full address', () => {
   assert.equal(v.venue.name, 'JCC');
   assert.equal(v.venue.address.address_1, '801 Percy Warner Blvd, Nashville, TN');
 });
-test('venuePayload — registrants-only sends NO address (safety invariant)', () => {
-  const v = venuePayload({ name: 'Private home', address: '123 Secret St, Nashville, TN' }, 'Registrants only');
-  assert.equal(v.venue.name, 'Private home');
-  assert.equal(v.venue.address, undefined);   // address must never be present
+test('venuePayload — registrants-only sends a coarse area + generic name, never the real street/name (safety invariant)', () => {
+  const v = venuePayload({ name: "Eric & Hilary's House", address: '1115 Delmas Ave Nashville, TN 37216' }, 'Registrants only', 'Nashville, TN');
+  assert.equal(v.venue.name, 'Address shared upon registration');   // generic — no host name
+  assert.equal(v.venue.address.address_1, 'Nashville, TN');          // coarse area only
+  const blob = JSON.stringify(v);
+  assert.ok(!blob.includes('Delmas'), 'must not leak the street');
+  assert.ok(!blob.includes('Eric & Hilary'), 'must not leak the host-identifying name');
 });
 
 test('eventbriteWebUrl builds the myevent manage link', () => {

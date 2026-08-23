@@ -549,19 +549,28 @@ async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId)
     const r = await ebUpdateEvent(env, ebId, { event: { online_event: true } });
     return r.ok ? null : { error: r };
   }
-  // Cache EB venues by visibility, in SEPARATE columns. A public venue carries an
-  // address on its EB listing; reusing it for a registrants-only event would leak
-  // that address publicly. So registrants-only events get their own addressless
-  // EB venue (cached in `Eventbrite Private Venue ID`), never the public one.
+  // Cache EB venues by visibility, in SEPARATE columns. A public EB venue carries
+  // the real street address; a registrants-only event instead gets its own EB
+  // venue with a generic name + coarse area (Eventbrite requires *an* address and
+  // has no hide-address feature), cached separately so the two never mix.
   const registrantsOnly = addressVisibility === 'Registrants only';
   const cacheCol = registrantsOnly ? 'Eventbrite Private Venue ID' : 'Eventbrite Venue ID';
   const out = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth);
   const found = out.ok ? out.items.find(row => String((row.values || {})['Venue Name'] || '') === String(name)) : null;
+  const realAddress = (found && found.values['Address']) || '';
+  // A public venue with no street address on file can't be created (Eventbrite
+  // requires one) → fall back to online rather than 400. Registrants-only always
+  // has a coarse area, so it's fine.
+  if (!registrantsOnly && !realAddress) {
+    const r = await ebUpdateEvent(env, ebId, { event: { online_event: true } });
+    return r.ok ? null : { error: r };
+  }
   let venueId = found && (found.values || {})[cacheCol];
   if (!venueId) {
-    // Defense-in-depth: empty the address for registrants-only on top of venuePayload's own guard.
-    const address = registrantsOnly ? '' : ((found && found.values['Address']) || '');
-    const r = await ebCreateVenue(env, venuePayload({ name, address }, addressVisibility));
+    const privateArea = env.EVENTBRITE_PRIVATE_AREA || 'Nashville, TN';
+    // venuePayload enforces the safety split: registrants-only ignores realAddress
+    // and emits the generic name + coarse area; public uses the real address.
+    const r = await ebCreateVenue(env, venuePayload({ name, address: realAddress }, addressVisibility, privateArea));
     if (!r.ok) return { error: r };
     venueId = r.body.id;
     if (found) {
