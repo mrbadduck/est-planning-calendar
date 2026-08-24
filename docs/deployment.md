@@ -1,6 +1,6 @@
 # Deployment
 
-The app deploys **standalone** to GitHub Pages at `plan.eastsidetribe.org`; the
+The app deploys **standalone** to Netlify at `plan.eastsidetribe.org`; the
 proxy runs as a Cloudflare Worker. Auth is **phased** — Phase 1 is read-only with
 no user login, Phase 2 adds in-app Firebase Authentication (Google + email
 magic-link) before writes go live. See `docs/architecture.md` for the *why*.
@@ -42,25 +42,32 @@ origin isn't in the CORS allowlist. Use the server.
 
 `eastsidetribe.org` keeps its nameservers at **Hover**. It carries the Strikingly
 marketing site (apex `A` / `www`) and **Google Workspace email** (`MX`, DKIM) — none
-of which we touch. We only *add* a subdomain:
+of which we touch. We only *add*/edit subdomains:
 
-    plan  CNAME  mrbadduck.github.io
+    plan  CNAME  harmonious-dodol-5e833b.netlify.app
 
-That's it. Adding a subdomain record cannot affect the apex site or email. (This is
-why we did **not** choose Cloudflare Access, which would require migrating the whole
-zone to Cloudflare.)
+Netlify's external-DNS custom-domain flow also needs a one-time
+`subdomain-owner-verification` TXT record (added at Hover) to prove ownership of
+`plan` before it will issue the cert. Adding/editing these subdomain records cannot
+affect the apex site or email. (This is why we did **not** choose Cloudflare Access,
+which would require migrating the whole zone to Cloudflare.)
 
-## Phase 1 — App (web/) → GitHub Pages at plan.eastsidetribe.org
+## Phase 1 — App (web/) → Netlify at plan.eastsidetribe.org
 
-1. Add a `web/CNAME` file containing exactly `plan.eastsidetribe.org` (so the custom
-   domain survives redeploys).
-2. Push to `main`. One-time: repo **Settings → Pages → Source: GitHub Actions**.
-   The `deploy-pages` workflow publishes `web/` on every push that touches it.
-3. Repo **Settings → Pages → Custom domain**: enter `plan.eastsidetribe.org`, then
-   add the `plan CNAME mrbadduck.github.io` record at Hover. Wait for the DNS check
-   to pass, then tick **Enforce HTTPS**.
-4. App URL: `https://plan.eastsidetribe.org`
-   (Default Pages URL, still live: `https://mrbadduck.github.io/est-planning-calendar/`.)
+1. Create a Netlify site from this repo: base directory `web/`, no build command,
+   publish directory `web/`, deploy branch `main` (buildless — Netlify just serves
+   the static files as-is). Netlify auto-deploys on every push to `main` that
+   touches `web/`.
+2. Site settings → **Domain management → Add a domain**: enter
+   `plan.eastsidetribe.org`.
+3. Verify ownership: Netlify issues a `subdomain-owner-verification` TXT record;
+   add it at Hover.
+4. Repoint DNS at Hover: `plan CNAME harmonious-dodol-5e833b.netlify.app` (the
+   site's default Netlify subdomain). Once the CNAME and TXT resolve, Netlify
+   auto-provisions a Let's Encrypt cert for `plan.eastsidetribe.org` — no manual
+   HTTPS step.
+5. App URL: `https://plan.eastsidetribe.org`
+   (Netlify's default site URL, still live: `https://harmonious-dodol-5e833b.netlify.app`.)
    Embed test (deferred use): `https://plan.eastsidetribe.org/embed-test/`
 
 ## Phase 1 — Proxy (proxy/) → Cloudflare Workers (read-only)
