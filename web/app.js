@@ -927,7 +927,6 @@ function openNewEventForm(seed){
 }
 async function createFromForm(){
   if(_saving) return;
-  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }
   const f=readForm();
   const me=(state.identity && state.identity.name) || '';
   const e=Object.assign({}, {source:'planning', eventbriteUrl:'', gcalId:'', createdBy:me, editedBy:me}, f);
@@ -1238,7 +1237,6 @@ async function flushAutosave(){ clearTimeout(_autosaveT); if(editing && editing.
 async function autosaveEditor(){
   if(!editing || !editing.id) return;
   if(_saving){ clearTimeout(_autosaveT); _autosaveT=setTimeout(()=>autosaveEditor(), 300); return; }  // coalesce behind an in-flight save
-  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }   // dead token → don't lose the edit to a revert
   const f=readForm();
   if(_lastSavedSnap && snap(f)===_lastSavedSnap){ setSaveStatus('clean'); return; } // nothing changed
   markEbDirtyIfPublicChanged(f);
@@ -1267,7 +1265,6 @@ function applyLocal(e, remove){
 // reflect the new state. Cancel is separate (it tears down Eventbrite).
 async function transitionTo(status){
   if(_saving || !editing || !editing.id) return;
-  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }
   clearTimeout(_autosaveT);
   const prev=Object.assign({}, editing);
   if(document.getElementById('wpanel')) Object.assign(editing, readForm());   // fold in pending field edits
@@ -1289,7 +1286,6 @@ async function transitionTo(status){
 async function cancelEvent(){
   if(_saving || !editing || !editing.id) return;
   if(!confirm('Cancel this event?' + (editing.eventbriteId ? ' Its Eventbrite listing will be taken down.' : ''))) return;
-  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }
   clearTimeout(_autosaveT);
   const prev=Object.assign({}, editing);
   _saving=true; editing.status='cancelled'; editing._ebDirty=false; applyLocal(editing); rerender(); toast('Cancelling…','busy');
@@ -1470,14 +1466,10 @@ document.getElementById('addBtn').addEventListener('click',()=>openNewEventForm(
 function firstOfProgramYear(){ return ymd(state.startYear,8,1); }
 function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state.startYear+1,7,31); }
 
-/* ---- Google sign-in (identity + role gating via the Worker /me) --------- */
-const GOOGLE_CLIENT_ID = '463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com';   // OAuth Web client (public)
-// Persist the ID token so a page reload / discarded-tab restore keeps the
-// session without depending on Google's silent One-Tap re-auth (which 403s on
-// localhost). sessionStorage: survives reload + tab-discard, clears on tab close.
-const TOKEN_KEY = 'est-idtoken';
-function saveToken(t){ try{ t ? sessionStorage.setItem(TOKEN_KEY, t) : sessionStorage.removeItem(TOKEN_KEY); }catch(_){} }
-function loadToken(){ try{ return sessionStorage.getItem(TOKEN_KEY) || null; }catch(_){ return null; } }
+/* ---- Firebase sign-in (identity + role gating via the Worker /me) -------- */
+// Token lifecycle is owned by Firebase (auth-firebase.js). We keep the latest
+// ID token in memory for the Authorization header; Firebase persists the session
+// and streams refreshed tokens via estAuth.init's onToken callback.
 function jwtClaims(t){ try{ return JSON.parse(atob(String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); }catch(_){ return {}; } }
 function initials(name){ return (String(name||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('')||'?').toUpperCase(); }
 function roleLabel(id){ return id.canApprove ? 'Tribal Council' : (id.canWrite ? 'Program Lead' : (id.matched ? 'Member' : 'Not a recognized lead')); }
@@ -1502,9 +1494,26 @@ function renderAuth(){
     // (stale) sign-in button, so it doesn't look like nothing happened.
     el.innerHTML = `<span class="signingin"><span class="ndoc-spin"></span> Signing in…</span>`;
   } else {
-    el.innerHTML = `<span id="gbtn"></span>`;
-    if(GOOGLE_CLIENT_ID && window.google && google.accounts && google.accounts.id)
-      google.accounts.id.renderButton(el.querySelector('#gbtn'), { type:'standard', size:'medium', text:'signin_with', shape:'pill' });
+    el.innerHTML = `<div class="acct">
+        <button class="btn ghost" id="signInBtn">Sign in</button>
+        <div class="acct-menu" id="signInMenu" role="menu" hidden>
+          <button class="btn ghost" id="googleBtn" role="menuitem">Continue with Google</button>
+          <div class="signin-or">or</div>
+          <form id="emailLinkForm" class="signin-email">
+            <input id="emailLinkInput" type="email" required placeholder="you@email.com" autocomplete="email">
+            <button class="btn primary sm" type="submit">Email me a link</button>
+          </form>
+        </div>
+      </div>`;
+    el.querySelector('#signInBtn').addEventListener('click', e=>{ e.stopPropagation(); const m=el.querySelector('#signInMenu'); m.hidden=!m.hidden; });
+    el.querySelector('#googleBtn').addEventListener('click', async ()=>{ try{ await window.estAuth.signInWithGoogle(); }catch(err){ toast('Google sign-in failed','err'); } });
+    el.querySelector('#emailLinkForm').addEventListener('submit', async e=>{
+      e.preventDefault();
+      const email = el.querySelector('#emailLinkInput').value.trim();
+      if(!email) return;
+      try{ await window.estAuth.sendEmailLink(email); toast('Check your email for a sign-in link'); el.querySelector('#signInMenu').hidden=true; }
+      catch(err){ toast('Could not send sign-in link','err'); }
+    });
   }
 }
 function acctMenu(open){
@@ -1541,45 +1550,24 @@ async function fetchMe(){
   try{
     const r = await fetch(`${PROXY_BASE}/me`, { headers:{ 'Authorization':`Bearer ${state.idToken}` } });
     if(r.ok){ state.identity = await r.json(); }
-    else { state.identity = null; if(r.status===401){ state.idToken=null; saveToken(null); } } // stale/expired token -> drop it
+    else { state.identity = null; if(r.status===401){ state.idToken=null; } } // token rejected -> drop it; Firebase re-yields on next refresh
   }catch(_){ state.identity=null; }               // transient network error: keep the token, try again later
   state.authPending=false;
   renderAuth(); applyView();
 }
-async function onCredential(resp){ state.idToken = (resp && resp.credential) || null; saveToken(state.idToken); state.authPending=!!state.idToken; renderAuth(); await fetchMe(); }
-function signOut(){ state.idToken=null; state.identity=null; saveToken(null); try{ google.accounts.id.disableAutoSelect(); }catch(_){} renderAuth(); applyView(); }
+// Called by estAuth whenever Firebase yields a (refreshed) ID token.
+async function onFirebaseToken(token){ state.idToken = token || null; state.authPending = !!token; renderAuth(); await fetchMe(); }
+function onFirebaseSignedOut(){ state.idToken=null; state.identity=null; state.authPending=false; renderAuth(); applyView(); }
+function sessionExpired(){ toast('Session expired — please sign in again','err'); onFirebaseSignedOut(); }
+async function signOut(){ try{ await window.estAuth.signOut(); }catch(_){} }   // onFirebaseSignedOut clears state
 
-/* Google ID tokens expire ~1h. Keep the UI honest as the token ages and refresh
-   proactively so an idle tab doesn't silently go stale. */
-function tokenExpMs(){ const e=jwtClaims(state.idToken).exp; return e ? e*1000 : 0; }
-function sessionExpired(){
-  state.idToken=null; state.identity=null; saveToken(null);
-  renderAuth(); applyView();                        // reflect signed-out (Sign in button)
-  toast('Session expired — please sign in again','err');
-  try{ if(window.google && google.accounts && google.accounts.id) google.accounts.id.prompt(); }catch(_){}  // courtesy silent re-auth (works on the deploy origin)
-}
-let _reauthT=null;
-function checkAuthFreshness(){                       // called on tab focus + the 60s poll
-  if(!state.idToken) return;
-  const exp=tokenExpMs(); if(!exp) return;
-  const now=Date.now();
-  if(exp - now > 5*60*1000) return;                 // still comfortably fresh
-  try{ if(window.google && google.accounts && google.accounts.id) google.accounts.id.prompt(); }catch(_){}  // silent refresh before it lapses
-  if(exp <= now){                                   // already expired — if silent re-auth doesn't land, show signed-out
-    clearTimeout(_reauthT);
-    _reauthT=setTimeout(()=>{ if(!state.idToken || tokenExpMs() <= Date.now()) sessionExpired(); }, 3000);
-  }
-}
 function initAuth(){
-  if(!GOOGLE_CLIENT_ID){ renderAuth(); return; }                         // not configured yet
-  if(!state.idToken){ state.idToken = loadToken(); if(state.idToken){ state.authPending=true; fetchMe(); } } // restore persisted session, validate via /me
-  gisReady();
-}
-function gisReady(){
-  if(!(window.google && google.accounts && google.accounts.id)) return setTimeout(gisReady, 300); // wait for GIS
-  google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: onCredential, auto_select: true });
-  renderAuth();
-  if(!state.idToken) google.accounts.id.prompt();     // only fall back to silent re-auth if we have no token
+  const start = () => {
+    window.estAuth.init({ onToken: onFirebaseToken, onSignedOut: onFirebaseSignedOut });
+    window.estAuth.completeEmailLinkIfPresent().catch(()=>{});   // finish a magic-link return, if any
+  };
+  if(window.estAuth) start();
+  else window.addEventListener('estauth:ready', start, { once:true });   // module may load after app.js
 }
 
 let _refreshing = false;
@@ -1595,8 +1583,8 @@ async function init(){
   applyHeaderMode();
   // Wire refresh/focus/poll up front so they work immediately (never dead while loading).
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
-  document.addEventListener('visibilitychange', () => { if(!document.hidden){ refresh(); checkAuthFreshness(); } }); // refetch + re-check auth on tab focus
-  setInterval(() => { if(!document.hidden){ refresh(); checkAuthFreshness(); } }, 60000);    // light 60s poll while visible
+  document.addEventListener('visibilitychange', () => { if(!document.hidden){ refresh(); } }); // refetch on tab focus
+  setInterval(() => { if(!document.hidden){ refresh(); } }, 60000);    // light 60s poll while visible
 
   // Kick off ref loads — each hydrates its maps synchronously from cache, then
   // refreshes in the background. loadPeople is the slow one (/ref/people is many
