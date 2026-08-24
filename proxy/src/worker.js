@@ -11,7 +11,7 @@
  *   PUT    /rows/:id    update a row  (body: { row:  { cells: [...] } })
  *   DELETE /rows/:id    delete a row
  *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
- *   GET    /me          verify Google token -> { signedIn, name, canWrite, canApprove }
+ *   GET    /me          verify Firebase token -> { signedIn, name, canWrite, canApprove }
  *   POST   /notes-doc   push the row's notes-doc button by id (body: { rowId }) — role-gated
  *
  * Config (see wrangler.toml and .dev.vars.example):
@@ -21,11 +21,12 @@
  *   CODA_API_BASE    (var)     default https://coda.io/apis/v1 (still resolves post-rename)
  *   ALLOWED_ORIGIN   (var)     optional; lock CORS to the app's deploy origin
  *   ALLOW_WRITES     (var)     'true' enables writes (also requires a write-authorized identity)
- *   GOOGLE_CLIENT_ID (var)     OAuth client id; verified as the JWT `aud` for sign-in
+ *   FIREBASE_PROJECT_ID (var)  Firebase project id; verified as the ID-token iss/aud
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
 import { eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion } from './eventbrite.js';
+import { verifyFirebaseIdToken } from './auth.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -523,40 +524,6 @@ function setCell(cells, column, value) {
   if (c) c.value = value; else cells.push({ column, value });
 }
 
-// --- Google ID-token verification (RS256 via JWKS) ---
-let _jwks = null, _jwksExp = 0;
-async function googleKeys() {
-  if (_jwks && Date.now() < _jwksExp) return _jwks;
-  const r = await fetch('https://www.googleapis.com/oauth2/v3/certs');
-  const j = await r.json();
-  _jwks = {}; for (const k of j.keys) _jwks[k.kid] = k;
-  _jwksExp = Date.now() + 3600_000;                 // ~1h; Google keys rotate slowly
-  return _jwks;
-}
-function b64url(s) {
-  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
-  s += '='.repeat((4 - s.length % 4) % 4);
-  const bin = atob(s), u = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-  return u;
-}
-async function verifyGoogleIdToken(token, clientId) {
-  const p = String(token || '').split('.');
-  if (p.length !== 3) throw new Error('malformed token');
-  const header = JSON.parse(new TextDecoder().decode(b64url(p[0])));
-  const payload = JSON.parse(new TextDecoder().decode(b64url(p[1])));
-  const jwk = (await googleKeys())[header.kid];
-  if (!jwk) throw new Error('unknown signing key');
-  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-  const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64url(p[2]), new TextEncoder().encode(`${p[0]}.${p[1]}`));
-  if (!ok) throw new Error('bad signature');
-  if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') throw new Error('bad iss');
-  if (payload.aud !== clientId) throw new Error('bad aud');
-  if (!payload.exp || Date.now() / 1000 > payload.exp) throw new Error('expired');
-  if (payload.email_verified !== true && payload.email_verified !== 'true') throw new Error('email unverified');
-  return String(payload.email || '').toLowerCase();
-}
-
 // --- email -> EST People SRC person + role (Program Lead/Tribal Council) ---
 const PEOPLE_TABLE = 'grid-X316Eql8dE';
 const WRITE_STATUSES = ['Program Lead', 'Tribal Council'];
@@ -594,7 +561,7 @@ async function resolvePerson(email, base, docId, auth) {
 async function authIdentity(request, env, base, docId, auth) {
   const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  const email = await verifyGoogleIdToken(m[1], env.GOOGLE_CLIENT_ID);
+  const email = await verifyFirebaseIdToken(m[1], env.FIREBASE_PROJECT_ID);
   const person = await resolvePerson(email, base, docId, auth);
   if (!person) return { matched: false, email, canWrite: false, canApprove: false };
   return { matched: true, ...person };
