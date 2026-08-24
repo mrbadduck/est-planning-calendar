@@ -244,7 +244,7 @@ to:
 In `proxy/wrangler.toml`, under `[vars]`, add (replace `est-…` with the real projectId from Task 0):
 
 ```toml
-FIREBASE_PROJECT_ID = "est-REPLACE-WITH-REAL-PROJECT-ID"   # Firebase project id; verified as the ID-token iss/aud
+FIREBASE_PROJECT_ID = "est-planning-calendar"   # Firebase project id; verified as the ID-token iss/aud
 ```
 
 You may leave `GOOGLE_CLIENT_ID` in place (still referenced as the public OAuth client for Google-through-Firebase and harmless), or remove it if nothing references it — check:
@@ -255,7 +255,7 @@ Expected: no matches → then remove the `GOOGLE_CLIENT_ID` line from `wrangler.
 In `proxy/.dev.vars.example`, add:
 
 ```
-FIREBASE_PROJECT_ID=est-REPLACE-WITH-REAL-PROJECT-ID
+FIREBASE_PROJECT_ID=est-planning-calendar
 ```
 
 - [ ] **Step 6: Verify the whole Worker test suite still passes**
@@ -293,10 +293,10 @@ import {
 
 // Public config (safe to commit) — from Firebase console (Task 0).
 const firebaseConfig = {
-  apiKey: 'REPLACE',
-  authDomain: 'REPLACE.firebaseapp.com',
-  projectId: 'REPLACE',
-  appId: 'REPLACE',
+  apiKey: 'REPLACE',                                   // from the Web-app registration (Task 0 Step 2)
+  authDomain: 'est-planning-calendar.firebaseapp.com',
+  projectId: 'est-planning-calendar',
+  appId: 'REPLACE',                                    // from the Web-app registration (Task 0 Step 2)
 };
 
 const app = initializeApp(firebaseConfig);
