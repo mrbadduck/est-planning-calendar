@@ -33,19 +33,20 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
   `http://localhost:8080` — no build step (see `docs/deployment.md` → *Local
   development*). The app always uses `CodaSource` (the live proxy); the Worker's
   CORS allowlist includes `localhost:8080`, so **reads work locally**. Sign-in and
-  writes locally also need `http://localhost:8080` added to the Google OAuth
-  client's authorized origins (one-time, in Google Cloud Console).
+  writes locally also need `localhost` added to the **Firebase authorized
+  domains** (Authentication → Settings, one-time).
 - **LIVE at `plan.eastsidetribe.org`** (GitHub Pages). Phase 1 + Phase 2 **Plans
-  1, 2a & 2b-i shipped** (Aug 2026): leaders **sign in with Google** and
-  create/edit/approve planning events that persist to `EST Planning Events SRC`,
-  with server-verified identity + role gating and person-relation attribution.
-  Proper types (native time; Month = `Date`=1st), refresh (button/focus/60s poll).
+  1, 2a & 2b-i shipped** (Aug 2026): leaders **sign in via Firebase (Google +
+  email magic-link)** and create/edit/approve planning events that persist to
+  `EST Planning Events SRC`, with server-verified identity + role gating and
+  person-relation attribution. Proper types (native time; Month = `Date`=1st),
+  refresh (button/focus/60s poll).
 - **Proxy: deployed** at `est-planning-proxy.eastsidetribe.workers.dev` —
-  **doc-scoped read+write** token, `ALLOW_WRITES="true"`, `GOOGLE_CLIENT_ID` set,
-  CORS locked to an allowlist (the app origin + `localhost:8080` for local dev).
-  Serves `GET /rows`, `GET /ref/:name`, `GET /me`
-  (verifies the Google JWT → matches email to `EST People SRC` → role), and
-  role-gated writes that inject person attribution. Points at
+  **doc-scoped read+write** token, `ALLOW_WRITES="true"`, `FIREBASE_PROJECT_ID`
+  set, CORS locked to an allowlist (the app origin + `localhost:8080` for local
+  dev). Serves `GET /rows`, `GET /ref/:name`, `GET /me`
+  (verifies the Firebase ID token → matches email to `EST People SRC` → role),
+  and role-gated writes that inject person attribution. Points at
   `EST Planning Events SRC` (`grid--gYIvdD-cE`).
 - **Mission Control doc identified:** doc id `DYAz_wCVfv`
   (`superhuman://docs/DYAz_wCVfv`). Real source tables: `EST Events SRC`
@@ -90,9 +91,10 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
    Access (which needs the whole zone on Cloudflare) was rejected.
 6. **Auth is phased.** Phase 1: read-only proxy + CORS lock — no user login, near
    zero code, enough to confirm the flow. Phase 2 (before create/edit/approve go
-   live): in-app **Google Sign-In**; the app sends the signed ID token to the
-   Worker, which **verifies the JWT and checks an email allowlist** before any
-   write. Writes are what needs gating; reads of planning data are low-stakes.
+   live): in-app **Firebase Authentication** (Google provider + email
+   magic-link); the app sends the Firebase-signed ID token to the Worker, which
+   **verifies the JWT and checks an email allowlist** before any write. Writes
+   are what needs gating; reads of planning data are low-stakes.
 
 ## Hard technical constraints (learned the hard way — verify before assuming)
 
@@ -204,10 +206,11 @@ App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
    reads it read-only.
 5. **Plan 2a — ✅ DONE (Aug 2026):** proper types (native time; Month=`Date`=1st);
    `/ref/:name` endpoints; refresh (button/focus/60s poll).
-6. **Plan 2b-i — ✅ DONE (Aug 2026):** Google sign-in + Worker JWT verify +
-   email→`EST People SRC` match + role gate (write = Program Lead/Tribal Council;
-   approve = Tribal Council); role-gated writes inject person attribution; scalar
-   create/edit/approve persist. See `docs/phase2-plan-2b-i-auth-writes.md`.
+6. **Plan 2b-i — ✅ DONE (Aug 2026):** Firebase sign-in (Google + magic-link) +
+   Worker JWT verify + email→`EST People SRC` match + role gate (write = Program
+   Lead/Tribal Council; approve = Tribal Council); role-gated writes inject
+   person attribution; scalar create/edit/approve persist. See
+   `docs/phase2-plan-2b-i-auth-writes.md`.
 7. **Plan 2b-ii — editor relation pickers + full create-with-relations:**
    - **2b-ii-a — ✅ DONE (Aug 2026):** real program palette + generated colors from
      `/ref/programs`; multi-program editor picker (writes the `Program(s)`
@@ -252,7 +255,7 @@ App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
 
 Resolved (Aug 2026): standalone hosting on **GitHub Pages** at
 `plan.eastsidetribe.org` (not Cloudflare Pages/Access — keeps DNS at Hover); auth
-is **phased** (read-only + CORS now, Google login + allowlist for writes);
+is **phased** (read-only + CORS now, Firebase sign-in + allowlist for writes);
 planning rows live in a **new table** `EST Planning Events SRC` (not a status
 field on `EST Events SRC`) — the app originates events, inverting the flow.
 

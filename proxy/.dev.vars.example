@@ -5,6 +5,6 @@ CODA_TABLE_ID=grid--gYIvdD-cE
 CODA_API_BASE=https://coda.io/apis/v1
 ALLOWED_ORIGIN=https://plan.eastsidetribe.org
 ALLOW_WRITES=true
-GOOGLE_CLIENT_ID=463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com
+FIREBASE_PROJECT_ID=est-planning-calendar
 EVENTBRITE_TOKEN="eb-private-token"
 # APP_KEY=optional-shared-secret   # unused in the phased plan

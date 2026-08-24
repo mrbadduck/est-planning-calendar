@@ -11,7 +11,7 @@ CODA_NOTES_COL_ID = "c-gCr2zZXbdZ"     # "Notes Doc" column — resolved by id s
 CODA_NOTES_BUTTON_ID = "c-Xa89eEgVN5"   # notes-doc button ("Create Notes Doc") on EST Planning Events SRC — runs Copy file + writes the URL into the Notes Doc column
 ALLOWED_ORIGIN = "https://plan.eastsidetribe.org,http://localhost:8080,http://127.0.0.1:8080"  # first entry = canonical; localhost entries are for local dev
 ALLOW_WRITES   = "true"                 # Plan 2b: writes enabled (still require a write-authorized identity)
-GOOGLE_CLIENT_ID = "463482291986-hpei9a9egdth2m2vlf9nt56t1jglmnjq.apps.googleusercontent.com"  # OAuth Web client (public); verified as the JWT aud
+FIREBASE_PROJECT_ID = "est-planning-calendar"   # Firebase project id; verified as the ID-token iss/aud
 EVENTBRITE_ORG_ID = "1080997994263"     # EST Eventbrite organization id (public)
 EVENTBRITE_TZ = "America/Chicago"       # wall-clock timezone for published event start/end
 EVENTBRITE_COUNTRY = "US"                   # ISO country for EB venues
