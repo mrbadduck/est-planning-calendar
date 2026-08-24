@@ -27,6 +27,7 @@
 import { parseVEvents } from './ical.js';
 import { eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion } from './eventbrite.js';
 import { verifyFirebaseIdToken } from './auth.js';
+import { PEOPLE_COLS } from './coda-columns.js';   // stable column ids for the auth (People) read
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -210,7 +211,7 @@ export default {
         const v = (await one.json()).values || {};
         const names = (v['Voters'] == null || v['Voters'] === '') ? [] : (Array.isArray(v['Voters']) ? v['Voters'] : [v['Voters']]).map(String);
         const rows = await peopleRows(base, docId, auth);
-        const idByName = {}; for (const p of rows) { const nm = p.values['Full Name']; if (nm) idByName[nm] = p.id; }
+        const idByName = {}; for (const p of rows) { const nm = p.values[PEOPLE_COLS.fullName]; if (nm) idByName[nm] = p.id; }
         let ids = names.map(n => idByName[n]).filter(Boolean);
         const mine = id.personId; const has = ids.includes(mine);
         ids = has ? ids.filter(x => x !== mine) : ids.concat([mine]);
@@ -440,12 +441,12 @@ const pass = async (r, cors) =>
 
 // Read every page of a table's rows (column names + simpleWithArrays), aggregated.
 // Returns { ok:true, items } or { ok:false, resp } carrying the upstream error.
-async function readAllRows(rowsUrl, auth) {
+async function readAllRows(rowsUrl, auth, opts = {}) {
   const items = [];
   let pageToken = null, pages = 0;
   do {
     const u = new URL(rowsUrl);
-    u.searchParams.set('useColumnNames', 'true');
+    u.searchParams.set('useColumnNames', opts.byId ? 'false' : 'true');   // byId -> values keyed by stable column id (rename-proof), else by name
     u.searchParams.set('valueFormat', 'simpleWithArrays');
     u.searchParams.set('limit', '200');
     if (pageToken) u.searchParams.set('pageToken', pageToken);
@@ -535,7 +536,7 @@ const APPROVE_STATUSES = ['Tribal Council'];
 let _people = null, _peopleExp = 0;
 async function peopleRows(base, docId, auth) {
   if (_people && Date.now() < _peopleExp) return _people;
-  const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth);
+  const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
   _people = out.ok ? out.items : [];
   _peopleExp = Date.now() + 300_000;                   // 5-min cache
   return _people;
@@ -543,16 +544,16 @@ async function peopleRows(base, docId, auth) {
 async function resolvePerson(email, base, docId, auth) {
   const rows = await peopleRows(base, docId, auth);
   const row = rows.find(r => {
-    const em = r.values['All Emails'];
+    const em = r.values[PEOPLE_COLS.allEmails];
     const list = (em == null || em === '') ? [] : (Array.isArray(em) ? em : [em]);
     return list.some(x => String(x).toLowerCase() === email);
   });
   if (!row) return null;
-  const st = row.values['Leadership Status'];
+  const st = row.values[PEOPLE_COLS.leadershipStatus];
   const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
   return {
     personId: row.id,
-    name: row.values['Full Name'] || email,
+    name: row.values[PEOPLE_COLS.fullName] || email,
     canWrite: roles.some(s => WRITE_STATUSES.includes(s)),
     canApprove: roles.some(s => APPROVE_STATUSES.includes(s)),
   };
