@@ -1,0 +1,10 @@
+# Two static sites from one monorepo. Each Netlify site sets its own base/publish
+# directory in the site UI; this file version-controls shared response headers
+# (and documents that both apps are buildless — no build command).
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
