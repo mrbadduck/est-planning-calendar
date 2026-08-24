@@ -449,12 +449,24 @@ with:
     else { state.identity = null; if(r.status===401){ state.idToken=null; } } // token rejected -> drop it; Firebase re-yields on next refresh
 ```
 
-- [ ] **Step 5: Delete the GIS token-freshness code**
+- [ ] **Step 5: Retire the GIS token-freshness code**
 
-In `web/app.js`, delete `tokenExpMs`, `sessionExpired`, `_reauthT`, and `checkAuthFreshness` (~1552-1572) — Firebase auto-refreshes, so none are needed. Then check where `checkAuthFreshness` was called and remove those calls:
+`tokenExpMs`/`sessionExpired`/`checkAuthFreshness` are used in more places than just the tab-focus/poll — a full-file grep finds ~13 references: the definitions, 2 `checkAuthFreshness` call-sites (tab-focus + ~60s poll), 4 proactive `tokenExpMs()` pre-guards (`createFromForm`, `autosaveEditor`, `transitionTo`, `cancelEvent`), and 7 reactive `err.status===401 → sessionExpired()` catch handlers (publish, create, feedback-vote, autosave, transition, cancel, delete). Handle them as:
 
-Run: `grep -nE "checkAuthFreshness|sessionExpired|tokenExpMs" web/app.js`
-Expected after deletion: **only** any call-sites remain. Remove each call-site line (they were invoked on tab-focus and the 60s poll). Re-run the grep; expected: no matches.
+1. **Delete the definitions** of `tokenExpMs`, `_reauthT`, and `checkAuthFreshness` (the `/* Google ID tokens expire ~1h … */` block through the close of `checkAuthFreshness`). Firebase auto-refreshes, so no local-expiry tracking is needed.
+2. **Re-add a Firebase `sessionExpired`** right after `onFirebaseSignedOut`:
+
+```js
+function sessionExpired(){ toast('Session expired — please sign in again','err'); onFirebaseSignedOut(); }
+```
+
+3. **Delete the 4 proactive pre-guards** — each is `const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }`. Remove the whole guard (Firebase keeps the held token fresh; the reactive 401 catch is the safety net).
+4. **Delete the 2 `checkAuthFreshness` call-sites** (tab-focus handler + the ~60s poll) — the call statements only.
+5. **Leave the 7 reactive `sessionExpired()` calls** in the 401 catch branches as-is (they now hit the redefined function).
+
+Verify:
+Run: `grep -nE "checkAuthFreshness|tokenExpMs" web/app.js` → expected: **no matches**.
+Run: `grep -nE "sessionExpired" web/app.js` → expected: **8 matches** (1 definition + 7 catch-block calls).
 
 - [ ] **Step 6: Replace `initAuth`/`gisReady` with estAuth wiring**
 
@@ -476,7 +488,7 @@ function initAuth(){
 Run: `node --check web/app.js`
 Expected: no output (exit 0). Fix any reference the deletions missed (e.g. a lingering `google.accounts` or `loadToken` call):
 
-Run: `grep -nE "google\.accounts|loadToken|saveToken|GOOGLE_CLIENT_ID|gisReady|onCredential" web/app.js`
+Run: `grep -nE "google\.accounts|loadToken|saveToken|GOOGLE_CLIENT_ID|gisReady|onCredential|checkAuthFreshness|tokenExpMs" web/app.js`
 Expected: no matches.
 
 - [ ] **Step 8: Commit**
