@@ -132,9 +132,20 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   group (Budget/Comms/Volunteers/Attendance/Feedback) whose panels host the
   feedback board. `openEditor(ev, section)` resets to Planning unless a section is
   passed; `readForm()` null-guards every field (only the active section's inputs
-  exist in the DOM). Status lifecycle idea→draft→confirmed→approved; approve gated
-  server-side (Tribal Council). **Internal** description lives in Planning;
-  **Public summary/description** (sent to Eventbrite) live in Publish.
+  exist in the DOM). **Internal** description lives in Planning; **Public
+  summary/description** (sent to Eventbrite) live in Publish.
+- **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
+  = approved+EB-published and *Past* = date passed are DERIVED, not stored).
+  Action-driven, not a dropdown: transitions are footer-left buttons by role/state
+  — Draft→**Propose**|**Cancel**; Proposed→**Approve**(council)|**Cancel**;
+  Approved→**Cancel** (+ Publish in the Publish section); Cancelled→**Reopen**
+  (council). **Delete** is council-only (leads get **Cancel** in that spot);
+  approve gated server-side (Tribal Council). Header = derived status badge +
+  copy-link icon; footer = transitions left / save-status right (`statusInfo`,
+  `footerActionsHTML`, `transitionTo`, `cancelEvent`). **Cancel** tears down the
+  Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
+  +notify) then sets Status=Cancelled. Design:
+  `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
 - **Save model (create-then-workspace + on-blur autosave):** a NEW event opens a
   one-shot compact Planning modal (`openNewEventForm`, Cancel/Create) — not the
   workspace, so no premature empty rows; on Create it persists once and
