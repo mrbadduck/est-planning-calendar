@@ -81,8 +81,10 @@ export default {
           catch (e) { return json({ error: 'invalid token' }, 401, cors); }
           if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
 
-          if (request.method === 'DELETE' && rowId)
+          if (request.method === 'DELETE' && rowId) {
+            if (!id.canApprove) return json({ error: 'delete requires Tribal Council' }, 403, cors);   // hard removal is council-only; leads Cancel instead
             return pass(await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth }), cors);
+          }
 
           if ((request.method === 'POST' && !rowId) || (request.method === 'PUT' && rowId)) {
             let body;
@@ -348,6 +350,47 @@ export default {
           return json({ error: msg, step: 'exception' }, 502, cors);
         }
       }
+      if (parts[0] === 'cancel' && parts[1] === 'eventbrite' && request.method === 'POST') {
+        // Cancel a planning event: tear down its Eventbrite listing (unpublish, or
+        // cancel if it has registrants) then set Status=Cancelled. Same write gate
+        // + Publish Log posture as /publish/eventbrite. Works with or without an EB id.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+
+        let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
+        const rowId = body.rowId;
+        if (!rowId) return json({ error: 'rowId required' }, 400, cors);
+
+        const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
+        const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+        const V = (await one.json()).values || {};
+        const setRow = (cells) => fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
+        const ebId = V['Eventbrite Event ID'] || '';
+
+        let ebOutcome = 'none', pubStatus = V['Publish status'] || '';
+        if (ebId && env.EVENTBRITE_TOKEN) {
+          let r = await ebUnpublish(env, ebId);              // clean/silent path
+          if (r.ok) { ebOutcome = 'unpublished'; pubStatus = 'Unpublished'; }
+          else {
+            const c = await ebCancel(env, ebId);            // has registrants → cancel + notify
+            if (c.ok) { ebOutcome = 'cancelled'; pubStatus = 'Cancelled'; }
+            else {
+              const msg = (c.body && (c.body.error_description || c.body.error)) || `HTTP ${c.status}`;
+              await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'cancel', ok: false, status: c.status, ebId, message: String(msg) });
+              return json({ error: `could not take down the Eventbrite listing: ${msg}`, step: 'eventbrite' }, 502, cors);
+            }
+          }
+        }
+        const cells = [{ column: 'Status', value: 'Cancelled' }, { column: 'Edited by', value: [id.personId] }];
+        if (ebId) cells.push({ column: 'Publish status', value: pubStatus });
+        const w = await setRow(cells);
+        if (!w.ok) return pass(w, cors);
+        await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'cancel', ok: true, status: 200, ebId, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
+        return json({ ok: true, publishStatus: ebId ? pubStatus : '', eventbrite: ebOutcome }, 200, cors);
+      }
       if (parts[0] === 'notes-doc' && request.method === 'POST') {
         // Provision a Planning-Notes Google Doc by pushing the row's notes-doc
         // button (by id) via the Coda API. Same write gate as row writes; reuses
@@ -590,6 +633,8 @@ const ebUpdateTicket = (env, id, tcId, payload) => ebFetch(env, `/events/${id}/t
 const ebGetStructuredContent = (env, id) => ebFetch(env, `/events/${id}/structured_content/`, 'GET');
 const ebSetStructuredContent = (env, id, version, body) => ebFetch(env, `/events/${id}/structured_content/${version}/`, 'POST', body);
 const ebPublish = (env, id) => ebFetch(env, `/events/${id}/publish/`, 'POST');
+const ebUnpublish = (env, id) => ebFetch(env, `/events/${id}/unpublish/`, 'POST');   // revert to draft (free events, no orders)
+const ebCancel = (env, id) => ebFetch(env, `/events/${id}/cancel/`, 'POST');          // cancel a live event + notify registrants
 
 // Append one row to the Publish Log table. Logging must NEVER throw — a failed
 // log write can't be allowed to break (or falsely fail) the publish path.

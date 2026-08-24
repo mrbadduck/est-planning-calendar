@@ -19,7 +19,7 @@ let PROGRAMS = [
   {id:'oth', name:'Other / one-off',       color:'var(--p-oth)'},
 ];
 let PROG = Object.fromEntries(PROGRAMS.map(p=>[p.id,p]));
-const STATUSES = ['idea','draft','confirmed','approved'];
+const STATUSES = ['draft','proposed','approved','cancelled'];
 /* reference layers — muted context, read-only. Populated live from
    /references (Reference Calendars SRC in Coda); starts empty. */
 let REF_LAYERS = [];
@@ -236,7 +236,7 @@ function eventToCodaCells(e){
     {column:'Program(s)',      value:(e.programs||[]).filter(id=>id&&id!=='oth')},
     {column:'Leads',           value:(e.leads||[]).filter(Boolean)},
     {column:'Volunteers',      value:(e.volunteers||[]).filter(Boolean)},
-    {column:'Status',          value:cap(e.status||'idea')},
+    {column:'Status',          value:cap(e.status||'draft')},
     {column:'Scheduling',      value:cap(sched)},
     {column:'Date',            value:dateVal},
     {column:'Start',           value:e.start||''},
@@ -302,7 +302,7 @@ function planningRowToEvent(r){
     venue: venueIdByName[venueName] || '',
     venueOther,
     location: venueName || venueOther,                   // display fallback
-    status: String(v['Status'] || 'idea').toLowerCase(),
+    status: String(v['Status'] || 'draft').toLowerCase(),
     description: v['Event Description'] || '',
     capacity: (v['Capacity'] === '' || v['Capacity'] == null) ? '' : Number(v['Capacity']),
     addressVisibility: v['Address visibility'] || 'Public',
@@ -352,6 +352,7 @@ const CodaSource = {
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
   async publishEventbrite(rowId, draftOnly){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; throw e; } return j; },
+  async cancelEventbrite(rowId){ const r=await fetch(`${this.base}/cancel/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`cancel failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
   async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
   async voteFeedback(id){ const r=await fetch(`${this.base}/feedback/${encodeURIComponent(id)}/vote`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||'vote failed'); e.status=r.status; throw e; } return j; },
@@ -808,19 +809,50 @@ async function pushNotesDocButton(rowId, gen){
   }
 }
 
+/* ---- status state machine (draft → proposed → approved; bail → cancelled) ----
+   Status stores 4 states; "Live" (approved + EB published) and "Past" (date has
+   passed) are DERIVED for display, not stored. */
+function statusInfo(ev){
+  if(ev.status==='cancelled') return {label:'Cancelled', cls:'cancelled'};
+  if(ev.status==='approved')  return (ev.publishStatus==='Published') ? {label:'Live', cls:'live'} : {label:'Approved', cls:'approved'};
+  if(ev.status==='proposed')  return {label:'Proposed', cls:'proposed'};
+  return {label:'Draft', cls:'draft'};
+}
+function isPastEvent(ev){ return ev.scheduling==='exact' && ev.date && ev.date < todayStr && ev.status!=='cancelled'; }
+const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+// Left-cluster footer transition buttons for an existing event, by state + role.
+// canWrite = Program Lead or Council; canApprove = Council. Leads never see Approve.
+function footerActionsHTML(ev, canWrite, canApprove){
+  if(!ev.id) return '';
+  const b=[];
+  if(ev.status==='draft'){
+    if(canWrite) b.push(`<button class="btn primary sm" data-act="propose">Propose</button>`);
+    if(canWrite) b.push(`<button class="btn sm" data-act="cancel">Cancel event</button>`);
+  } else if(ev.status==='proposed'){
+    if(canApprove) b.push(`<button class="btn primary sm" data-act="approve">Approve</button>`);
+    if(canWrite)   b.push(`<button class="btn sm" data-act="cancel">Cancel event</button>`);
+  } else if(ev.status==='approved'){
+    if(canWrite) b.push(`<button class="btn sm" data-act="cancel">Cancel event</button>`);
+  } else if(ev.status==='cancelled'){
+    if(canApprove) b.push(`<button class="btn primary sm" data-act="reopen">Reopen</button>`);
+  }
+  if(canApprove) b.push(`<button class="btn danger sm" data-act="delete">Delete</button>`);
+  return b.join('');
+}
 function openEditor(ev, section){
   editing = ev;
   activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'planning';   // reset per open; honor a deep-linked section
   const isRef = ev.source==='ref';
   const canEdit = !isRef && !!(state.identity && state.identity.canWrite);
   const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
-  const locked = (!isRef) && ev.status==='approved' && !canApprove;
+  // Fields are read-only when Cancelled (reopen to edit) or Approved-and-not-Council.
+  const locked = (!isRef) && (ev.status==='cancelled' || (ev.status==='approved' && !canApprove));
   const c = isRef ? REF[ev.refLayer].color : progColor(ev.program);
   document.getElementById('mStripe').style.setProperty('--c',c);
-  document.getElementById('mTitle').textContent = ev.id ? (isRef?'Reference event':'Edit event') : 'New event';
+  document.getElementById('mTitle').textContent = isRef ? 'Reference event' : (ev.id ? (ev.title||'Untitled') : 'New event');
   const actions=document.getElementById('mActions');
   const body=document.getElementById('mBody');
-  document.getElementById('modal').classList.remove('ws'); body.classList.remove('ws');   // workspace mode only for the planning editor
+  document.getElementById('modal').classList.remove('ws','create'); body.classList.remove('ws');   // workspace mode only for the planning editor
   if(isRef){
     const R = REF[ev.refLayer] || {name:'Reference', color:'#888'};
     actions.innerHTML = `<span class="badge b-ref">${esc(R.name)}</span>`;
@@ -837,24 +869,20 @@ function openEditor(ev, section){
     show(); return;
   }
 
-  // header (top-right): status control + approve / reopen
-  let head = (canEdit && !locked)
-    ? `<select id="f_status" class="statussel" aria-label="Status">${STATUSES.filter(s=>s!=='approved').map(s=>`<option value="${s}" ${s===ev.status?'selected':''}>${cap(s)}</option>`).join('')}${ev.status==='approved'?'<option value="approved" selected>Approved</option>':''}</select>`
-    : `<span class="badge b-${ev.status}">${cap(ev.status)}</span>`;
-  if(canApprove) head += (ev.status==='approved')
-    ? `<button class="btn sm" data-act="reopen">Reopen</button>`
-    : `<button class="btn primary sm" data-act="approve">Approve${ev.id?'':' & save'}</button>`;
-  if(ev.id) head += `<button class="btn sm" data-act="copylink" title="Copy a link to this event">Copy link</button>`;
+  // header (top-right): derived status badge + copy-link icon (transitions moved
+  // to the footer; status is display-only here).
+  const si=statusInfo(ev);
+  let head = `<span class="badge b-${si.cls}">${si.label}</span>`;
+  if(isPastEvent(ev)) head += `<span class="badge b-past">Past</span>`;
+  if(ev.id) head += `<button class="mhead-ico" data-act="copylink" title="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
 
-  // footer: Delete + save-status indicator (autosave replaces the global Save;
-  // approve/reopen live in the header). Locked/read-only get just a Close button.
+  // footer: transition actions on the LEFT (Propose/Approve/Cancel/Reopen +
+  // council Delete), save-status on the RIGHT. Dismissal is the header ✕/Esc/scrim.
   const foot=document.getElementById('mFoot');
-  let acts='';
-  if(ev.id && canEdit && !locked) acts+=`<button class="btn danger" data-act="delete">Delete</button>`;
-  acts+=`<span class="push"></span>`;
-  if(ev.id && canEdit && !locked) acts+=`<span class="savestat clean" id="saveStatus">Saved</span>`;
-  acts+=`<button class="btn" data-act="close">${canEdit&&!locked?'Done':'Close'}</button>`;
+  let acts = footerActionsHTML(ev, canEdit, canApprove);
+  acts += `<span class="push"></span>`;
+  if(ev.id && canEdit && !locked) acts += `<span class="savestat clean" id="saveStatus">Saved</span>`;
   foot.innerHTML=acts;
 
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
@@ -888,7 +916,7 @@ function openNewEventForm(seed){
   document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
   document.getElementById('mTitle').textContent = 'New event';
   document.getElementById('mActions').innerHTML = '';   // no status/approve until the row exists
-  document.getElementById('modal').classList.remove('ws');
+  document.getElementById('modal').classList.remove('ws'); document.getElementById('modal').classList.add('create');   // fixed shell = same height as the workspace
   const body=document.getElementById('mBody'); body.classList.remove('ws');
   body.innerHTML = renderPlanning(seed, true, false, false);
   wirePlanning(body, seed, true, false, false);
@@ -1153,7 +1181,7 @@ function readForm(){
   const capEl=g('f_capacity');
   const o={
     program:programs[0]||'oth', programs,
-    status:g('f_status') ? g('f_status').value : ((editing&&editing.status)||'idea'),
+    status:g('f_status') ? g('f_status').value : ((editing&&editing.status)||'draft'),
     title:g('f_title') ? (g('f_title').value.trim()||'Untitled') : ((editing&&editing.title)||'Untitled'),
     allDay,
     start:(exact && !allDay) ? (whenRendered ? (w.start||'') : ((editing&&editing.start)||'')) : '',
@@ -1234,41 +1262,47 @@ function applyLocal(e, remove){
   if(remove){ if(i>=0) state.events.splice(i,1); return; }
   if(i>=0) state.events[i]=e; else state.events.push(e);
 }
-async function saveEditor(approve){
-  if(_saving) return;
-  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }   // token already dead → don't lose the edit to an optimistic revert
-  const f=readForm();
-  const isNew=!editing.id;
-  const me=(state.identity && state.identity.name) || '';
-  const base= isNew ? {source:'planning', eventbriteUrl:'', gcalId:'', createdBy:me, editedBy:me} : editing;
-  const e=Object.assign({}, base, f);
-  e.editedBy = me || e.editedBy;
-  if(approve) e.status='approved';
-  const prev = isNew ? null : Object.assign({}, editing);
-  if(isNew) e.id='tmp-'+Date.now();
-  _saving=true;
-  applyLocal(e); close(); rerender(); toast(approve?'Approving…':'Saving…','busy');   // instant reflect
-  try{
-    const saved = isNew ? await DB.create(e) : await DB.update(e);
-    if(isNew && saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); rerender(); }  // swap temp id → real
-    markRecent(e.id, { e });
-    toast(approve?'Approved':'Saved','ok');
-    scheduleReconcile();
-  }catch(err){
-    applyLocal(e, true); if(prev) applyLocal(prev); rerender();
-    if(err && err.status===401) sessionExpired();
-    else { toast('Save failed — reverted','err'); console.warn('save failed:', err); }
-  }finally{ _saving=false; }
-}
-async function reopenEditor(){
+// Lifecycle transition (Propose/Approve/Reopen). Captures current field edits +
+// the new status in one write, then rebuilds the editor so locked/footer/publish
+// reflect the new state. Cancel is separate (it tears down Eventbrite).
+async function transitionTo(status){
   if(_saving || !editing || !editing.id) return;
+  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }
+  clearTimeout(_autosaveT);
   const prev=Object.assign({}, editing);
-  const e=Object.assign({}, editing, {status:'confirmed'});
-  _saving=true;
-  applyLocal(e); close(); rerender(); toast('Reopening…','busy');
-  try{ await DB.update(e); markRecent(e.id, { e }); toast('Reopened','ok'); scheduleReconcile(); }
-  catch(err){ applyLocal(prev); rerender(); if(err && err.status===401) sessionExpired(); else { toast('Reopen failed — restored','err'); console.warn('reopen failed:', err); } }
-  finally{ _saving=false; }
+  if(document.getElementById('wpanel')) Object.assign(editing, readForm());   // fold in pending field edits
+  editing.status=status;
+  editing.editedBy=(state.identity && state.identity.name) || editing.editedBy;
+  _saving=true; applyLocal(editing); rerender(); toast(status==='approved'?'Approving…':'Saving…','busy');
+  try{
+    await DB.update(editing); _lastSavedSnap=null; markRecent(editing.id,{e:editing});
+    toast(status==='approved'?'Approved':(status==='draft'?'Reopened':'Proposed'),'ok'); scheduleReconcile();
+    _saving=false; openEditor(editing, activeSection);
+  }catch(err){
+    Object.assign(editing, prev); applyLocal(editing); rerender(); _saving=false;
+    if(err && err.status===401) sessionExpired();
+    else { toast('Update failed — reverted','err'); console.warn('transition failed:', err); openEditor(editing, activeSection); }
+  }
+}
+// Cancel: set Status=Cancelled AND tear down the Eventbrite listing (Worker
+// unpublishes, or cancels if it has registrants). Works with or without an EB id.
+async function cancelEvent(){
+  if(_saving || !editing || !editing.id) return;
+  if(!confirm('Cancel this event?' + (editing.eventbriteId ? ' Its Eventbrite listing will be taken down.' : ''))) return;
+  const exp=tokenExpMs(); if(exp && exp<=Date.now()){ sessionExpired(); return; }
+  clearTimeout(_autosaveT);
+  const prev=Object.assign({}, editing);
+  _saving=true; editing.status='cancelled'; editing._ebDirty=false; applyLocal(editing); rerender(); toast('Cancelling…','busy');
+  try{
+    const res=await DB.cancelEventbrite(editing.id);
+    if(res && res.publishStatus) editing.publishStatus=res.publishStatus;
+    _lastSavedSnap=null; markRecent(editing.id,{e:editing}); toast('Event cancelled','ok'); scheduleReconcile();
+    _saving=false; openEditor(editing, activeSection);
+  }catch(err){
+    Object.assign(editing, prev); applyLocal(editing); rerender(); _saving=false;
+    if(err && err.status===401) sessionExpired();
+    else { toast((err&&err.message)||'Cancel failed','err'); openEditor(editing, activeSection); }
+  }
 }
 async function deleteEditor(){
   if(_saving) return;
@@ -1298,7 +1332,9 @@ function close(){
   // `editing` and firing DB.update) before we null it below; not awaited.
   const st=document.getElementById('saveStatus');
   if(editing && editing.id && st && (st.classList.contains('dirty')||st.classList.contains('error'))) autosaveEditor();
-  document.getElementById('scrim').classList.remove('open'); editing=null; clearUrl();
+  document.getElementById('scrim').classList.remove('open');
+  document.getElementById('modal').classList.remove('ws','create'); document.getElementById('mBody').classList.remove('ws');
+  editing=null; clearUrl();
 }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });
@@ -1310,16 +1346,16 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='close') close();
   else if(act==='create') createFromForm();
-  else if(act==='approve') saveEditor(true);
-  else if(act==='reopen'){ reopenEditor(); }
+  else if(act==='propose') transitionTo('proposed');
+  else if(act==='approve') transitionTo('approved');
+  else if(act==='cancel') cancelEvent();
+  else if(act==='reopen') transitionTo('draft');
   else if(act==='delete') deleteEditor();
 });
-// header actions (status live in the select; approve/reopen buttons)
+// header actions: copy-link icon (status is display-only; transitions are in the footer)
 document.getElementById('mActions').addEventListener('click',e=>{
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
-  if(act==='approve') saveEditor(true);
-  else if(act==='reopen') reopenEditor();
-  else if(act==='copylink'){ navigator.clipboard.writeText(location.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }
+  if(act==='copylink'){ navigator.clipboard.writeText(location.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }
 });
 document.getElementById('mBody').addEventListener('click',e=>{
   if(e.target.closest('[data-act="coda"]')){ e.preventDefault(); alert('Live version: deep-links to this row in the Mission Control Coda doc for full editing (ticketing, banner, promotion).'); }
@@ -1353,7 +1389,7 @@ function newEventOn(date){
   return {id:null,source:'planning',program:'',programs:[],title:'',leads:[],date,start:'18:30',end:'20:00',allDay:false,location:'',status:'draft',description:'',scheduling:'exact',rangeStart:'',rangeEnd:'',targetMonth:'',createdBy:state.currentUser,editedBy:state.currentUser,eventbriteUrl:'',gcalId:''};
 }
 function newIdeaInMonth(mkey){
-  return {id:null,source:'planning',program:'oth',title:'',leads:[],date:'',start:'',end:'',allDay:false,location:'',status:'idea',description:'',scheduling:'month',rangeStart:'',rangeEnd:'',targetMonth:mkey,createdBy:state.currentUser,editedBy:state.currentUser,eventbriteUrl:'',gcalId:''};
+  return {id:null,source:'planning',program:'oth',title:'',leads:[],date:'',start:'',end:'',allDay:false,location:'',status:'draft',description:'',scheduling:'month',rangeStart:'',rangeEnd:'',targetMonth:mkey,createdBy:state.currentUser,editedBy:state.currentUser,eventbriteUrl:'',gcalId:''};
 }
 
 /* tiny day picker when a cell overflows */
@@ -1461,6 +1497,10 @@ function renderAuth(){
       </div>`;
     el.querySelector('#avatarBtn').addEventListener('click', e=>{ e.stopPropagation(); acctMenu(); });
     el.querySelector('#signOut').addEventListener('click', signOut);
+  } else if(state.authPending){
+    // Gap between returning from Google and /me resolving — show progress, not the
+    // (stale) sign-in button, so it doesn't look like nothing happened.
+    el.innerHTML = `<span class="signingin"><span class="ndoc-spin"></span> Signing in…</span>`;
   } else {
     el.innerHTML = `<span id="gbtn"></span>`;
     if(GOOGLE_CLIENT_ID && window.google && google.accounts && google.accounts.id)
@@ -1497,15 +1537,16 @@ function applyHeaderMode(){
   layoutSticky();
 }
 async function fetchMe(){
-  if(!PROXY_BASE || !state.idToken){ state.identity=null; renderAuth(); return; }
+  if(!PROXY_BASE || !state.idToken){ state.identity=null; state.authPending=false; renderAuth(); return; }
   try{
     const r = await fetch(`${PROXY_BASE}/me`, { headers:{ 'Authorization':`Bearer ${state.idToken}` } });
     if(r.ok){ state.identity = await r.json(); }
     else { state.identity = null; if(r.status===401){ state.idToken=null; saveToken(null); } } // stale/expired token -> drop it
   }catch(_){ state.identity=null; }               // transient network error: keep the token, try again later
+  state.authPending=false;
   renderAuth(); applyView();
 }
-async function onCredential(resp){ state.idToken = (resp && resp.credential) || null; saveToken(state.idToken); await fetchMe(); }
+async function onCredential(resp){ state.idToken = (resp && resp.credential) || null; saveToken(state.idToken); state.authPending=!!state.idToken; renderAuth(); await fetchMe(); }
 function signOut(){ state.idToken=null; state.identity=null; saveToken(null); try{ google.accounts.id.disableAutoSelect(); }catch(_){} renderAuth(); applyView(); }
 
 /* Google ID tokens expire ~1h. Keep the UI honest as the token ages and refresh
@@ -1531,7 +1572,7 @@ function checkAuthFreshness(){                       // called on tab focus + th
 }
 function initAuth(){
   if(!GOOGLE_CLIENT_ID){ renderAuth(); return; }                         // not configured yet
-  if(!state.idToken){ state.idToken = loadToken(); if(state.idToken) fetchMe(); } // restore persisted session, validate via /me
+  if(!state.idToken){ state.idToken = loadToken(); if(state.idToken){ state.authPending=true; fetchMe(); } } // restore persisted session, validate via /me
   gisReady();
 }
 function gisReady(){
