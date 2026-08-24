@@ -193,6 +193,18 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   backing, not browser storage.
 - After any JS edit, sanity-check by extracting the `<script>` and running
   `node --check` on it.
+- **Reference Coda columns by stable *id*, not name** — column names change freely
+  in the doc and silently break name-keyed reads. IDs live in one place,
+  `proxy/src/coda-columns.js` (each id commented with its human name); read rows
+  with `useColumnNames=false` (`readAllRows(..., { byId:true })`) and write cells
+  with `{ column: <id> }`. **Done:** the auth path (`resolvePerson`/`peopleRows` —
+  a People-column rename would otherwise break sign-in + role-gating) and all new
+  gather code. **Deferred id-hardening (still name-keyed — convert opportunistically,
+  with live verification):** (a) the planning read/write seam
+  (`planningRowToEvent`/`eventToCodaCells` + the Worker `/rows`) — ideally moved
+  server-side so the UI stops learning the Coda row shape (decision #4); (b) the
+  generic `/ref` reads (programs/people/venues), the Eventbrite payload builders,
+  and the feedback `Voters` write.
 
 ## Next steps (priority order)
 
