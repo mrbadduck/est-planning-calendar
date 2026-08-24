@@ -2,8 +2,8 @@
 
 The app deploys **standalone** to GitHub Pages at `plan.eastsidetribe.org`; the
 proxy runs as a Cloudflare Worker. Auth is **phased** — Phase 1 is read-only with
-no user login, Phase 2 adds in-app Google Sign-In before writes go live. See
-`docs/architecture.md` for the *why*.
+no user login, Phase 2 adds in-app Firebase Authentication (Google + email
+magic-link) before writes go live. See `docs/architecture.md` for the *why*.
 
 ## Local development (hot reload, no build step)
 
@@ -23,12 +23,12 @@ allowlist includes `http://localhost:8080` (and `http://127.0.0.1:8080`) alongsi
 the deploy origin, so **reads work from localhost** — the proxy's read endpoints
 (`GET /rows`, `GET /ref/*`) are unauthenticated. Use port **8080** locally to match.
 
-**Sign-in and writes need one more step you must do once:** add
-`http://localhost:8080` to the **Authorized JavaScript origins** of the Google OAuth
-Web client (Google Cloud Console → Credentials). Until then, Google Sign-In won't
-initialize on localhost (you'll see a harmless "Not signed in" console notice), and
-since create/edit/approve require a verified identity, writes stay unavailable
-locally. Reads and all UI/layout work are unaffected.
+**Sign-in and writes need one more step you must do once:** add `localhost` to the
+**Firebase authorized domains** (Firebase Console → Authentication → Settings).
+Until then, Firebase sign-in won't initialize on localhost (you'll see a harmless
+"Not signed in" console notice), and since create/edit/approve require a verified
+identity, writes stay unavailable locally. Reads and all UI/layout work are
+unaffected.
 
 ⚠️ **Local writes hit the real `EST Planning Events SRC` table** — there's no staging
 data. This is the same table the deployed site writes to, so it's no more dangerous
@@ -94,23 +94,27 @@ render — that proves the full path (browser → Pages → Worker → Superhuma
 
 ## Phase 2 — Auth + writes (before create/edit/approve go live)
 
-1. Create a **Google OAuth client ID** (Google Cloud Console → Credentials → OAuth
-   client, type *Web*, authorized origin `https://plan.eastsidetribe.org`). This ID
-   is public and safe to ship in the app.
-2. App: add Google Identity Services sign-in; on write requests, send the returned
-   ID token as `Authorization: Bearer <token>`.
-3. Worker: **verify** the ID token against Google's public keys (checking
-   `aud` = the client ID, `iss` = accounts.google.com, `exp`) and check the email
-   against an **allowlist** (Worker secret/var of EST-leads emails) before allowing
-   any `POST/PUT/DELETE`. Swap the Coda token to a **read+write** doc-scoped token.
+1. Create a **Firebase project** (`est-planning-calendar`) and enable the
+   **Google** and **Email link (magic-link)** sign-in providers (Firebase Console
+   → Authentication → Sign-in method). The Firebase web config is public and safe
+   to ship in the app.
+2. App: add the Firebase Auth SDK (Google + email magic-link); on write requests,
+   send the returned Firebase ID token as `Authorization: Bearer <token>`.
+3. Worker: **verify** the ID token as a Firebase ID token (checking `iss` =
+   `https://securetoken.google.com/est-planning-calendar`, `aud` = the Firebase
+   project id, `exp`, via Google's public keys) and check the email against an
+   **allowlist** (`resolvePerson` → `EST People SRC` → role, unchanged from the
+   prior Google Sign-In setup) before allowing any `POST/PUT/DELETE`. Swap the
+   Coda token to a **read+write** doc-scoped token.
 
 ## Secrets checklist
 
 - Superhuman Docs token: **Worker secret only** (`CODA_API_TOKEN`) — never committed,
   never in the app. Read-scoped in Phase 1; read+write in Phase 2.
 - `ALLOWED_ORIGIN`: Worker var = `https://plan.eastsidetribe.org`.
-- Phase 2: Google **client ID** ships in the app (public); the **allowlist** and the
-  read+write token live in the Worker.
+- Phase 2: the Firebase web config and `FIREBASE_PROJECT_ID` (`est-planning-calendar`)
+  ship in the app / Worker var (public); the **allowlist** and the read+write Coda
+  token live in the Worker.
 - `CLOUDFLARE_API_TOKEN`: GitHub repo secret (for CI proxy deploys only).
 - The legacy optional `APP_KEY` shared-secret path is superseded by the phased model
   above and is not used for the standalone deploy.

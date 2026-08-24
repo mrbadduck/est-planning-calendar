@@ -37,11 +37,13 @@ The app is public at `plan.eastsidetribe.org`, so we protect **writes**, not rea
 - **Phase 1 — read-only + CORS lock.** The Worker exposes only `GET /rows`, holds a
   read-scoped token, and sets CORS to allow just `https://plan.eastsidetribe.org`.
   No user login. Enough to confirm the whole flow end-to-end.
-- **Phase 2 — in-app Google Sign-In.** When create/edit/approve go live, the app
-  uses Google Identity Services to sign the lead in and sends the Google-signed ID
-  token to the Worker as a Bearer. The Worker **verifies the JWT** (Google's public
-  keys; `aud`/`iss`/`exp`) and checks the email against an **EST-leads allowlist**
-  before any write. This also yields per-person attribution and VP-only approve.
+- **Phase 2 — in-app Firebase Authentication.** When create/edit/approve go live,
+  the app uses Firebase Auth (Google provider + email magic-link) to sign the lead
+  in and sends the Firebase-signed ID token to the Worker as a Bearer. The Worker
+  **verifies the JWT** (issuer `https://securetoken.google.com/est-planning-calendar`,
+  audience = the Firebase project id; Google's public keys) and checks the email
+  against an **EST-leads allowlist** before any write. This also yields
+  per-person attribution and VP-only approve.
 
 Cloudflare Access (a login wall in front of everything, zero app code) was
 considered and rejected: it needs `eastsidetribe.org`'s zone on Cloudflare, i.e. a
