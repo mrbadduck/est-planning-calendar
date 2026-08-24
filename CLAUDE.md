@@ -8,7 +8,7 @@ way they are; the docs cover deeper detail.
 
 A full-year program-planning calendar for **East Side Tribe (EST)**, a lay-led
 Jewish community org. It is **deployed standalone** at `plan.eastsidetribe.org`
-(GitHub Pages) and reads/writes EST's **Mission Control** doc in **Superhuman
+(Netlify) and reads/writes EST's **Mission Control** doc in **Superhuman
 Docs** through a proxy (this is Coda — renamed July 8, 2026; `docs.superhuman.com`,
 `coda.io` links redirect, API still resolves at `coda.io/apis/v1`). Embedding the
 app inside Mission Control is a possible later option, **not** the current path.
@@ -20,11 +20,12 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 
 | Path | What | Deploys to |
 |------|------|-----------|
-| `web/index.html` | The calendar app — self-contained, vanilla JS, **no build step** | GitHub Pages |
-| `web/embed-test/index.html` | "Did JS run in the embed?" validator — **deferred** (standalone is the current path) | GitHub Pages |
+| `web/index.html` | The calendar app — self-contained, vanilla JS, **no build step** | Netlify (`plan.eastsidetribe.org`) |
+| `web/embed-test/index.html` | "Did JS run in the embed?" validator — **deferred** (standalone is the current path) | Netlify (`plan.eastsidetribe.org`) |
+| `gather/` | New placeholder site — separate Netlify site | Netlify (`gather.eastsidetribe.org`, not created yet) |
 | `proxy/` | Cloudflare Worker holding the Superhuman Docs token server-side | Cloudflare Workers |
 | `docs/` | architecture + deployment notes | — |
-| `.github/workflows/` | auto-deploy web→Pages, proxy→Workers | — |
+| `.github/workflows/` | proxy→Workers auto-deploy (web→Netlify deploys via Netlify's own git integration, not a workflow) | — |
 
 ## Current status
 
@@ -35,7 +36,7 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
   CORS allowlist includes `localhost:8080`, so **reads work locally**. Sign-in and
   writes locally also need `localhost` added to the **Firebase authorized
   domains** (Authentication → Settings, one-time).
-- **LIVE at `plan.eastsidetribe.org`** (GitHub Pages). Phase 1 + Phase 2 **Plans
+- **LIVE at `plan.eastsidetribe.org`** (Netlify). Phase 1 + Phase 2 **Plans
   1, 2a & 2b-i shipped** (Aug 2026): leaders **sign in via Firebase (Google +
   email magic-link)** and create/edit/approve planning events that persist to
   `EST Planning Events SRC`, with server-verified identity + role gating and
@@ -83,12 +84,14 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
    shape and converts Coda rows via `planningRowToEvent` / `eventToCodaCells`
    inside `CodaSource` (the single data source; the in-memory mock was removed).
    **The UI reads only normalized events — it must not learn the Coda row shape.**
-5. **Deploy standalone, keep DNS at Hover.** The app ships to GitHub Pages at
-   `plan.eastsidetribe.org` via a single `plan CNAME mrbadduck.github.io` record.
-   `eastsidetribe.org` also carries the Strikingly marketing site (apex/`www`) and
-   **Google Workspace email** (`MX`, DKIM) — so we **never move nameservers**;
-   adding a subdomain record can't disturb those. This is exactly why Cloudflare
-   Access (which needs the whole zone on Cloudflare) was rejected.
+5. **Deploy standalone, keep DNS at Hover.** The app ships to Netlify at
+   `plan.eastsidetribe.org` via a `plan CNAME <site>.netlify.app` record (plus a
+   one-time `subdomain-owner-verification` TXT for domain ownership; Netlify then
+   auto-provisions the cert). `eastsidetribe.org` also carries the Strikingly
+   marketing site (apex/`www`) and **Google Workspace email** (`MX`, DKIM) — so we
+   **never move nameservers**; adding/editing a subdomain record can't disturb
+   those. This is exactly why Cloudflare Access (which needs the whole zone on
+   Cloudflare) was rejected.
 6. **Auth is phased.** Phase 1: read-only proxy + CORS lock — no user login, near
    zero code, enough to confirm the flow. Phase 2 (before create/edit/approve go
    live): in-app **Firebase Authentication** (Google provider + email
@@ -194,7 +197,7 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 ## Next steps (priority order)
 
 **Phase 1 — stand up the spine (deploy + read-only) — ✅ DONE (Aug 2026).**
-App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
+App live at `plan.eastsidetribe.org` (Netlify) → Worker
 `est-planning-proxy.eastsidetribe.workers.dev` (read-only) → Coda. See
 `docs/deployment.md`.
 
@@ -254,7 +257,10 @@ App live at `plan.eastsidetribe.org` (GitHub Pages) → Worker
   (deferred — "design the table first"; see `docs/phase2-planning-table.md`).
 
 Resolved (Aug 2026): standalone hosting on **GitHub Pages** at
-`plan.eastsidetribe.org` (not Cloudflare Pages/Access — keeps DNS at Hover); auth
+`plan.eastsidetribe.org` (not Cloudflare Pages/Access — keeps DNS at Hover); moved
+to **Netlify** in the same standalone posture (two static sites, one repo — `web/`
+→ `plan.eastsidetribe.org`, `gather/` → `gather.eastsidetribe.org`) without
+disturbing that DNS-at-Hover decision. Auth
 is **phased** (read-only + CORS now, Firebase sign-in + allowlist for writes);
 planning rows live in a **new table** `EST Planning Events SRC` (not a status
 field on `EST Events SRC`) — the app originates events, inverting the flow.
