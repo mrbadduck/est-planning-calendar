@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { slotRemaining, validateClaimInput, projectEventForMember } from '../src/gather.js';
+import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from '../src/coda-columns.js';
 
 test('slotRemaining subtracts filled qty, never negative', () => {
   assert.equal(slotRemaining(3, [{ qty: 1 }, { qty: 1 }]), 1);
@@ -19,15 +20,20 @@ test('validateClaimInput requires slot, defaults + clamps qty, trims strings', (
 
 test('projectEventForMember returns only public fields', () => {
   const row = { id: 'i-ev', values: {
-    Title: 'Potluck', Scheduling: 'Exact', Date: '2026-09-01', 'Public summary': 'Come eat',
-    'Public description': 'Bring a dish', Venue: 'JCC', 'Eventbrite URL': 'https://eventbrite/e/1',
+    [PLANNING_COLS.title]: 'Potluck', [PLANNING_COLS.scheduling]: 'Exact', [PLANNING_COLS.date]: '2026-09-01',
+    [PLANNING_COLS.publicSummary]: 'Come eat', [PLANNING_COLS.publicDescription]: 'Bring a dish',
+    [PLANNING_COLS.venue]: 'JCC', [PLANNING_COLS.eventbriteUrl]: 'https://eventbrite/e/1',
     // internal fields that must NOT leak:
-    'Planning Notes': 'SECRETNOTES', 'Event Description': 'INTERNALCOPY', 'Created by': 'Someone',
-    'Approved by': 'Council', 'Publish status': 'ok',
+    'c-spB8boMm3y': 'SECRETNOTES', // Planning Notes
+    'c-ZJO5Ge_PyI': 'INTERNALCOPY', // Event Description
+    'c-ueS3RrH9ie': 'Someone', // Created by
+    'c-FLp0tKwJg6': 'Council', // Approved by
   } };
-  const slots = [{ id: 'i-s1', values: { Label: 'Dessert', Kind: 'Potluck', 'Needed qty': 3, 'Sort order': 2 } },
-                 { id: 'i-s2', values: { Label: 'Setup', Kind: 'Volunteer', 'Needed qty': 2, 'Sort order': 1 } }];
-  const claimsBySlot = { 'i-s1': [{ values: { Member: 'Leah', 'Contribution detail': 'kugel', Qty: 1 } }] };
+  const slots = [
+    { id: 'i-s1', values: { [SLOT_COLS.label]: 'Dessert', [SLOT_COLS.kind]: 'Potluck', [SLOT_COLS.neededQty]: 3, [SLOT_COLS.sortOrder]: 2 } },
+    { id: 'i-s2', values: { [SLOT_COLS.label]: 'Setup', [SLOT_COLS.kind]: 'Volunteer', [SLOT_COLS.neededQty]: 2, [SLOT_COLS.sortOrder]: 1 } },
+  ];
+  const claimsBySlot = { 'i-s1': [{ values: { [CLAIM_COLS.member]: 'Leah', [CLAIM_COLS.contributionDetail]: 'kugel', [CLAIM_COLS.qty]: 1 } }] };
   const proj = projectEventForMember(row, slots, claimsBySlot, 'Leah', { includeClaimants: true });
 
   assert.equal(proj.title, 'Potluck');
@@ -43,15 +49,15 @@ test('projectEventForMember returns only public fields', () => {
 
   // SECURITY: no internal field content anywhere in the output.
   const blob = JSON.stringify(proj);
-  for (const leak of ['SECRETNOTES', 'INTERNALCOPY', 'Someone', 'Council', 'Publish status', 'Planning Notes']) {
+  for (const leak of ['SECRETNOTES', 'INTERNALCOPY', 'Someone', 'Council']) {
     assert.ok(!blob.includes(leak), `leaked internal field: ${leak}`);
   }
 });
 
 test('projectEventForMember omits claimants unless requested (list view)', () => {
-  const row = { id: 'i-ev', values: { Title: 'X' } };
-  const slots = [{ id: 'i-s1', values: { Label: 'Dessert', 'Needed qty': 1, 'Sort order': 1 } }];
-  const claimsBySlot = { 'i-s1': [{ values: { Member: 'Leah', Qty: 1 } }] };
+  const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'X' } };
+  const slots = [{ id: 'i-s1', values: { [SLOT_COLS.label]: 'Dessert', [SLOT_COLS.neededQty]: 1, [SLOT_COLS.sortOrder]: 1 } }];
+  const claimsBySlot = { 'i-s1': [{ values: { [CLAIM_COLS.member]: 'Leah', [CLAIM_COLS.qty]: 1 } }] };
   const proj = projectEventForMember(row, slots, claimsBySlot, 'Dana');   // caller Dana, not the claimant
   assert.equal(proj.slots[0].mineClaimed, false);
   assert.equal(proj.slots[0].remaining, 0);

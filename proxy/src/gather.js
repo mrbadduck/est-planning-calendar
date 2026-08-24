@@ -1,5 +1,7 @@
 // Pure helpers for the gather (member sign-ups) backend. No I/O — unit-tested.
 
+import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';
+
 // How many claims a slot still wants. Never negative; oversubscription clamps to 0.
 export function slotRemaining(neededQty, claims) {
   const filled = (claims || []).reduce((s, c) => s + (Number(c && c.qty) || 0), 0);
@@ -30,33 +32,33 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
   const v = (row && row.values) || {};
   return {
     id: row && row.id,
-    title: v['Title'] || '',
-    scheduling: v['Scheduling'] || null,
-    date: v['Date'] || null,
-    start: v['Start'] || null,
-    end: v['End'] || null,
-    allDay: v['All day'] === true || v['All day'] === 'true',
-    windowStart: v['Window start'] || null,
-    windowEnd: v['Window end'] || null,
-    summary: v['Public summary'] || '',
-    description: v['Public description'] || '',
-    location: v['Venue'] || v['Venue (other)'] || '',      // coarse: venue name/other, no street address
-    eventbriteUrl: v['Eventbrite URL'] || '',
+    title: v[PLANNING_COLS.title] || '',
+    scheduling: v[PLANNING_COLS.scheduling] || null,
+    date: v[PLANNING_COLS.date] || null,
+    start: v[PLANNING_COLS.start] || null,
+    end: v[PLANNING_COLS.end] || null,
+    allDay: v[PLANNING_COLS.allDay] === true || v[PLANNING_COLS.allDay] === 'true',
+    windowStart: v[PLANNING_COLS.windowStart] || null,
+    windowEnd: v[PLANNING_COLS.windowEnd] || null,
+    summary: v[PLANNING_COLS.publicSummary] || '',
+    description: v[PLANNING_COLS.publicDescription] || '',
+    location: v[PLANNING_COLS.venue] || v[PLANNING_COLS.venueOther] || '',      // coarse: venue name/other, no street address
+    eventbriteUrl: v[PLANNING_COLS.eventbriteUrl] || '',
     slots: (slots || []).map((s) => {
       const sv = (s && s.values) || {};
       const claimRows = (claimsBySlot && claimsBySlot[s.id]) || [];
       const claims = claimRows.map((c) => ({
-        name: (c.values && c.values['Member']) || '',
-        contribution: (c.values && c.values['Contribution detail']) || '',
-        qty: Number(c.values && c.values['Qty']) || 1,
+        name: (c.values && c.values[CLAIM_COLS.member]) || '',
+        contribution: (c.values && c.values[CLAIM_COLS.contributionDetail]) || '',
+        qty: Number(c.values && c.values[CLAIM_COLS.qty]) || 1,
       }));
       const slotObj = {
         id: s.id,
-        kind: sv['Kind'] || null,
-        label: sv['Label'] || '',
-        neededQty: Number(sv['Needed qty']) || 0,
-        sortOrder: Number(sv['Sort order']) || 0,
-        remaining: slotRemaining(sv['Needed qty'], claims),
+        kind: sv[SLOT_COLS.kind] || null,
+        label: sv[SLOT_COLS.label] || '',
+        neededQty: Number(sv[SLOT_COLS.neededQty]) || 0,
+        sortOrder: Number(sv[SLOT_COLS.sortOrder]) || 0,
+        remaining: slotRemaining(sv[SLOT_COLS.neededQty], claims),
         mineClaimed: !!callerName && claims.some((c) => c.name === callerName),
       };
       if (opts.includeClaimants) slotObj.claims = claims;   // detail view only
