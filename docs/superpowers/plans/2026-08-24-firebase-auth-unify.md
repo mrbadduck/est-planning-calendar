@@ -293,10 +293,10 @@ import {
 
 // Public config (safe to commit) — from Firebase console (Task 0).
 const firebaseConfig = {
-  apiKey: 'REPLACE',                                   // from the Web-app registration (Task 0 Step 2)
+  apiKey: 'AIzaSyDPxvSqK7Rnj6x2W7Nemo5pR4ymZPWJOqY',   // public by design (Firebase web key)
   authDomain: 'est-planning-calendar.firebaseapp.com',
   projectId: 'est-planning-calendar',
-  appId: 'REPLACE',                                    // from the Web-app registration (Task 0 Step 2)
+  appId: '1:463482291986:web:a3a220412fbc7ff78c55cb',
 };
 
 const app = initializeApp(firebaseConfig);
