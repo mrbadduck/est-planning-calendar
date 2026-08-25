@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["-y", "live-server", "web", "--port=8080", "--no-browser", "--wait=120"],
       "port": 8080
+    },
+    {
+      "name": "gather",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "live-server", "gather", "--port=8081", "--no-browser", "--wait=120"],
+      "port": 8081
     }
   ]
 }

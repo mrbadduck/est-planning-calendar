@@ -2,6 +2,115 @@
 
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';
 
+// --- Coda relation-cell coercion -------------------------------------------
+// A relation cell reads back one of two ways depending on valueFormat:
+//   simpleWithArrays -> a display-name string (or array of them)
+//   rich (default)   -> a { rowId, name, ... } row-reference object (or array)
+// relName extracts the first DISPLAY NAME (cosmetic use), relId the first ROW ID
+// (grouping + the security-critical ownership check). relId returns null for a
+// name-only cell so an id comparison can never silently pass on a display name.
+export function relName(cell) {
+  const first = Array.isArray(cell) ? cell[0] : cell;
+  if (first && typeof first === 'object') return first.name || '';
+  return first == null ? '' : String(first);
+}
+export function relId(cell) {
+  const first = Array.isArray(cell) ? cell[0] : cell;
+  if (first && typeof first === 'object') return first.rowId || first.id || null;
+  return null;
+}
+// Coerce any cell (rich object, array, or primitive) to a plain scalar. Rich reads
+// can wrap even non-relation values ({ name } for selects, { value } for some
+// formats); this unwraps them so the projection sees primitives. Arrays -> first.
+export function plain(cell) {
+  const f = Array.isArray(cell) ? cell[0] : cell;
+  if (f && typeof f === 'object') return f.name !== undefined ? f.name : (f.value !== undefined ? f.value : '');
+  return f == null ? '' : f;
+}
+
+// --- People find-or-create (open signup) -----------------------------------
+// Split a display name: first = first token, last = the rest.
+export function splitName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { first: '', last: '' };
+  return { first: parts[0], last: parts.slice(1).join(' ') };
+}
+
+// Find the People row whose All Emails contains `email` (lowercased). rows are
+// id-keyed (byId read); returns the row or null.
+export function findPersonByEmail(rows, email, cols) {
+  const want = String(email || '').toLowerCase();
+  if (!want) return null;
+  return (rows || []).find((r) => {
+    const em = r && r.values && r.values[cols.allEmails];
+    const list = (em == null || em === '') ? [] : (Array.isArray(em) ? em : [em]);
+    return list.some((x) => String(x).toLowerCase() === want);
+  }) || null;
+}
+
+// Cells to create a self-onboarded People row. Email is the writable manual-input
+// column (All Emails is a formula that combines it, so future matches then work).
+// The Notes marker is how admins spot auto-created rows (no dedicated Source col).
+export function personCreateCells(email, name, cols, todayISO) {
+  const { first, last } = splitName(name);
+  const full = String(name || '').trim() || String(email || '');
+  return [
+    { column: cols.fullName, value: full },
+    { column: cols.firstName, value: first },
+    { column: cols.lastName, value: last },
+    { column: cols.emailManual, value: String(email || '').toLowerCase() },
+    { column: cols.notes, value: `Self-onboarded via gather ${String(todayISO || '').slice(0, 10)}` },
+  ];
+}
+
+// --- Claims ------------------------------------------------------------------
+// Cells to insert a claim. Relations (slot, member) are written as ROW IDS.
+// `input` is the output of validateClaimInput; `memberId` is the caller's person id.
+export function claimCreateCells(input, memberId, cols) {
+  const cells = [
+    { column: cols.slot, value: [input.slot] },
+    { column: cols.member, value: [memberId] },
+    { column: cols.qty, value: input.qty },
+  ];
+  if (input.contributionDetail) cells.push({ column: cols.contributionDetail, value: input.contributionDetail });
+  if (input.notes) cells.push({ column: cols.notes, value: input.notes });
+  return cells;
+}
+
+// SECURITY: the person id that owns a claim row. The row MUST have been read rich
+// (relations as objects) so this compares ids, never spoofable display names.
+export function claimOwnerId(claimRow, cols) {
+  return relId(claimRow && claimRow.values && claimRow.values[cols.member]);
+}
+
+// --- Slots (lead builder) ----------------------------------------------------
+// Cells to create/update a slot. On create pass { withEvent:true } to write the
+// Event relation (row id); update omits it. Only provided fields are written.
+export function slotCells(input, cols, opts = {}) {
+  const b = input || {};
+  const cells = [];
+  if (opts.withEvent && b.event) cells.push({ column: cols.event, value: [b.event] });
+  if (b.kind != null) cells.push({ column: cols.kind, value: b.kind });
+  if (b.label != null) cells.push({ column: cols.label, value: String(b.label) });
+  if (b.neededQty != null) cells.push({ column: cols.neededQty, value: Number(b.neededQty) || 0 });
+  if (b.sortOrder != null) cells.push({ column: cols.sortOrder, value: Number(b.sortOrder) || 0 });
+  return cells;
+}
+
+// --- Published + upcoming filter for the member home list --------------------
+// A planning row (id-keyed values) is visible to members when Published? is true
+// AND its effective date is today or later. Effective date = exact Date, else the
+// range window end/start, else the Month date. Undated published rows are kept
+// (shown) rather than hidden. `todayISO` = 'YYYY-MM-DD'.
+export function isPublishedUpcoming(row, cols, todayISO) {
+  const v = (row && row.values) || {};
+  const pub = plain(v[cols.published]);
+  if (!(pub === true || pub === 'true')) return false;
+  const eff = plain(v[cols.date]) || plain(v[cols.windowEnd]) || plain(v[cols.windowStart]) || null;
+  if (!eff) return true;                          // published but undated -> show
+  return String(eff).slice(0, 10) >= String(todayISO).slice(0, 10);
+}
+
 // How many claims a slot still wants. Never negative; oversubscription clamps to 0.
 export function slotRemaining(neededQty, claims) {
   const filled = (claims || []).reduce((s, c) => s + (Number(c && c.qty) || 0), 0);
@@ -27,39 +136,53 @@ export function validateClaimInput(body) {
 // allowlist: only these fields ever leave the Worker to a member. Internal fields
 // (Planning Notes, Event Description, attribution, publish internals, etc.) must
 // NEVER appear. `slots` = the event's slot rows; `claimsBySlot` maps slotId ->
-// array of that slot's claim rows; `callerName` drives `mineClaimed`.
+// array of that slot's claim rows; `callerName` (+ opts.callerId, preferred when
+// present) drives `mineClaimed`. In the detail view (includeClaimants) each claim
+// carries `mine`, and the caller's OWN claim also carries its `claimId` (safe to
+// expose — it's the member's own row — and needed for unclaim).
 export function projectEventForMember(row, slots, claimsBySlot, callerName, opts = {}) {
+  const callerId = opts.callerId || null;
   const v = (row && row.values) || {};
+  const ad = plain(v[PLANNING_COLS.allDay]);
   return {
     id: row && row.id,
-    title: v[PLANNING_COLS.title] || '',
-    scheduling: v[PLANNING_COLS.scheduling] || null,
-    date: v[PLANNING_COLS.date] || null,
-    start: v[PLANNING_COLS.start] || null,
-    end: v[PLANNING_COLS.end] || null,
-    allDay: v[PLANNING_COLS.allDay] === true || v[PLANNING_COLS.allDay] === 'true',
-    windowStart: v[PLANNING_COLS.windowStart] || null,
-    windowEnd: v[PLANNING_COLS.windowEnd] || null,
-    summary: v[PLANNING_COLS.publicSummary] || '',
-    description: v[PLANNING_COLS.publicDescription] || '',
-    location: v[PLANNING_COLS.venue] || v[PLANNING_COLS.venueOther] || '',      // coarse: venue name/other, no street address
-    eventbriteUrl: v[PLANNING_COLS.eventbriteUrl] || '',
+    title: plain(v[PLANNING_COLS.title]) || '',
+    scheduling: plain(v[PLANNING_COLS.scheduling]) || null,
+    date: plain(v[PLANNING_COLS.date]) || null,
+    start: plain(v[PLANNING_COLS.start]) || null,
+    end: plain(v[PLANNING_COLS.end]) || null,
+    allDay: ad === true || ad === 'true',
+    windowStart: plain(v[PLANNING_COLS.windowStart]) || null,
+    windowEnd: plain(v[PLANNING_COLS.windowEnd]) || null,
+    summary: plain(v[PLANNING_COLS.publicSummary]) || '',
+    description: plain(v[PLANNING_COLS.publicDescription]) || '',
+    location: relName(v[PLANNING_COLS.venue]) || relName(v[PLANNING_COLS.venueOther]) || '',   // coarse: venue name/other, no street address
+    eventbriteUrl: plain(v[PLANNING_COLS.eventbriteUrl]) || '',
     slots: (slots || []).map((s) => {
       const sv = (s && s.values) || {};
       const claimRows = (claimsBySlot && claimsBySlot[s.id]) || [];
-      const claims = claimRows.map((c) => ({
-        name: (c.values && c.values[CLAIM_COLS.member]) || '',
-        contribution: (c.values && c.values[CLAIM_COLS.contributionDetail]) || '',
-        qty: Number(c.values && c.values[CLAIM_COLS.qty]) || 1,
-      }));
+      const claims = claimRows.map((c) => {
+        const name = relName(c.values && c.values[CLAIM_COLS.member]);   // name-string OR rich {name}
+        const mine = (callerId && relId(c.values && c.values[CLAIM_COLS.member]) === callerId)
+          || (!callerId && !!callerName && name === callerName);
+        const o = {
+          name,
+          contribution: plain(c.values && c.values[CLAIM_COLS.contributionDetail]) || '',
+          qty: Number(plain(c.values && c.values[CLAIM_COLS.qty])) || 1,
+          mine,
+        };
+        if (mine && c && c.id) o.claimId = c.id;   // only the caller's own claim id is ever exposed
+        return o;
+      });
+      const needed = Number(plain(sv[SLOT_COLS.neededQty])) || 0;
       const slotObj = {
         id: s.id,
-        kind: sv[SLOT_COLS.kind] || null,
-        label: sv[SLOT_COLS.label] || '',
-        neededQty: Number(sv[SLOT_COLS.neededQty]) || 0,
-        sortOrder: Number(sv[SLOT_COLS.sortOrder]) || 0,
-        remaining: slotRemaining(sv[SLOT_COLS.neededQty], claims),
-        mineClaimed: !!callerName && claims.some((c) => c.name === callerName),
+        kind: plain(sv[SLOT_COLS.kind]) || null,
+        label: plain(sv[SLOT_COLS.label]) || '',
+        neededQty: needed,
+        sortOrder: Number(plain(sv[SLOT_COLS.sortOrder])) || 0,
+        remaining: slotRemaining(needed, claims),
+        mineClaimed: claims.some((c) => c.mine),
       };
       if (opts.includeClaimants) slotObj.claims = claims;   // detail view only
       return slotObj;

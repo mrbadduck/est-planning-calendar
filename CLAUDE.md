@@ -22,7 +22,8 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 |------|------|-----------|
 | `web/index.html` | The calendar app — self-contained, vanilla JS, **no build step** | Netlify (`plan.eastsidetribe.org`) |
 | `web/embed-test/index.html` | "Did JS run in the embed?" validator — **deferred** (standalone is the current path) | Netlify (`plan.eastsidetribe.org`) |
-| `gather/` | New placeholder site — separate Netlify site | Netlify (`gather.eastsidetribe.org`, not created yet) |
+| `gather/` | Member sign-up app (potluck/volunteer slots) — buildless, mobile-first — **code-complete, all 5 slices** (Aug 2026) | Netlify (`gather.eastsidetribe.org`, site not created yet — see `docs/gather-deploy-runbook.md`) |
+| `shared/` | Canonical browser code both apps use (`auth-firebase.js`); committed mirrors in `web/`+`gather/`, drift guard `scripts/sync-shared.sh --check` | (mirrored into each site) |
 | `proxy/` | Cloudflare Worker holding the Superhuman Docs token server-side | Cloudflare Workers |
 | `docs/` | architecture + deployment notes | — |
 | `.github/workflows/` | proxy→Workers auto-deploy (web→Netlify deploys via Netlify's own git integration, not a workflow) | — |

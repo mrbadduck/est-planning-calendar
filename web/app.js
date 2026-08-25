@@ -356,6 +356,11 @@ const CodaSource = {
   async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
   async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
   async voteFeedback(id){ const r=await fetch(`${this.base}/feedback/${encodeURIComponent(id)}/vote`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||'vote failed'); e.status=r.status; throw e; } return j; },
+  // gather sign-up slots (lead-authored; members fill them in the gather app)
+  async listSlots(eventId){ const r=await fetch(`${this.base}/slots?event=${encodeURIComponent(eventId)}`,{headers:this._wh()}); if(!r.ok) await this._fail(r); return (await r.json()).items||[]; },
+  async createSlot(body){ const r=await fetch(`${this.base}/slots`,{method:'POST',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return (await r.json().catch(()=>({}))); },
+  async updateSlot(id, body){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return true; },
+  async removeSlot(id){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); return true; },
 };
 
 // The live proxy is the only data source. Reads are unauthenticated (CORS-gated,
@@ -637,7 +642,7 @@ const SECTIONS = [
   { id:'publish',  label:'Publish',  live:true },
   { id:'budget',    label:'Budget & expenses',   live:false },
   { id:'comms',     label:'Comms',               live:false },
-  { id:'volunteers',label:'Volunteers & potluck', live:false },
+  { id:'volunteers',label:'Volunteers & potluck', live:true },
   { id:'attendance',label:'Attendance',          live:false },
   { id:'feedback',  label:'Feedback',            live:false },
 ];
@@ -983,6 +988,7 @@ function renderSection(id, ev, canEdit, locked, canApprove){
   const sec=SECTIONS.find(s=>s.id===id);
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='publish'){ panel.innerHTML=renderPublish(ev, canEdit, locked); wirePublish(panel, ev, canEdit, locked); return; }
+  if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   panel.innerHTML=renderPlanning(ev, canEdit, locked, canApprove); wirePlanning(panel, ev, canEdit, locked, canApprove);
 }
 
@@ -1105,6 +1111,88 @@ function wirePublish(panel, ev, canEdit, locked){
 
 function comingSoonHTML(sec){
   return `<div class="soon-teaser"><div class="soon-h">${esc(sec.label)} — coming soon</div><div class="hint">On our roadmap. Tell us what you'd want here, or +1 an idea below.</div>${typeof feedbackBoardHTML==='function'?feedbackBoardHTML(sec.id):''}</div>`;
+}
+
+/* ---- Volunteers & potluck: the gather slot builder ------------------------
+   Leads author sign-up slots (Potluck dishes / Volunteer roles) on a SAVED event;
+   members fill them in the gather app. Slots persist to EST Slots SRC via the
+   lead-gated /slots routes. Read-only for non-writers; needs a Coda row id. */
+function renderSlots(ev, canEdit){
+  if(!ev.id) return `<div class="slots-wrap"><div class="soon-teaser"><div class="soon-h">Volunteers & potluck</div><div class="hint">Save the event first, then add sign-up slots here.</div></div></div>`;
+  return `<div class="slots-wrap" id="f_slots">
+      <p class="hint">Add potluck dishes or volunteer roles. These go live to members in <b>gather</b> once the event is published.</p>
+      <div class="slots-list" aria-live="polite"><div class="hint">Loading slots…</div></div>
+      ${canEdit ? `<form class="slot-add" autocomplete="off">
+        <div class="whenseg" id="f_slotkind">
+          <button type="button" data-kind="Potluck" aria-pressed="true">Potluck</button>
+          <button type="button" data-kind="Volunteer" aria-pressed="false">Volunteer</button>
+        </div>
+        <div class="slot-add-row">
+          <input class="slot-label" type="text" placeholder="e.g. Dessert, Setup 5–6pm" maxlength="80" required>
+          <input class="slot-qty" type="number" min="1" max="99" value="1" title="How many needed" aria-label="How many needed">
+          <button class="btn sm primary" type="submit">Add</button>
+        </div>
+      </form>` : `<p class="hint">Only program leads can edit slots.</p>`}
+    </div>`;
+}
+async function wireSlots(panel, ev, canEdit){
+  const wrap=panel.querySelector('#f_slots'); if(!wrap) return;
+  const list=wrap.querySelector('.slots-list'); if(!list) return;   // save-first teaser has no list
+  let slots=[];
+  const paint=()=>{
+    if(!slots.length){ list.innerHTML=`<div class="hint">No slots yet.${canEdit?' Add one below.':''}</div>`; return; }
+    list.innerHTML=slots.map((s,i)=>`
+      <div class="slot-item" data-id="${esc(s.id)}">
+        <span class="slot-kind ${s.kind==='Volunteer'?'vol':'pot'}">${esc(s.kind||'')}</span>
+        <span class="slot-name">${esc(s.label||'')}</span>
+        <span class="slot-need">×${s.neededQty||1}</span>
+        ${canEdit?`<span class="slot-ctl">
+          <button type="button" class="iconbtn" data-move="-1" ${i===0?'disabled':''} title="Move up" aria-label="Move up">↑</button>
+          <button type="button" class="iconbtn" data-move="1" ${i===slots.length-1?'disabled':''} title="Move down" aria-label="Move down">↓</button>
+          <button type="button" class="iconbtn del" data-del title="Remove" aria-label="Remove">×</button>
+        </span>`:''}
+      </div>`).join('');
+  };
+  const load=async()=>{
+    try{ slots=await DB.listSlots(ev.id); slots.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); }
+    catch(err){ list.innerHTML=`<div class="hint err">Couldn't load slots: ${esc(err.message||'')}</div>`; return; }
+    paint();
+  };
+  const form=wrap.querySelector('.slot-add');
+  if(form && canEdit){
+    let kind='Potluck';
+    const kseg=form.querySelector('#f_slotkind');
+    kseg.addEventListener('click', e=>{ const b=e.target.closest('button[data-kind]'); if(!b) return; kind=b.dataset.kind; [...kseg.children].forEach(x=>x.setAttribute('aria-pressed', String(x===b))); });
+    form.addEventListener('submit', async e=>{
+      e.preventDefault();
+      const labEl=form.querySelector('.slot-label'), qtyEl=form.querySelector('.slot-qty');
+      const label=labEl.value.trim(); if(!label) return;
+      const neededQty=Math.max(1, Math.min(99, parseInt(qtyEl.value,10)||1));
+      const sortOrder=(slots.length?Math.max(...slots.map(s=>s.sortOrder||0)):0)+1;
+      const btn=form.querySelector('button[type=submit]'); btn.disabled=true;
+      try{ await DB.createSlot({event:ev.id, kind, label, neededQty, sortOrder}); labEl.value=''; qtyEl.value='1'; await load(); labEl.focus(); }
+      catch(err){ toast(err.message||'Could not add slot','err'); }
+      finally{ btn.disabled=false; }
+    });
+  }
+  if(canEdit) list.addEventListener('click', async e=>{
+    const row=e.target.closest('.slot-item'); if(!row) return; const id=row.dataset.id;
+    if(e.target.closest('[data-del]')){
+      row.style.opacity='.5';
+      try{ await DB.removeSlot(id); await load(); }catch(err){ toast(err.message||'Could not remove','err'); row.style.opacity=''; }
+      return;
+    }
+    const mv=e.target.closest('[data-move]');
+    if(mv){
+      const dir=parseInt(mv.dataset.move,10), i=slots.findIndex(s=>s.id===id), j=i+dir;
+      if(i<0||j<0||j>=slots.length) return;
+      const a=slots[i], b=slots[j], ao=a.sortOrder||0, bo=b.sortOrder||0;
+      mv.disabled=true;
+      try{ await DB.updateSlot(a.id,{sortOrder:bo}); await DB.updateSlot(b.id,{sortOrder:ao}); await load(); }
+      catch(err){ toast(err.message||'Could not reorder','err'); mv.disabled=false; }
+    }
+  });
+  load();
 }
 
 function feedbackBoardHTML(context){

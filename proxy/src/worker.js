@@ -26,8 +26,12 @@
  */
 import { parseVEvents } from './ical.js';
 import { eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion } from './eventbrite.js';
-import { verifyFirebaseIdToken } from './auth.js';
-import { PEOPLE_COLS } from './coda-columns.js';   // stable column ids for the auth (People) read
+import { verifyFirebaseIdToken, verifyFirebaseToken } from './auth.js';
+import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
+import {
+  projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
+  claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, relId, plain,
+} from './gather.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -160,7 +164,7 @@ export default {
         REFERENCES_CACHE = { data, exp: Date.now() + 3600_000 };
         return json(data, 200, cors);
       }
-      if (parts[0] === 'me' && request.method === 'GET') {
+      if (parts[0] === 'me' && parts.length === 1 && request.method === 'GET') {
         let id = null;
         try { id = await authIdentity(request, env, base, docId, auth); }
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
@@ -413,6 +417,137 @@ export default {
         const btnUrl = `${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}/buttons/${encodeURIComponent(buttonId)}`;
         return pass(await fetch(btnUrl, { method: 'POST', headers: auth }), cors);
       }
+
+      // ===== gather (member sign-ups) routes =====================================
+      // All require a verified Firebase member token (any signed-in person — no
+      // leadership role needed). Reads are member-projected (public fields only).
+      const gatherTablesOk = env.CODA_SLOTS_TABLE && env.CODA_CLAIMS_TABLE;
+
+      if (parts[0] === 'member' && parts[1] === 'me' && parts.length === 2 && request.method === 'GET') {
+        // Verify token; find-or-create the member's People row; return { id, name }.
+        let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!who) return json({ error: 'sign in' }, 401, cors);
+        if (env.ALLOW_WRITES !== 'true') {
+          const m = await resolveMember(who, base, docId, auth);   // can't create with writes off
+          return json({ id: m.personId, name: m.name, created: false }, 200, cors);
+        }
+        const p = await findOrCreatePerson(who, env, base, docId, auth);
+        return json({ id: p.personId, name: p.name, created: p.created }, 200, cors);
+      }
+
+      if (parts[0] === 'events' && parts.length === 1 && request.method === 'GET') {
+        // Home list: published + upcoming events, member-projected, with slot
+        // remaining/mineClaimed. No claimant names in the list view.
+        if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
+        let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!who) return json({ error: 'sign in' }, 401, cors);
+        const m = await resolveMember(who, base, docId, auth);
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, {});
+        if (res.error) return pass(res.error, cors);
+        return json({ items: res.items }, 200, cors);
+      }
+
+      if (parts[0] === 'events' && parts[1] && parts.length === 2 && request.method === 'GET') {
+        // Event detail: one event + slots + claimant names ("what's coming").
+        if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
+        let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!who) return json({ error: 'sign in' }, 401, cors);
+        const m = await resolveMember(who, base, docId, auth);
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true });
+        if (res.error) return pass(res.error, cors);
+        if (!res.items.length) return json({ error: 'not found' }, 404, cors);
+        return json(res.items[0], 200, cors);
+      }
+
+      if (parts[0] === 'me' && parts[1] === 'claims' && parts.length === 2 && request.method === 'GET') {
+        // The caller's own claims across all events (My sign-ups).
+        if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
+        let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!who) return json({ error: 'sign in' }, 401, cors);
+        const m = await resolveMember(who, base, docId, auth);
+        if (!m.personId) return json({ items: [] }, 200, cors);
+        const items = await buildMyClaims(base, docId, tableId, env, auth, m.personId);
+        return json({ items }, 200, cors);
+      }
+
+      if (parts[0] === 'claims' && parts.length === 1 && request.method === 'POST') {
+        // Claim a slot. Attribution (Member) is the caller's own person id, derived
+        // server-side — never trusted from the client.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
+        let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!who) return json({ error: 'sign in' }, 401, cors);
+        let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
+        let input; try { input = validateClaimInput(body); } catch (e) { return json({ error: String((e && e.message) || e) }, 400, cors); }
+        const p = await findOrCreatePerson(who, env, base, docId, auth);
+        if (!p.personId) return json({ error: 'could not resolve member' }, 500, cors);
+        const cells = claimCreateCells(input, p.personId, CLAIM_COLS);
+        const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
+        if (!r.ok) return pass(r, cors);
+        const j = await r.json();
+        return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
+      }
+
+      if (parts[0] === 'claims' && parts[1] && parts.length === 2 && request.method === 'DELETE') {
+        // Unclaim — OWN claims only. Ownership is checked by Member ROW ID (read the
+        // claim rich so the relation is a { rowId } object), never by display name.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
+        let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!who) return json({ error: 'sign in' }, 401, cors);
+        const m = await resolveMember(who, base, docId, auth);
+        if (!m.personId) return json({ error: 'not your claim' }, 403, cors);
+        const claimId = decodeURIComponent(parts[1]);
+        const claimsUrl = `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`;
+        const one = await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+        if (!one.ok) return json({ error: 'not found' }, 404, cors);
+        const owner = claimOwnerId(await one.json(), CLAIM_COLS);
+        if (!owner || owner !== m.personId) return json({ error: 'not your claim' }, 403, cors);
+        return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth }), cors);
+      }
+
+      if (parts[0] === 'slots' && request.method === 'GET') {
+        // Lead-facing: read slots (optionally for one event) for the plan-app builder.
+        if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const eventId = url.searchParams.get('event');
+        const out = await readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true });
+        if (!out.ok) return pass(out.resp, cors);
+        let items = out.items.map((s) => ({
+          id: s.id, event: relId(s.values[SLOT_COLS.event]),
+          kind: plain(s.values[SLOT_COLS.kind]) || '', label: plain(s.values[SLOT_COLS.label]) || '',
+          neededQty: Number(plain(s.values[SLOT_COLS.neededQty])) || 0,
+          sortOrder: Number(plain(s.values[SLOT_COLS.sortOrder])) || 0,
+        }));
+        if (eventId) items = items.filter((s) => s.event === eventId);
+        items.sort((a, b) => a.sortOrder - b.sortOrder);
+        return json({ items }, 200, cors);
+      }
+
+      if (parts[0] === 'slots' && (request.method === 'POST' || request.method === 'PUT' || request.method === 'DELETE')) {
+        // Slot authoring — lead/council only (canWrite). Writes Slots by column id.
+        if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const slotId = parts[1] ? decodeURIComponent(parts[1]) : null;
+        const slotsUrl = `${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`;
+        if (request.method === 'DELETE' && slotId)
+          return pass(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'DELETE', headers: auth }), cors);
+        let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
+        if (request.method === 'POST' && !slotId) {
+          if (!body.event) return json({ error: 'event required' }, 400, cors);
+          const r = await fetch(slotsUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }) });
+          if (!r.ok) return pass(r, cors);
+          const j = await r.json();
+          return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
+        }
+        if (request.method === 'PUT' && slotId)
+          return pass(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: slotCells(body, SLOT_COLS) } }) }), cors);
+        return json({ error: 'bad slot request' }, 400, cors);
+      }
+
       return json({ error: 'not found' }, 404, cors);
     } catch (e) {
       return json({ error: String((e && e.message) || e) }, 502, cors);
@@ -446,8 +581,10 @@ async function readAllRows(rowsUrl, auth, opts = {}) {
   let pageToken = null, pages = 0;
   do {
     const u = new URL(rowsUrl);
-    u.searchParams.set('useColumnNames', opts.byId ? 'false' : 'true');   // byId -> values keyed by stable column id (rename-proof), else by name
-    u.searchParams.set('valueFormat', 'simpleWithArrays');
+    // rich -> relations come back as { rowId, name } objects (needed for grouping +
+    // ownership by id); implies id-keyed. byId -> id-keyed, values still name-strings.
+    u.searchParams.set('useColumnNames', (opts.byId || opts.rich) ? 'false' : 'true');
+    u.searchParams.set('valueFormat', opts.rich ? 'rich' : 'simpleWithArrays');
     u.searchParams.set('limit', '200');
     if (pageToken) u.searchParams.set('pageToken', pageToken);
     const r = await fetch(u.toString(), { headers: auth });
@@ -566,6 +703,106 @@ async function authIdentity(request, env, base, docId, auth) {
   const person = await resolvePerson(email, base, docId, auth);
   if (!person) return { matched: false, email, canWrite: false, canApprove: false };
   return { matched: true, ...person };
+}
+function bustPeopleCache() { _people = null; _peopleExp = 0; }
+
+// --- gather (member) identity -------------------------------------------------
+// Members are any verified person — no leadership role required. memberAuth
+// returns { email, name } from the VERIFIED token (name may be ''), null if no
+// Bearer token, or throws on an invalid token (-> 401).
+async function memberAuth(request, env) {
+  const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+  return await verifyFirebaseToken(m[1], env.FIREBASE_PROJECT_ID);
+}
+// Resolve a verified member to their existing People row id — NO create. personId
+// is null if they've never been seen (reads still work; mineClaimed just stays off).
+async function resolveMember(who, base, docId, auth) {
+  const rows = await peopleRows(base, docId, auth);
+  const row = findPersonByEmail(rows, who.email, PEOPLE_COLS);
+  return {
+    email: who.email,
+    name: (row && row.values[PEOPLE_COLS.fullName]) || who.name || who.email,
+    personId: row ? row.id : null,
+  };
+}
+// Open signup: match the verified email, else create a self-onboarded People row.
+// Busts the People cache on create so the new row is matchable immediately after.
+async function findOrCreatePerson(who, env, base, docId, auth) {
+  const rows = await peopleRows(base, docId, auth);
+  const row = findPersonByEmail(rows, who.email, PEOPLE_COLS);
+  if (row) return { personId: row.id, name: row.values[PEOPLE_COLS.fullName] || who.name || who.email, created: false };
+  const cells = personCreateCells(who.email, who.name, PEOPLE_COLS, new Date().toISOString());
+  const table = env.CODA_PEOPLE_TABLE || PEOPLE_TABLE;
+  const r = await fetch(`${base}/docs/${docId}/tables/${table}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
+  if (!r.ok) throw new Error(`could not create member (${r.status})`);
+  const j = await r.json();
+  bustPeopleCache();
+  return { personId: (j.addedRowIds && j.addedRowIds[0]) || null, name: who.name || who.email, created: true };
+}
+
+// Build the member-visible event set: published + upcoming planning rows, each
+// projected to public fields with its slots + claims (remaining/mineClaimed).
+// opts.onlyId limits to one event; opts.includeClaimants adds claimant names.
+// Rich reads so relations come back as ids (grouping) + names (display).
+async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts = {}) {
+  const callerName = (caller && caller.name) || '';
+  const callerId = (caller && caller.personId) || null;
+  const today = new Date().toISOString().slice(0, 10);
+  const [ev, sl, cl] = await Promise.all([
+    readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true }),
+    readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
+    readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
+  ]);
+  if (!ev.ok) return { error: ev.resp };
+  const slotsByEvent = new Map();
+  for (const s of (sl.ok ? sl.items : [])) {
+    const eid = relId(s.values[SLOT_COLS.event]);
+    if (!eid) continue;
+    if (!slotsByEvent.has(eid)) slotsByEvent.set(eid, []);
+    slotsByEvent.get(eid).push(s);
+  }
+  const claimsBySlot = {};
+  for (const c of (cl.ok ? cl.items : [])) {
+    const sid = relId(c.values[CLAIM_COLS.slot]);
+    if (!sid) continue;
+    (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
+  }
+  let rows = ev.items.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, today));
+  if (opts.onlyId) rows = rows.filter((r) => r.id === opts.onlyId);
+  const items = rows.map((r) => projectEventForMember(r, slotsByEvent.get(r.id) || [], claimsBySlot, callerName, { includeClaimants: !!opts.includeClaimants, callerId }));
+  items.sort((a, b) => String(a.date || a.windowStart || '').localeCompare(String(b.date || b.windowStart || '')));
+  return { items };
+}
+
+// The caller's own claims across all events (My sign-ups). Filters claims by Member
+// ROW ID (rich read), then joins slot -> event for labels. Never name-based.
+async function buildMyClaims(base, docId, tableId, env, auth, personId) {
+  const [cl, sl, ev] = await Promise.all([
+    readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
+    readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
+    readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true }),
+  ]);
+  if (!cl.ok) return [];
+  const slotById = new Map((sl.ok ? sl.items : []).map((s) => [s.id, s]));
+  const eventById = new Map((ev.ok ? ev.items : []).map((e) => [e.id, e]));
+  return cl.items
+    .filter((c) => claimOwnerId(c, CLAIM_COLS) === personId)
+    .map((c) => {
+      const slot = slotById.get(relId(c.values[CLAIM_COLS.slot]));
+      const event = slot ? eventById.get(relId(slot.values[SLOT_COLS.event])) : null;
+      return {
+        claimId: c.id,
+        qty: Number(plain(c.values[CLAIM_COLS.qty])) || 1,
+        contribution: plain(c.values[CLAIM_COLS.contributionDetail]) || '',
+        slotLabel: slot ? (plain(slot.values[SLOT_COLS.label]) || '') : '',
+        kind: slot ? (plain(slot.values[SLOT_COLS.kind]) || '') : '',
+        eventId: event ? event.id : null,
+        eventTitle: event ? (plain(event.values[PLANNING_COLS.title]) || '') : '',
+        date: event ? (plain(event.values[PLANNING_COLS.date]) || plain(event.values[PLANNING_COLS.windowStart]) || null) : null,
+      };
+    })
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
 }
 
 // --- Eventbrite v3 I/O client -------------------------------------------------

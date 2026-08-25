@@ -1,6 +1,10 @@
 # gather build — combined Worker + client handoff
 
-Status: **handoff for a fresh session.** Date: 2026-08-24.
+Status: **BUILT (code-complete, all 5 slices) 2026-08-24 — pending infra stand-up
++ in-app validation.** Deploy/validate steps: `docs/gather-deploy-runbook.md`.
+Original handoff below.
+
+Date: 2026-08-24.
 
 **Goal:** Build the member-facing `gather` app (potluck/volunteer slot sign-ups),
 building **each Worker route together with its client consumer** so every slice is

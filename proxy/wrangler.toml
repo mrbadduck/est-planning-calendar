@@ -7,9 +7,12 @@ account_id = "c68ba18b669e519e535be065dab431f1"   # pin the account so CI wrangl
 CODA_API_BASE  = "https://coda.io/apis/v1"
 CODA_DOC_ID    = "DYAz_wCVfv"          # EST — Mission Control doc
 CODA_TABLE_ID  = "grid--gYIvdD-cE"     # EST Planning Events SRC
+CODA_SLOTS_TABLE  = "grid-hvmYYZAZYv"  # EST Slots SRC   (gather: sign-up slots per event)
+CODA_CLAIMS_TABLE = "grid-xpPt3WxUR3"  # EST Claims SRC  (gather: a member's claim on a slot)
+CODA_PEOPLE_TABLE = "grid-X316Eql8dE"  # EST People SRC  (gather find-or-create; also the auth read)
 CODA_NOTES_COL_ID = "c-gCr2zZXbdZ"     # "Notes Doc" column — resolved by id so a rename can't break the read
 CODA_NOTES_BUTTON_ID = "c-Xa89eEgVN5"   # notes-doc button ("Create Notes Doc") on EST Planning Events SRC — runs Copy file + writes the URL into the Notes Doc column
-ALLOWED_ORIGIN = "https://plan.eastsidetribe.org,http://localhost:8080,http://127.0.0.1:8080"  # first entry = canonical; localhost entries are for local dev
+ALLOWED_ORIGIN = "https://plan.eastsidetribe.org,https://gather.eastsidetribe.org,http://localhost:8080,http://127.0.0.1:8080,http://localhost:8081,http://127.0.0.1:8081"  # first entry = canonical; gather is the member app; 8080=plan / 8081=gather local dev
 ALLOW_WRITES   = "true"                 # Plan 2b: writes enabled (still require a write-authorized identity)
 FIREBASE_PROJECT_ID = "est-planning-calendar"   # Firebase project id; verified as the ID-token iss/aud
 EVENTBRITE_ORG_ID = "1080997994263"     # EST Eventbrite organization id (public)

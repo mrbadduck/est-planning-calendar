@@ -32,8 +32,10 @@ async function firebaseKeys() {
   return _jwks;
 }
 
-// Verifies signature + claims. Returns the lowercased email or throws (-> 401).
-export async function verifyFirebaseIdToken(token, projectId, now = Date.now()) {
+// Verifies signature + claims. Returns { email, name } from the VERIFIED token
+// (never trust a client-sent name), or throws (-> 401). `name` may be '' — magic-
+// link sign-ins have no display name.
+export async function verifyFirebaseToken(token, projectId, now = Date.now()) {
   const p = String(token || '').split('.');
   if (p.length !== 3) throw new Error('malformed token');
   const header = JSON.parse(new TextDecoder().decode(b64url(p[0])));
@@ -43,5 +45,11 @@ export async function verifyFirebaseIdToken(token, projectId, now = Date.now()) 
   const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
   const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64url(p[2]), new TextEncoder().encode(`${p[0]}.${p[1]}`));
   if (!ok) throw new Error('bad signature');
-  return firebaseClaims(payload, projectId, Math.floor(now / 1000));
+  const email = firebaseClaims(payload, projectId, Math.floor(now / 1000));
+  return { email, name: String(payload.name || '').trim() };
+}
+
+// Back-compat: the email-only shape the write/role path already uses.
+export async function verifyFirebaseIdToken(token, projectId, now = Date.now()) {
+  return (await verifyFirebaseToken(token, projectId, now)).email;
 }
