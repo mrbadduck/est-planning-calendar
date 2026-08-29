@@ -194,6 +194,16 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   backing, not browser storage.
 - After any JS edit, sanity-check by extracting the `<script>` and running
   `node --check` on it.
+- **The Worker caches Coda reads in KV (stale-while-revalidate).** Coda calls run
+  100s of ms with multi-second (observed 60s) tails, and per-isolate memory
+  caches evaporate on isolate recycle — so `swrGet` in `proxy/src/worker.js`
+  persists snapshots in the `CACHE` KV namespace (free tier): the **slim People
+  projection** (auth/sign-in — soft 5m/hard 30m, patched in place on member
+  create), **/rows** (soft 30s/hard 5m — busted on every planning write incl.
+  publish/cancel/notes-doc; `?fresh=1` bypasses for the notes-doc fast-poll),
+  **/ref/*** and **/references**. When adding a Worker write path that mutates
+  planning rows, bust `ROWS_KV_KEY`. Cache API is a no-op on workers.dev (no
+  Cloudflare zone — DNS stays at Hover), which is why KV.
 - **Coda `valueFormat=rich` fences text values in triple backticks** (```` ```Main dish``` ````)
   and backslash-escapes markdown punctuation. Every rich read must unwrap via
   `stripRich` in `proxy/src/gather.js` — `plain()`/`relName()` already do; never

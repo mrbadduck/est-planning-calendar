@@ -4,7 +4,7 @@ import {
   slotRemaining, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
-  isApprovedUpcoming, stripRich, plain,
+  isApprovedUpcoming, stripRich, plain, slimPeopleRows,
 } from '../src/gather.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, PEOPLE_COLS } from '../src/coda-columns.js';
 
@@ -122,6 +122,28 @@ test('findPersonByEmail matches against All Emails, case-insensitively', () => {
   assert.equal(findPersonByEmail(rows, 'LEAH2@x.com', PEOPLE_COLS).id, 'i-a');
   assert.equal(findPersonByEmail(rows, 'dana@example.org', PEOPLE_COLS).id, 'i-b');
   assert.equal(findPersonByEmail(rows, 'nobody@x.com', PEOPLE_COLS), null);
+});
+
+test('slimPeopleRows keeps only the auth/picker columns, same row shape', () => {
+  const rows = [
+    { id: 'i-a', values: {
+      [PEOPLE_COLS.fullName]: 'Leah Cohen',
+      [PEOPLE_COLS.allEmails]: ['leah@x.com'],
+      [PEOPLE_COLS.leadershipStatus]: ['Tribal Council'],
+      'c-something-huge': 'FIFTY OTHER COLUMNS OF PAYLOAD',
+    } },
+    { id: 'i-b', values: {} },   // sparse row -> safe defaults
+  ];
+  const slim = slimPeopleRows(rows, PEOPLE_COLS);
+  assert.deepEqual(slim[0], { id: 'i-a', values: {
+    [PEOPLE_COLS.fullName]: 'Leah Cohen',
+    [PEOPLE_COLS.allEmails]: ['leah@x.com'],
+    [PEOPLE_COLS.leadershipStatus]: ['Tribal Council'],
+  } });
+  assert.deepEqual(slim[1], { id: 'i-b', values: { [PEOPLE_COLS.fullName]: '', [PEOPLE_COLS.allEmails]: [], [PEOPLE_COLS.leadershipStatus]: [] } });
+  assert.ok(!JSON.stringify(slim).includes('FIFTY OTHER'));
+  // the slim shape still feeds the existing matcher unchanged
+  assert.equal(findPersonByEmail(slim, 'LEAH@x.com', PEOPLE_COLS).id, 'i-a');
 });
 
 test('personCreateCells builds a self-onboarded row (writable cols + Notes marker)', () => {
