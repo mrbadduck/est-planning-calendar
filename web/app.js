@@ -1891,15 +1891,34 @@ function updateGate(){
   if(card) card.hidden = busy;
   if(b) b.hidden = !busy;
 }
+const SUPPORT_EMAIL='eastsidetribenashville@gmail.com';
+const LINK_SENDER='noreply@est-planning-calendar.firebaseapp.com';
 function wireGate(){
   const gg=document.getElementById('gateGoogle');
-  if(gg) gg.addEventListener('click', async ()=>{ try{ await window.estAuth.signInWithGoogle(); }catch(err){ toast('Google sign-in failed','err'); } });
+  if(gg) gg.addEventListener('click', async ()=>{
+    try{ await window.estAuth.signInWithGoogle(); }
+    catch(err){ toast(/popup/i.test(String(err&&err.code||''))?'Pop-up blocked — allow pop-ups or use the email link':'Google sign-in didn’t work — try the email link','err'); }
+  });
   const f=document.getElementById('gateEmailForm');
   if(f) f.addEventListener('submit', async e=>{
     e.preventDefault();
     const email=document.getElementById('gateEmailInput').value.trim(); if(!email) return;
-    try{ await window.estAuth.sendEmailLink(email); toast('Check your email for a sign-in link'); }
-    catch(err){ toast('Could not send sign-in link','err'); }
+    const btn=f.querySelector('button[type=submit]'); if(btn) btn.disabled=true;
+    try{
+      await window.estAuth.sendEmailLink(email);
+      // persistent, spam-aware confirmation (mirrors gather)
+      const sent=document.getElementById('gateSent'), form=document.getElementById('gateForm');
+      sent.innerHTML=`<div class="signin-sent">
+          <div class="sent-emoji">✉️</div><b>Check your email</b>
+          <p>We sent a sign-in link to <b>${esc(email)}</b>. Open it on this device to finish.</p>
+          <p class="sent-spam">Don’t see it within a minute? Check your <b>spam / junk</b> folder — it comes from <b>${esc(LINK_SENDER)}</b>.</p>
+          <button type="button" class="btn ghost" id="gateAgain">Use a different email</button>
+          <p class="contact-line">Still stuck? <a href="mailto:${SUPPORT_EMAIL}">Email us</a></p>
+        </div>`;
+      form.hidden=true; sent.hidden=false;
+      document.getElementById('gateAgain').addEventListener('click', ()=>{ sent.hidden=true; form.hidden=false; if(btn) btn.disabled=false; });
+    }
+    catch(err){ toast('Could not send the link — check the address, or email us','err'); if(btn) btn.disabled=false; }
   });
 }
 function acctMenu(open){
@@ -1951,7 +1970,7 @@ function initAuth(){
   wireGate(); updateGate();
   const start = () => {
     window.estAuth.init({ onToken: onFirebaseToken, onSignedOut: onFirebaseSignedOut });
-    window.estAuth.completeEmailLinkIfPresent().catch(()=>{});   // finish a magic-link return, if any
+    window.estAuth.completeEmailLinkIfPresent().catch(()=>{ toast('That sign-in link didn’t work — it may have expired. Request a fresh one.','err'); });   // finish a magic-link return, if any
   };
   if(window.estAuth) start();
   else window.addEventListener('estauth:ready', start, { once:true });   // module may load after app.js
