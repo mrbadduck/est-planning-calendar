@@ -323,7 +323,6 @@ function planningRowToEvent(r){
     targetMonth: sched === 'month' ? rawDate.slice(0,7) : ''
   };
 }
-const READONLY_MSG = 'This calendar is read-only in Phase 1 — editing goes live in Phase 2 (Google sign-in + lead allowlist).';
 const CodaSource = {
   base: PROXY_BASE,
   async listPlanning(opts={}){
@@ -383,6 +382,7 @@ const state = {
   currentUser: 'Eric',
   idToken: null,
   identity: null,            // { signedIn, matched, name, canWrite, canApprove }
+  authResolved: false,       // has Firebase yielded its first token / signed-out signal?
   layers: { planning:true },   // ref-layer keys added dynamically from /references
   events: [],
 };
@@ -628,7 +628,7 @@ function openInfo(){
   document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent='Legend & key';
-  document.getElementById('mActions').innerHTML='';
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML='';
   document.getElementById('mBody').innerHTML=legendHTML();
   document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
   show();
@@ -830,6 +830,8 @@ function statusInfo(ev){
 }
 function isPastEvent(ev){ return ev.scheduling==='exact' && ev.date && ev.date < todayStr && ev.status!=='cancelled'; }
 const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+const EXT_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+const GATHER_BASE = 'https://gather.eastsidetribe.org/';   // member app; #/event/<rowId> deep-links (auth is per-origin, so no session hand-off)
 // Left-cluster footer transition buttons for an existing event, by state + role.
 // canWrite = Program Lead or Council; canApprove = Council. Leads never see Approve.
 function footerActionsHTML(ev, canWrite, canApprove){
@@ -865,7 +867,8 @@ function openEditor(ev, section){
   document.getElementById('modal').classList.remove('ws','create'); body.classList.remove('ws');   // workspace mode only for the planning editor
   if(isRef){
     const R = REF[ev.refLayer] || {name:'Reference', color:'#888'};
-    actions.innerHTML = `<span class="badge b-ref">${esc(R.name)}</span>`;
+    document.getElementById('mBadges').innerHTML = `<span class="badge b-ref">${esc(R.name)}</span>`;
+    actions.innerHTML = '';
     const when = ev.allDay ? `All day · ${fmtDate(ev.date)}` : fmtDateTimeRange(ev.start, ev.end);
     body.innerHTML = `
       <div class="fld full"><label>Title</label><input value="${esc(ev.title)}" disabled></div>
@@ -879,11 +882,14 @@ function openEditor(ev, section){
     show(); return;
   }
 
-  // header (top-right): derived status badge + copy-link icon (transitions moved
-  // to the footer; status is display-only here).
+  // header: derived status badge next to the title on the LEFT (display-only;
+  // transitions live in the footer); action icons on the right.
   const si=statusInfo(ev);
-  let head = `<span class="badge b-${si.cls}">${si.label}</span>`;
-  if(isPastEvent(ev)) head += `<span class="badge b-past">Past</span>`;
+  let badges = `<span class="badge b-${si.cls}">${si.label}</span>`;
+  if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
+  document.getElementById('mBadges').innerHTML = badges;
+  let head = '';
+  if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" title="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
   if(ev.id) head += `<button class="mhead-ico" data-act="copylink" title="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
 
@@ -925,7 +931,7 @@ function openNewEventForm(seed){
   _lastSavedSnap = null;
   document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
   document.getElementById('mTitle').textContent = 'New event';
-  document.getElementById('mActions').innerHTML = '';   // no status/approve until the row exists
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML = '';   // no status/approve until the row exists
   document.getElementById('modal').classList.remove('ws'); document.getElementById('modal').classList.add('create');   // fixed shell = same height as the workspace
   const body=document.getElementById('mBody'); body.classList.remove('ws');
   body.innerHTML = renderPlanning(seed, true, false, false);
@@ -1539,7 +1545,7 @@ async function deleteEditor(){
 /* =========================================================================
    WIRING
    ========================================================================= */
-function show(){ document.getElementById('scrim').classList.add('open'); }
+function show(){ document.getElementById('scrim').classList.add('open'); document.body.classList.add('modal-open'); }   // lock background scroll while any modal is open
 function close(){
   _ndocGen++; clearTimeout(_autosaveT);
   // Flush a pending/failed edit before tearing down so a fast Done/Esc/✕ doesn't
@@ -1548,6 +1554,7 @@ function close(){
   const st=document.getElementById('saveStatus');
   if(editing && editing.id && st && (st.classList.contains('dirty')||st.classList.contains('error'))) autosaveEditor();
   document.getElementById('scrim').classList.remove('open');
+  document.body.classList.remove('modal-open');
   document.getElementById('modal').classList.remove('ws','create'); document.getElementById('mBody').classList.remove('ws');
   editing=null; clearUrl();
 }
@@ -1612,7 +1619,7 @@ function openDayPicker(ds,list){
   editing={id:'__picker__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent=fmtDate(ds);
-  document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
   document.getElementById('mBody').innerHTML=`<div class="fld full"><div class="chips" id="dp">${list.map(chipHTML).join('')}</div></div>`;
   document.getElementById('mFoot').innerHTML=`<button class="btn primary" data-act="newhere">+ New on this day</button><span class="push"></span><button class="btn" data-act="close">Close</button>`;
   document.getElementById('dp').addEventListener('click',ev=>{ const c=ev.target.closest('.chip'); if(!c) return; const item=state.events.find(x=>x.id===c.dataset.id); if(item) openEditor(item); });
@@ -1652,7 +1659,7 @@ document.getElementById('feedbackBtn').addEventListener('click', ()=>{
   document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent='Feedback & ideas';
-  document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
   const body=document.getElementById('mBody'); body.innerHTML=`<div class="fld full"><div class="hint">Suggest anything, or +1 an idea. For section-specific ideas, open an event and visit that section.</div>${feedbackBoardHTML('General')}</div>`;
   wireFeedback(body,'General'); show();
 });
@@ -1709,31 +1716,34 @@ function renderAuth(){
     el.querySelector('#avatarBtn').addEventListener('click', e=>{ e.stopPropagation(); acctMenu(); });
     el.querySelector('#signOut').addEventListener('click', signOut);
   } else if(state.authPending){
-    // Gap between returning from Google and /me resolving — show progress, not the
-    // (stale) sign-in button, so it doesn't look like nothing happened.
+    // Gap between returning from Google and /me resolving — show progress.
     el.innerHTML = `<span class="signingin"><span class="ndoc-spin"></span> Signing in…</span>`;
   } else {
-    el.innerHTML = `<div class="acct">
-        <button class="btn ghost" id="signInBtn">Sign in</button>
-        <div class="acct-menu" id="signInMenu" role="menu" hidden>
-          <button class="btn ghost" id="googleBtn" role="menuitem">Continue with Google</button>
-          <div class="signin-or">or</div>
-          <form id="emailLinkForm" class="signin-email">
-            <input id="emailLinkInput" type="email" required placeholder="you@email.com" autocomplete="email">
-            <button class="btn primary sm" type="submit">Email me a link</button>
-          </form>
-        </div>
-      </div>`;
-    el.querySelector('#signInBtn').addEventListener('click', e=>{ e.stopPropagation(); const m=el.querySelector('#signInMenu'); m.hidden=!m.hidden; });
-    el.querySelector('#googleBtn').addEventListener('click', async ()=>{ try{ await window.estAuth.signInWithGoogle(); }catch(err){ toast('Google sign-in failed','err'); } });
-    el.querySelector('#emailLinkForm').addEventListener('submit', async e=>{
-      e.preventDefault();
-      const email = el.querySelector('#emailLinkInput').value.trim();
-      if(!email) return;
-      try{ await window.estAuth.sendEmailLink(email); toast('Check your email for a sign-in link'); el.querySelector('#signInMenu').hidden=true; }
-      catch(err){ toast('Could not send sign-in link','err'); }
-    });
+    el.innerHTML = '';   // signed out: the full-screen gate is the sign-in surface
   }
+  updateGate();
+}
+// The app surface is members-only: a full-screen gate covers it until Firebase
+// yields a signed-in identity (any verified account — roles still gate writes).
+function updateGate(){
+  const g=document.getElementById('authGate'); if(!g) return;
+  const signedIn = !!(state.identity && state.identity.signedIn);
+  g.hidden = signedIn;
+  const busy = !state.authResolved || state.authPending;
+  const card=document.getElementById('gateCard'), b=document.getElementById('gateBusy');
+  if(card) card.hidden = busy;
+  if(b) b.hidden = !busy;
+}
+function wireGate(){
+  const gg=document.getElementById('gateGoogle');
+  if(gg) gg.addEventListener('click', async ()=>{ try{ await window.estAuth.signInWithGoogle(); }catch(err){ toast('Google sign-in failed','err'); } });
+  const f=document.getElementById('gateEmailForm');
+  if(f) f.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const email=document.getElementById('gateEmailInput').value.trim(); if(!email) return;
+    try{ await window.estAuth.sendEmailLink(email); toast('Check your email for a sign-in link'); }
+    catch(err){ toast('Could not send sign-in link','err'); }
+  });
 }
 function acctMenu(open){
   const m=document.getElementById('acctMenu'), b=document.getElementById('avatarBtn'); if(!m||!b) return;
@@ -1775,12 +1785,13 @@ async function fetchMe(){
   renderAuth(); applyView();
 }
 // Called by estAuth whenever Firebase yields a (refreshed) ID token.
-async function onFirebaseToken(token){ state.idToken = token || null; state.authPending = !!token; renderAuth(); await fetchMe(); }
-function onFirebaseSignedOut(){ state.idToken=null; state.identity=null; state.authPending=false; renderAuth(); applyView(); }
+async function onFirebaseToken(token){ state.idToken = token || null; state.authResolved = true; state.authPending = !!token; renderAuth(); await fetchMe(); }
+function onFirebaseSignedOut(){ state.idToken=null; state.identity=null; state.authResolved=true; state.authPending=false; renderAuth(); applyView(); }
 function sessionExpired(){ toast('Session expired — please sign in again','err'); onFirebaseSignedOut(); }
 async function signOut(){ try{ await window.estAuth.signOut(); }catch(_){} }   // onFirebaseSignedOut clears state
 
 function initAuth(){
+  wireGate(); updateGate();
   const start = () => {
     window.estAuth.init({ onToken: onFirebaseToken, onSignedOut: onFirebaseSignedOut });
     window.estAuth.completeEmailLinkIfPresent().catch(()=>{});   // finish a magic-link return, if any

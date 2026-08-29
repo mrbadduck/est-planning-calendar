@@ -65,12 +65,29 @@
   <div id="quarter"></div>
 </div>
 
+<!-- ---- auth gate: the app surface is members-only (mirrors gather's gate) ---- -->
+<div class="gate-scrim" id="authGate">
+  <div class="gate">
+    <h1>EST Planning Calendar</h1>
+    <p>Sign in to view and plan East Side Tribe programming.</p>
+    <div class="signin-card" id="gateCard" hidden>
+      <button class="btn primary block" id="gateGoogle">Continue with Google</button>
+      <div class="signin-or">or</div>
+      <form id="gateEmailForm" class="signin-email">
+        <input id="gateEmailInput" type="email" required placeholder="you@email.com" autocomplete="email">
+        <button class="btn block" type="submit">Email me a link</button>
+      </form>
+    </div>
+    <div class="gate-busy" id="gateBusy"><span class="ndoc-spin"></span> One moment…</div>
+  </div>
+</div>
+
 <!-- ---- modal ---- -->
 <div class="scrim" id="scrim">
   <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
     <div class="mhead">
       <div class="stripe" id="mStripe"></div>
-      <h2 id="mTitle">Event</h2>
+      <div class="mhead-title"><h2 id="mTitle">Event</h2><span class="mhead-badges" id="mBadges"></span></div>
       <div class="mhead-actions" id="mActions"></div>
       <button class="mhead-close" id="mClose" type="button" aria-label="Close" title="Close">×</button>
     </div>

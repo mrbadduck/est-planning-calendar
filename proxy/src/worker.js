@@ -505,25 +505,26 @@ export default {
 
       if (parts[0] === 'events' && parts.length === 1 && request.method === 'GET') {
         // Home list: published + upcoming events, member-projected, with slot
-        // remaining/mineClaimed. No claimant names in the list view.
+        // remaining/mineClaimed. No claimant names in the list view. Anonymous
+        // (no Bearer token) is allowed and gets the public shape WITHOUT slot
+        // details — just hasSlots for the sign-in CTA. An invalid token still 401s.
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
-        if (!who) return json({ error: 'sign in' }, 401, cors);
-        const m = await resolveMember(who, base, docId, auth, env, ctx);
-        const nameOf = await memberNameOf(base, docId, auth, env, ctx);
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { previewer: m.canWrite, nameOf });
+        const m = who ? await resolveMember(who, base, docId, auth, env, ctx) : { personId: null, name: '', canWrite: false };
+        const nameOf = who ? await memberNameOf(base, docId, auth, env, ctx) : null;
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { previewer: m.canWrite, nameOf, anonymous: !who });
         if (res.error) return pass(res.error, cors);
         return json({ items: res.items }, 200, cors);
       }
 
       if (parts[0] === 'events' && parts[1] && parts.length === 2 && request.method === 'GET') {
         // Event detail: one event + slots + claimant names ("what's coming").
+        // Anonymous allowed — public fields + hasSlots, no sheet (see above).
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
-        if (!who) return json({ error: 'sign in' }, 401, cors);
-        const m = await resolveMember(who, base, docId, auth, env, ctx);
-        const nameOf = await memberNameOf(base, docId, auth, env, ctx);
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, previewer: m.canWrite, nameOf });
+        const m = who ? await resolveMember(who, base, docId, auth, env, ctx) : { personId: null, name: '', canWrite: false };
+        const nameOf = who ? await memberNameOf(base, docId, auth, env, ctx) : null;
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, previewer: m.canWrite, nameOf, anonymous: !who });
         if (res.error) return pass(res.error, cors);
         if (!res.items.length) return json({ error: 'not found' }, 404, cors);
         return json(res.items[0], 200, cors);
@@ -925,7 +926,7 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
     || (opts.previewer && isApprovedUpcoming(r, PLANNING_COLS, today)));
   if (opts.onlyId) rows = rows.filter((r) => r.id === opts.onlyId);
   const items = rows.map((r) => projectEventForMember(r, slotsByEvent.get(r.id) || [], claimsBySlot, callerName, {
-    includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf,
+    includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf, anonymous: !!opts.anonymous,
     preview: !!opts.previewer && !isPublishedUpcoming(r, PLANNING_COLS, today),
   }));
   items.sort((a, b) => String(a.date || a.windowStart || '').localeCompare(String(b.date || b.windowStart || '')));

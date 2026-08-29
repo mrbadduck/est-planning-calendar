@@ -237,7 +237,11 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
     description: plain(v[PLANNING_COLS.publicDescription]) || '',
     location: relName(v[PLANNING_COLS.venue]) || relName(v[PLANNING_COLS.venueOther]) || '',   // coarse: venue name/other, no street address
     eventbriteUrl: plain(v[PLANNING_COLS.eventbriteUrl]) || '',
-    slots: (slots || []).map((s) => {
+    // hasSlots lets a signed-out browser show the "sign in to volunteer" CTA;
+    // opts.anonymous strips the sheet itself (labels, counts, claimants) —
+    // slot details are for signed-in members only.
+    hasSlots: (slots || []).length > 0,
+    slots: opts.anonymous ? [] : (slots || []).map((s) => {
       const sv = (s && s.values) || {};
       const claimRows = (claimsBySlot && claimsBySlot[s.id]) || [];
       const claims = claimRows.map((c) => {

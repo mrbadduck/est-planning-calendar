@@ -245,6 +245,18 @@ test('plain / relName strip the rich-format fencing from strings and object name
   assert.equal(relName({ rowId: 'i-1', name: '```Leah Cohen```' }), 'Leah Cohen');
 });
 
+test('projectEventForMember: anonymous gets hasSlots but no slot details', () => {
+  const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'X' } };
+  const slots = [{ id: 'i-s1', values: { [SLOT_COLS.label]: 'SECRETSLOT', [SLOT_COLS.neededQty]: 2, [SLOT_COLS.sortOrder]: 1 } }];
+  const claimsBySlot = { 'i-s1': [{ values: { [CLAIM_COLS.member]: { rowId: 'i-p1', name: 'SECRETNAME' }, [CLAIM_COLS.qty]: 1 } }] };
+  const anon = projectEventForMember(row, slots, claimsBySlot, '', { anonymous: true, includeClaimants: true });
+  assert.equal(anon.hasSlots, true);
+  assert.deepEqual(anon.slots, []);
+  const blob = JSON.stringify(anon);
+  for (const leak of ['SECRETSLOT', 'SECRETNAME']) assert.ok(!blob.includes(leak), `leaked to anonymous: ${leak}`);
+  assert.equal(projectEventForMember(row, [], {}, '', { anonymous: true }).hasSlots, false);
+});
+
 test('projectEventForMember: preview flag set only when asked', () => {
   const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'X' } };
   assert.equal(projectEventForMember(row, [], {}, '').preview, undefined);

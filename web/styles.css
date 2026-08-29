@@ -61,6 +61,22 @@
   .authslot{display:flex;align-items:center;gap:8px;flex:0 0 auto}
   .signingin{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);white-space:nowrap}
   .signingin .ndoc-spin{width:13px;height:13px}
+
+  [hidden]{display:none !important}   /* class display rules must not override the hidden attribute */
+  /* ---- auth gate: full-screen sign-in over the app (members-only surface) ---- */
+  .gate-scrim{position:fixed;inset:0;z-index:60;background:var(--paper,#FAF9F6);display:flex;align-items:flex-start;justify-content:center;padding:14vh 20px 20px}
+  .gate{max-width:340px;width:100%;text-align:center}
+  .gate h1{font-family:Fraunces,serif;font-weight:600;font-size:24px;margin:0 0 6px}
+  .gate p{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+  .signin-card{background:#fff;border:1px solid var(--hair-strong);border-radius:12px;box-shadow:var(--shadow);padding:18px;text-align:left}
+  .signin-card .btn.block{width:100%;justify-content:center}
+  .signin-or{text-align:center;color:var(--muted);font-size:11.5px;margin:12px 0;position:relative}
+  .signin-or::before,.signin-or::after{content:"";position:absolute;top:50%;width:40%;height:1px;background:var(--hair)}
+  .signin-or::before{left:0}.signin-or::after{right:0}
+  .signin-email{display:flex;flex-direction:column;gap:8px}
+  .signin-email input{font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--hair-strong);border-radius:8px;background:#fff;color:var(--ink)}
+  .signin-email input:focus{outline:2px solid var(--accent-tint);outline-offset:1px;border-color:var(--accent)}
+  .gate-busy{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;justify-content:center}
   .acct{position:relative;display:flex}
   .avatar{
     width:30px;height:30px;flex:0 0 auto;border-radius:50%;border:1px solid var(--hair-strong);
@@ -233,7 +249,10 @@
   }
   .modal .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:10px;flex-shrink:0}
   .modal .mhead .stripe{width:5px;height:34px;border-radius:3px;background:var(--c,var(--accent))}
-  .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  body.modal-open{overflow:hidden}   /* the background must not scroll behind an open modal */
+  .mhead-title{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+  .mhead-badges{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+  .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .modal .mhead .badge{font-size:10px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;padding:3px 7px;border-radius:20px}
   .mhead-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto}
   .mhead-close{
