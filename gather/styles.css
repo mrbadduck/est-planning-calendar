@@ -78,7 +78,7 @@ button{font:inherit;cursor:pointer;}
 .signin-or{text-align:center;color:var(--muted);font-size:.8rem;margin:.75rem 0;position:relative;}
 .signin-or::before,.signin-or::after{content:"";position:absolute;top:50%;width:38%;height:1px;background:var(--line);}
 .signin-or::before{left:0;} .signin-or::after{right:0;}
-.signin-email{display:flex;gap:.4rem;}
+.signin-email{display:flex;flex-direction:column;gap:.5rem;}
 input[type=email],input[type=text],textarea{font:inherit;width:100%;padding:.55rem .65rem;
   border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);}
 input:focus,textarea:focus{outline:2px solid color-mix(in srgb,var(--brand) 40%,transparent);outline-offset:1px;}
