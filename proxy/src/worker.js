@@ -31,6 +31,7 @@ import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-column
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, plain,
+  slimPeopleRows,
 } from './gather.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
@@ -54,8 +55,40 @@ async function columnName(base, docId, tableId, colId, auth){
   if (name) COL_NAME_CACHE.set(colId, { name, exp: Date.now() + 5 * 60 * 1000 });
   return name;
 }
+// --- KV stale-while-revalidate cache -----------------------------------------
+// Coda calls run 100s of ms with multi-second (observed: 60s) tails, and the
+// per-isolate memory caches evaporate whenever Cloudflare recycles an isolate.
+// env.CACHE (Workers KV, free tier) persists snapshots across isolates/colos:
+// serve the cached copy instantly, refresh from Coda in the background
+// (ctx.waitUntil) once it's older than `soft`, and only block on Coda when it's
+// older than `hard` or missing. Degrades to a direct fetch when the binding is
+// absent (tests, local dev without KV). fetcher() must THROW on failure so a
+// bad read never gets cached.
+async function swrGet(env, ctx, key, softMs, hardMs, fetcher) {
+  const kv = env.CACHE;
+  if (!kv) return fetcher();
+  let hit = null;
+  try { hit = await kv.get(key, 'json'); } catch (_) {}
+  const age = (hit && hit.at) ? Date.now() - hit.at : Infinity;
+  if (age < hardMs) {
+    if (age > softMs && ctx) ctx.waitUntil(swrFill(kv, key, fetcher));
+    return hit.data;
+  }
+  const data = await fetcher();
+  try { await kv.put(key, JSON.stringify({ at: Date.now(), data })); } catch (_) {}
+  return data;
+}
+async function swrFill(kv, key, fetcher) {
+  try { await kv.put(key, JSON.stringify({ at: Date.now(), data: await fetcher() })); } catch (_) { /* keep serving stale */ }
+}
+async function swrBust(env, key) {
+  const kv = env.CACHE; if (!kv) return;
+  try { await kv.delete(key); } catch (_) {}
+}
+const ROWS_KV_KEY = 'rows-v1';
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const cors = corsHeaders(request.headers.get('Origin') || '', env);
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
@@ -83,13 +116,15 @@ export default {
           // from the Google token — never trusted from the client.
           if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
           let id;
-          try { id = await authIdentity(request, env, base, docId, auth); }
+          try { id = await authIdentity(request, env, base, docId, auth, ctx); }
           catch (e) { return json({ error: 'invalid token' }, 401, cors); }
           if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
 
           if (request.method === 'DELETE' && rowId) {
             if (!id.canApprove) return json({ error: 'delete requires Tribal Council' }, 403, cors);   // hard removal is council-only; leads Cancel instead
-            return pass(await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth }), cors);
+            const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
+            if (w.ok) await swrBust(env, ROWS_KV_KEY);
+            return pass(w, cors);
           }
 
           if ((request.method === 'POST' && !rowId) || (request.method === 'PUT' && rowId)) {
@@ -109,18 +144,34 @@ export default {
               if (approving) { setCell(cells, 'Approved by', [id.personId]); setCell(cells, 'Approved at', today); }
             }
             const target = request.method === 'POST' ? rowsUrl : `${rowsUrl}/${encodeURIComponent(rowId)}`;
-            return pass(await fetch(target, { method: request.method, headers: auth, body: JSON.stringify(body) }), cors);
+            const w = await fetch(target, { method: request.method, headers: auth, body: JSON.stringify(body) });
+            if (w.ok) await swrBust(env, ROWS_KV_KEY);   // next read must see this write, not the snapshot
+            return pass(w, cors);
           }
           return json({ error: 'bad write request' }, 400, cors);
         }
 
         if (request.method === 'GET' && !rowId) {
-          const out = await readAllRows(rowsUrl, auth);
-          if (!out.ok) return pass(out.resp, cors);
-          // Anchor the notes URL to its stable column id, not its (renameable) name.
-          const nm = env.CODA_NOTES_COL_ID ? await columnName(base, docId, tableId, env.CODA_NOTES_COL_ID, auth) : null;
-          if (nm) for (const it of out.items) { it.notesDocUrl = (it.values || {})[nm] || null; }
-          return json({ items: out.items }, 200, cors);
+          const fetchRows = async () => {
+            const out = await readAllRows(rowsUrl, auth);
+            if (!out.ok) throw new Error(`rows read failed (${out.resp.status})`);
+            // Anchor the notes URL to its stable column id, not its (renameable) name.
+            const nm = env.CODA_NOTES_COL_ID ? await columnName(base, docId, tableId, env.CODA_NOTES_COL_ID, auth) : null;
+            if (nm) for (const it of out.items) { it.notesDocUrl = (it.values || {})[nm] || null; }
+            return out.items;
+          };
+          // ?fresh=1 (the notes-doc fast-poll) bypasses the snapshot but refills it.
+          try {
+            if (url.searchParams.get('fresh')) {
+              const items = await fetchRows();
+              if (env.CACHE) { try { await env.CACHE.put(ROWS_KV_KEY, JSON.stringify({ at: Date.now(), data: items })); } catch (_) {} }
+              return json({ items }, 200, cors);
+            }
+            const items = await swrGet(env, ctx, ROWS_KV_KEY, 30_000, 300_000, fetchRows);   // soft 30s / hard 5min
+            return json({ items }, 200, cors);
+          } catch (e) {
+            return json({ error: String((e && e.message) || e) }, 502, cors);
+          }
         }
       }
       if (parts[0] === 'ref' && request.method === 'GET') {
@@ -130,26 +181,30 @@ export default {
         const name = parts[1];
         const refTable = REF[name];
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
-        // Per-isolate cache — ref data changes rarely and /ref/people is very slow
-        // to fetch (1128 rows over 6 Coda pages). Warm isolates serve it instantly.
+        // L1 per-isolate cache over the KV SWR snapshot — ref data changes rarely.
         const hit = REF_CACHE.get(name);
         if (hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
-        const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
-        if (!out.ok) return pass(out.resp, cors);
-        // People is ~1128 rows x ~50 cols — project to just what the editor's
-        // pickers need: {id, name, lead}. `lead` = write-authorized leadership,
-        // so one fetch powers both the Leads chip list and the Volunteers
-        // typeahead. Other ref tables (small) pass through whole.
+        // People is ~1128 rows x ~50 cols — serve the pickers' {id, name, lead}
+        // projection straight from the shared slim People snapshot (id-keyed, so
+        // this read is rename-proof too). `lead` = write-authorized leadership:
+        // one snapshot powers auth, the Leads chip list, and the Volunteers
+        // typeahead. Other ref tables (small) pass through whole via KV SWR.
         let items;
         if (name === 'people') {
-          items = out.items.map(r => {
-            const v = r.values || {};
-            const st = v['Leadership Status'];
+          const rows = await peopleRows(base, docId, auth, env, ctx);
+          items = rows.map(r => {
+            const st = r.values[PEOPLE_COLS.leadershipStatus];
             const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
-            return { id: r.id, name: r.name || v['Full Name'] || '', lead: roles.some(s => WRITE_STATUSES.includes(s)) };
+            return { id: r.id, name: r.values[PEOPLE_COLS.fullName] || '', lead: roles.some(s => WRITE_STATUSES.includes(s)) };
           }).filter(p => p.name);
         } else {
-          items = out.items;
+          try {
+            items = await swrGet(env, ctx, `ref-${name}-v1`, 5 * 60_000, 24 * 3600_000, async () => {   // soft 5min / hard 24h
+              const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
+              if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
+              return out.items;
+            });
+          } catch (e) { return json({ error: String((e && e.message) || e) }, 502, cors); }
         }
         REF_CACHE.set(name, { items, exp: Date.now() + 5 * 60 * 1000 });
         return json({ items }, 200, cors);
@@ -157,16 +212,19 @@ export default {
       if (parts[0] === 'references' && request.method === 'GET') {
         // Public reference calendars: read the config table, fetch + parse each
         // enabled .ics server-side (browser fetch is CORS-blocked). No auth (public
-        // data), GET only — same posture as /rows and /ref. Cached ~1h per isolate.
+        // data), GET only — same posture as /rows and /ref. L1 ~1h per isolate
+        // over the KV SWR snapshot (building it = config read + N feed fetches).
         if (REFERENCES_CACHE && REFERENCES_CACHE.exp > Date.now())
           return json(REFERENCES_CACHE.data, 200, cors);
-        const data = await buildReferences(base, docId, auth);
+        let data;
+        try { data = await swrGet(env, ctx, 'references-v1', 3600_000, 24 * 3600_000, () => buildReferences(base, docId, auth)); }   // soft 1h / hard 24h
+        catch (e) { return json({ error: String((e && e.message) || e) }, 502, cors); }
         REFERENCES_CACHE = { data, exp: Date.now() + 3600_000 };
         return json(data, 200, cors);
       }
       if (parts[0] === 'me' && parts.length === 1 && request.method === 'GET') {
         let id = null;
-        try { id = await authIdentity(request, env, base, docId, auth); }
+        try { id = await authIdentity(request, env, base, docId, auth, ctx); }
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id) return json({ signedIn: false }, 200, cors);
         return json({ signedIn: true, matched: id.matched, name: id.name || null, canWrite: id.canWrite, canApprove: id.canApprove }, 200, cors);
@@ -176,7 +234,7 @@ export default {
         // (optional) Bearer token is present. Relation cells come back as display
         // names (simpleWithArrays), so votedByMe compares against the caller's name.
         const ft = env.CODA_FEEDBACK_TABLE; if (!ft) return json({ items: [] }, 200, cors);
-        let me = null; try { me = await authIdentity(request, env, base, docId, auth); } catch (_) {}
+        let me = null; try { me = await authIdentity(request, env, base, docId, auth, ctx); } catch (_) {}
         const out = await readAllRows(`${base}/docs/${docId}/tables/${ft}/rows`, auth);
         if (!out.ok) return pass(out.resp, cors);
         const ctx = url.searchParams.get('context');
@@ -191,7 +249,7 @@ export default {
         // Submit an idea (requires a matched identity). Attribution is derived
         // server-side from the verified token — never trusted from the client.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
-        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.matched) return json({ error: 'sign in to submit' }, 403, cors);
         let b; try { b = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         const idea = String(b.idea || '').trim(); if (!idea) return json({ error: 'empty' }, 400, cors);
@@ -206,7 +264,7 @@ export default {
         // ids — so resolve current voter names -> ids via peopleRows, toggle the
         // caller's own id, and PUT the id set back.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
-        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.matched) return json({ error: 'sign in to vote' }, 403, cors);
         const fid = decodeURIComponent(parts[1]);
         const ft = env.CODA_FEEDBACK_TABLE;
@@ -214,7 +272,7 @@ export default {
         if (!one.ok) return json({ error: 'not found' }, 404, cors);
         const v = (await one.json()).values || {};
         const names = (v['Voters'] == null || v['Voters'] === '') ? [] : (Array.isArray(v['Voters']) ? v['Voters'] : [v['Voters']]).map(String);
-        const rows = await peopleRows(base, docId, auth);
+        const rows = await peopleRows(base, docId, auth, env, ctx);
         const idByName = {}; for (const p of rows) { const nm = p.values[PEOPLE_COLS.fullName]; if (nm) idByName[nm] = p.id; }
         let ids = names.map(n => idByName[n]).filter(Boolean);
         const mine = id.personId; const has = ids.includes(mine);
@@ -230,7 +288,7 @@ export default {
         // to the Publish Log at each significant step. Same write gate as row writes.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         if (!env.EVENTBRITE_TOKEN || !env.EVENTBRITE_ORG_ID) return json({ error: 'eventbrite not configured' }, 500, cors);
-        let id; try { id = await authIdentity(request, env, base, docId, auth); }
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
 
@@ -248,7 +306,11 @@ export default {
         if (String(V['Scheduling'] || 'Exact').toLowerCase() !== 'exact' || !V['Date'] || !V['Start'])
           return json({ error: 'publish needs an exact date and start time' }, 409, cors);
 
-        const setRow = (cells) => fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
+        const setRow = async (cells) => {
+          const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
+          if (r.ok) await swrBust(env, ROWS_KV_KEY);   // publish write-backs must be visible to the next /rows read
+          return r;
+        };
         const fail = async (action, r) => {
           // Build the most specific message Eventbrite gives us. error_detail carries
           // the per-argument reasons that error_description flattens to an unhelpful
@@ -361,7 +423,7 @@ export default {
         // cancel if it has registrants) then set Status=Cancelled. Same write gate
         // + Publish Log posture as /publish/eventbrite. Works with or without an EB id.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
-        let id; try { id = await authIdentity(request, env, base, docId, auth); }
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
 
@@ -373,7 +435,11 @@ export default {
         const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
         const V = (await one.json()).values || {};
-        const setRow = (cells) => fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
+        const setRow = async (cells) => {
+          const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
+          if (r.ok) await swrBust(env, ROWS_KV_KEY);   // cancel write-backs must be visible to the next /rows read
+          return r;
+        };
         const ebId = V['Eventbrite Event ID'] || '';
 
         let ebOutcome = 'none', pubStatus = V['Publish status'] || '';
@@ -406,7 +472,7 @@ export default {
         const buttonId = env.CODA_NOTES_BUTTON_ID;
         if (!buttonId) return json({ error: 'proxy not configured (CODA_NOTES_BUTTON_ID)' }, 500, cors);
         let id;
-        try { id = await authIdentity(request, env, base, docId, auth); }
+        try { id = await authIdentity(request, env, base, docId, auth, ctx); }
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         let body;
@@ -415,7 +481,9 @@ export default {
         const rowId = body.rowId;
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
         const btnUrl = `${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}/buttons/${encodeURIComponent(buttonId)}`;
-        return pass(await fetch(btnUrl, { method: 'POST', headers: auth }), cors);
+        const w = await fetch(btnUrl, { method: 'POST', headers: auth });
+        if (w.ok) await swrBust(env, ROWS_KV_KEY);   // the button writes the doc URL into the row; the fast-poll must see it
+        return pass(w, cors);
       }
 
       // ===== gather (member sign-ups) routes =====================================
@@ -428,10 +496,10 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         if (env.ALLOW_WRITES !== 'true') {
-          const m = await resolveMember(who, base, docId, auth);   // can't create with writes off
+          const m = await resolveMember(who, base, docId, auth, env, ctx);   // can't create with writes off
           return json({ id: m.personId, name: m.name, created: false }, 200, cors);
         }
-        const p = await findOrCreatePerson(who, env, base, docId, auth);
+        const p = await findOrCreatePerson(who, env, base, docId, auth, ctx);
         return json({ id: p.personId, name: p.name, created: p.created }, 200, cors);
       }
 
@@ -441,7 +509,7 @@ export default {
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
-        const m = await resolveMember(who, base, docId, auth);
+        const m = await resolveMember(who, base, docId, auth, env, ctx);
         const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { previewer: m.canWrite });
         if (res.error) return pass(res.error, cors);
         return json({ items: res.items }, 200, cors);
@@ -452,7 +520,7 @@ export default {
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
-        const m = await resolveMember(who, base, docId, auth);
+        const m = await resolveMember(who, base, docId, auth, env, ctx);
         const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, previewer: m.canWrite });
         if (res.error) return pass(res.error, cors);
         if (!res.items.length) return json({ error: 'not found' }, 404, cors);
@@ -464,7 +532,7 @@ export default {
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
-        const m = await resolveMember(who, base, docId, auth);
+        const m = await resolveMember(who, base, docId, auth, env, ctx);
         if (!m.personId) return json({ items: [] }, 200, cors);
         const items = await buildMyClaims(base, docId, tableId, env, auth, m.personId);
         return json({ items }, 200, cors);
@@ -479,7 +547,7 @@ export default {
         if (!who) return json({ error: 'sign in' }, 401, cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         let input; try { input = validateClaimInput(body); } catch (e) { return json({ error: String((e && e.message) || e) }, 400, cors); }
-        const p = await findOrCreatePerson(who, env, base, docId, auth);
+        const p = await findOrCreatePerson(who, env, base, docId, auth, ctx);
         if (!p.personId) return json({ error: 'could not resolve member' }, 500, cors);
         const cells = claimCreateCells(input, p.personId, CLAIM_COLS);
         const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
@@ -495,7 +563,7 @@ export default {
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
-        const m = await resolveMember(who, base, docId, auth);
+        const m = await resolveMember(who, base, docId, auth, env, ctx);
         if (!m.personId) return json({ error: 'not your claim' }, 403, cors);
         const claimId = decodeURIComponent(parts[1]);
         const claimsUrl = `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`;
@@ -509,7 +577,7 @@ export default {
       if (parts[0] === 'slots' && request.method === 'GET') {
         // Lead-facing: read slots (optionally for one event) for the plan-app builder.
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
-        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const eventId = url.searchParams.get('event');
         const out = await readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true });
@@ -529,7 +597,7 @@ export default {
         // Slot authoring — lead/council only (canWrite). Writes Slots by column id.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
-        let id; try { id = await authIdentity(request, env, base, docId, auth); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const slotId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const slotsUrl = `${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`;
@@ -668,18 +736,41 @@ const WRITE_STATUSES = ['Program Lead', 'Tribal Council'];
 const APPROVE_STATUSES = ['Tribal Council'];
 // Match the verified email against `All Emails` (a formula column, so it can't be
 // server-side queried — a query on the Leadership Status relation returned an
-// incomplete set). Fetch the People table once (5-min per-isolate cache) and filter
-// here. Same read /ref/people already does, so it's proven + cheap after warm-up.
+// incomplete set). Fetch the People table once, project it slim, and filter here.
+// Two cache layers: 5-min in-memory (L1, this isolate) over the KV snapshot
+// (L2, cross-isolate SWR) — the 1128-row x 6-page Coda read was the dominant
+// cost on sign-in and every authed request.
 let _people = null, _peopleExp = 0;
-async function peopleRows(base, docId, auth) {
+const PEOPLE_KV_KEY = 'people-slim-v1';
+async function peopleRows(base, docId, auth, env, ctx) {
   if (_people && Date.now() < _peopleExp) return _people;
-  const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
-  _people = out.ok ? out.items : [];
-  _peopleExp = Date.now() + 300_000;                   // 5-min cache
+  const fetchSlim = async () => {
+    const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
+    if (!out.ok) throw new Error(`people read failed (${out.resp.status})`);
+    return slimPeopleRows(out.items, PEOPLE_COLS);
+  };
+  let rows;
+  try { rows = await swrGet(env, ctx, PEOPLE_KV_KEY, 300_000, 1_800_000, fetchSlim); }   // soft 5min / hard 30min
+  catch (_) { return _people || []; }                  // read failed: last isolate copy, never cache the failure
+  _people = rows; _peopleExp = Date.now() + 300_000;   // 5-min L1
   return _people;
 }
-async function resolvePerson(email, base, docId, auth) {
-  const rows = await peopleRows(base, docId, auth);
+// A member self-onboarded: patch them into both cache layers so their very next
+// request (any isolate) matches without a full re-read — and so a parallel
+// isolate is less likely to double-create the row.
+async function addPersonToCaches(env, person) {
+  if (_people && !_people.some((r) => r.id === person.id)) _people.push(person);
+  const kv = env.CACHE; if (!kv) return;
+  try {
+    const hit = await kv.get(PEOPLE_KV_KEY, 'json');
+    if (hit && Array.isArray(hit.data) && !hit.data.some((r) => r.id === person.id)) {
+      hit.data.push(person);
+      await kv.put(PEOPLE_KV_KEY, JSON.stringify(hit));
+    }
+  } catch (_) {}
+}
+async function resolvePerson(email, base, docId, auth, env, ctx) {
+  const rows = await peopleRows(base, docId, auth, env, ctx);
   const row = rows.find(r => {
     const em = r.values[PEOPLE_COLS.allEmails];
     const list = (em == null || em === '') ? [] : (Array.isArray(em) ? em : [em]);
@@ -696,15 +787,14 @@ async function resolvePerson(email, base, docId, auth) {
   };
 }
 // null = no Bearer token; throws = invalid token (-> 401); else identity object.
-async function authIdentity(request, env, base, docId, auth) {
+async function authIdentity(request, env, base, docId, auth, ctx) {
   const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
   const email = await verifyFirebaseIdToken(m[1], env.FIREBASE_PROJECT_ID);
-  const person = await resolvePerson(email, base, docId, auth);
+  const person = await resolvePerson(email, base, docId, auth, env, ctx);
   if (!person) return { matched: false, email, canWrite: false, canApprove: false };
   return { matched: true, ...person };
 }
-function bustPeopleCache() { _people = null; _peopleExp = 0; }
 
 // --- gather (member) identity -------------------------------------------------
 // Members are any verified person — no leadership role required. memberAuth
@@ -719,8 +809,8 @@ async function memberAuth(request, env) {
 // is null if they've never been seen (reads still work; mineClaimed just stays off).
 // canWrite (Program Lead / Tribal Council) gates the approved-but-unpublished
 // planner preview in the event reads — same statuses that gate slot authoring.
-async function resolveMember(who, base, docId, auth) {
-  const rows = await peopleRows(base, docId, auth);
+async function resolveMember(who, base, docId, auth, env, ctx) {
+  const rows = await peopleRows(base, docId, auth, env, ctx);
   const row = findPersonByEmail(rows, who.email, PEOPLE_COLS);
   const st = row && row.values[PEOPLE_COLS.leadershipStatus];
   const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
@@ -732,9 +822,9 @@ async function resolveMember(who, base, docId, auth) {
   };
 }
 // Open signup: match the verified email, else create a self-onboarded People row.
-// Busts the People cache on create so the new row is matchable immediately after.
-async function findOrCreatePerson(who, env, base, docId, auth) {
-  const rows = await peopleRows(base, docId, auth);
+// Patches the new row into both cache layers so it's matchable immediately after.
+async function findOrCreatePerson(who, env, base, docId, auth, ctx) {
+  const rows = await peopleRows(base, docId, auth, env, ctx);
   const row = findPersonByEmail(rows, who.email, PEOPLE_COLS);
   if (row) return { personId: row.id, name: row.values[PEOPLE_COLS.fullName] || who.name || who.email, created: false };
   const cells = personCreateCells(who.email, who.name, PEOPLE_COLS, new Date().toISOString());
@@ -742,8 +832,13 @@ async function findOrCreatePerson(who, env, base, docId, auth) {
   const r = await fetch(`${base}/docs/${docId}/tables/${table}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
   if (!r.ok) throw new Error(`could not create member (${r.status})`);
   const j = await r.json();
-  bustPeopleCache();
-  return { personId: (j.addedRowIds && j.addedRowIds[0]) || null, name: who.name || who.email, created: true };
+  const personId = (j.addedRowIds && j.addedRowIds[0]) || null;
+  const name = who.name || who.email;
+  if (personId) await addPersonToCaches(env, {
+    id: personId,
+    values: { [PEOPLE_COLS.fullName]: name, [PEOPLE_COLS.allEmails]: [String(who.email).toLowerCase()], [PEOPLE_COLS.leadershipStatus]: [] },
+  });
+  return { personId, name, created: true };
 }
 
 // Build the member-visible event set: published + upcoming planning rows, each

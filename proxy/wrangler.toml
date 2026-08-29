@@ -3,6 +3,15 @@ main = "src/worker.js"
 compatibility_date = "2026-01-01"
 account_id = "c68ba18b669e519e535be065dab431f1"   # pin the account so CI wrangler skips the /memberships auto-detect (not a secret — appears in dashboard URLs)
 
+# Cross-isolate stale-while-revalidate cache (Workers KV, free tier). Coda calls
+# are slow with multi-second tails, and per-isolate memory caches evaporate when
+# isolates recycle — KV persists the People snapshot, /rows, and /ref reads so
+# most requests never wait on Coda. (Cache API is a no-op on workers.dev, and we
+# keep DNS at Hover, so KV is the only cross-isolate option — and it's global.)
+[[kv_namespaces]]
+binding = "CACHE"
+id = "b962638db9cc47c7a89578ef7559a139"
+
 [vars]
 CODA_API_BASE  = "https://coda.io/apis/v1"
 CODA_DOC_ID    = "DYAz_wCVfv"          # EST — Mission Control doc

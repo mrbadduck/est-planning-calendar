@@ -326,8 +326,10 @@ function planningRowToEvent(r){
 const READONLY_MSG = 'This calendar is read-only in Phase 1 — editing goes live in Phase 2 (Google sign-in + lead allowlist).';
 const CodaSource = {
   base: PROXY_BASE,
-  async listPlanning(){
-    const r = await fetch(`${this.base}/rows`, { headers:{ 'Accept':'application/json' } });
+  async listPlanning(opts={}){
+    // fresh:true bypasses the Worker's 30s KV snapshot (notes-doc fast-poll needs
+    // to see the button's URL write-back as soon as Coda has it).
+    const r = await fetch(`${this.base}/rows${opts.fresh?'?fresh=1':''}`, { headers:{ 'Accept':'application/json' } });
     if(!r.ok) throw new Error(`proxy ${r.status}: ${await r.text()}`);
     const j = await r.json();
     const items = j.items || [];
@@ -786,7 +788,7 @@ async function pollForNotesDoc(rowId, tries, gen){
   await new Promise(r=>setTimeout(r, 3000));
   if(gen !== _ndocGen) return;                 // editor closed or a newer create started — stop
   let ev=null;
-  try{ const rows=await DB.listPlanning(); ev=rows.find(x=>x.id===rowId); }catch(_){}
+  try{ const rows=await DB.listPlanning({fresh:true}); ev=rows.find(x=>x.id===rowId); }catch(_){}
   if(ev && ev.notesDocUrl){
     if(editing && editing.id===rowId) editing.notesDocUrl=ev.notesDocUrl;
     const item=state.events.find(x=>x.id===rowId); if(item) item.notesDocUrl=ev.notesDocUrl;

@@ -40,6 +40,22 @@ export function plain(cell) {
   return f == null ? '' : stripRich(f);
 }
 
+// --- People slim projection --------------------------------------------------
+// The People table is 1128 rows x ~50 cols — the auth/member/picker paths read
+// only three columns. Project rows down to those (same id-keyed row shape, so
+// findPersonByEmail/resolvePerson work unchanged) before caching: the snapshot
+// stays ~100KB instead of multi-MB.
+export function slimPeopleRows(rows, cols) {
+  return (rows || []).map((r) => ({
+    id: r.id,
+    values: {
+      [cols.fullName]: (r.values && r.values[cols.fullName]) || '',
+      [cols.allEmails]: (r.values && r.values[cols.allEmails]) || [],
+      [cols.leadershipStatus]: (r.values && r.values[cols.leadershipStatus]) || [],
+    },
+  }));
+}
+
 // --- People find-or-create (open signup) -----------------------------------
 // Split a display name: first = first token, last = the rest.
 export function splitName(name) {
