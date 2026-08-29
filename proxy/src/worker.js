@@ -30,8 +30,8 @@ import { verifyFirebaseIdToken, verifyFirebaseToken } from './auth.js';
 import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
-  claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, plain,
-  slimPeopleRows,
+  claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
+  slimPeopleRows, friendlyName, claimUpdateCells, splitName,
 } from './gather.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
@@ -510,7 +510,8 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         const m = await resolveMember(who, base, docId, auth, env, ctx);
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { previewer: m.canWrite });
+        const nameOf = await memberNameOf(base, docId, auth, env, ctx);
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { previewer: m.canWrite, nameOf });
         if (res.error) return pass(res.error, cors);
         return json({ items: res.items }, 200, cors);
       }
@@ -521,7 +522,8 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         const m = await resolveMember(who, base, docId, auth, env, ctx);
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, previewer: m.canWrite });
+        const nameOf = await memberNameOf(base, docId, auth, env, ctx);
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, previewer: m.canWrite, nameOf });
         if (res.error) return pass(res.error, cors);
         if (!res.items.length) return json({ error: 'not found' }, 404, cors);
         return json(res.items[0], 200, cors);
@@ -540,53 +542,86 @@ export default {
 
       if (parts[0] === 'claims' && parts.length === 1 && request.method === 'POST') {
         // Claim a slot. Attribution (Member) is the caller's own person id, derived
-        // server-side — never trusted from the client.
+        // server-side — never trusted from the client. Exception: a write-authorized
+        // caller (lead/council managing the sheet in the plan app) may pass `member`
+        // to sign someone else up.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         let input; try { input = validateClaimInput(body); } catch (e) { return json({ error: String((e && e.message) || e) }, 400, cors); }
-        const p = await findOrCreatePerson(who, env, base, docId, auth, ctx);
-        if (!p.personId) return json({ error: 'could not resolve member' }, 500, cors);
-        const cells = claimCreateCells(input, p.personId, CLAIM_COLS);
+        let memberId;
+        if (input.member) {
+          const m = await resolveMember(who, base, docId, auth, env, ctx);
+          if (input.member !== m.personId && !m.canWrite) return json({ error: 'not authorized' }, 403, cors);
+          memberId = input.member;
+        } else {
+          const p = await findOrCreatePerson(who, env, base, docId, auth, ctx);
+          if (!p.personId) return json({ error: 'could not resolve member' }, 500, cors);
+          memberId = p.personId;
+        }
+        const cells = claimCreateCells(input, memberId, CLAIM_COLS);
         const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
         if (!r.ok) return pass(r, cors);
         const j = await r.json();
         return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
       }
 
-      if (parts[0] === 'claims' && parts[1] && parts.length === 2 && request.method === 'DELETE') {
-        // Unclaim — OWN claims only. Ownership is checked by Member ROW ID (read the
-        // claim rich so the relation is a { rowId } object), never by display name.
+      if (parts[0] === 'claims' && parts[1] && parts.length === 2 && (request.method === 'DELETE' || request.method === 'PUT')) {
+        // Unclaim / edit a claim — the claim's OWNER, or a write-authorized caller
+        // (lead/council managing the sheet). Ownership is checked by Member ROW ID
+        // (read the claim rich so the relation is a { rowId } object), never by
+        // display name. PUT patches qty + contribution only.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         const m = await resolveMember(who, base, docId, auth, env, ctx);
-        if (!m.personId) return json({ error: 'not your claim' }, 403, cors);
+        if (!m.personId && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
         const claimId = decodeURIComponent(parts[1]);
         const claimsUrl = `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`;
         const one = await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
         if (!one.ok) return json({ error: 'not found' }, 404, cors);
         const owner = claimOwnerId(await one.json(), CLAIM_COLS);
-        if (!owner || owner !== m.personId) return json({ error: 'not your claim' }, 403, cors);
-        return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth }), cors);
+        if (!(owner && owner === m.personId) && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
+        if (request.method === 'DELETE')
+          return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth }), cors);
+        let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
+        return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: claimUpdateCells(body, CLAIM_COLS) } }) }), cors);
       }
 
       if (parts[0] === 'slots' && request.method === 'GET') {
-        // Lead-facing: read slots (optionally for one event) for the plan-app builder.
+        // Lead-facing: read slots (optionally for one event) + each slot's claims
+        // for the plan-app builder. Leads see full member names + claim ids (they
+        // manage the sheet) — this never serves members.
         if (!gatherTablesOk) return json({ error: 'gather not configured' }, 500, cors);
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const eventId = url.searchParams.get('event');
-        const out = await readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true });
+        const [out, cl] = await Promise.all([
+          readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
+          readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
+        ]);
         if (!out.ok) return pass(out.resp, cors);
+        const claimsBySlot = {};
+        for (const c of (cl.ok ? cl.items : [])) {
+          const sid = relId(c.values[CLAIM_COLS.slot]);
+          if (!sid) continue;
+          (claimsBySlot[sid] = claimsBySlot[sid] || []).push({
+            id: c.id,
+            member: relId(c.values[CLAIM_COLS.member]),
+            name: relName(c.values[CLAIM_COLS.member]) || '',
+            contribution: plain(c.values[CLAIM_COLS.contributionDetail]) || '',
+            qty: Number(plain(c.values[CLAIM_COLS.qty])) || 1,
+          });
+        }
         let items = out.items.map((s) => ({
           id: s.id, event: relId(s.values[SLOT_COLS.event]),
           kind: plain(s.values[SLOT_COLS.kind]) || '', label: plain(s.values[SLOT_COLS.label]) || '',
           neededQty: Number(plain(s.values[SLOT_COLS.neededQty])) || 0,
           sortOrder: Number(plain(s.values[SLOT_COLS.sortOrder])) || 0,
+          claims: claimsBySlot[s.id] || [],
         }));
         if (eventId) items = items.filter((s) => s.event === eventId);
         items.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -741,7 +776,7 @@ const APPROVE_STATUSES = ['Tribal Council'];
 // (L2, cross-isolate SWR) — the 1128-row x 6-page Coda read was the dominant
 // cost on sign-in and every authed request.
 let _people = null, _peopleExp = 0;
-const PEOPLE_KV_KEY = 'people-slim-v1';
+const PEOPLE_KV_KEY = 'people-slim-v2';   // v2: + first/last name (bump on any slim-shape change)
 async function peopleRows(base, docId, auth, env, ctx) {
   if (_people && Date.now() < _peopleExp) return _people;
   const fetchSlim = async () => {
@@ -834,11 +869,27 @@ async function findOrCreatePerson(who, env, base, docId, auth, ctx) {
   const j = await r.json();
   const personId = (j.addedRowIds && j.addedRowIds[0]) || null;
   const name = who.name || who.email;
+  const nm = splitName(name);
   if (personId) await addPersonToCaches(env, {
     id: personId,
-    values: { [PEOPLE_COLS.fullName]: name, [PEOPLE_COLS.allEmails]: [String(who.email).toLowerCase()], [PEOPLE_COLS.leadershipStatus]: [] },
+    values: {
+      [PEOPLE_COLS.fullName]: name, [PEOPLE_COLS.firstName]: nm.first, [PEOPLE_COLS.lastName]: nm.last,
+      [PEOPLE_COLS.allEmails]: [String(who.email).toLowerCase()], [PEOPLE_COLS.leadershipStatus]: [],
+    },
   });
   return { personId, name, created: true };
+}
+
+// Member-safe display-name resolver over the People snapshot: personId ->
+// "First L." / placeholder (see friendlyName). Passed into the event projection
+// so full names never leave the Worker toward members.
+async function memberNameOf(base, docId, auth, env, ctx) {
+  const rows = await peopleRows(base, docId, auth, env, ctx);
+  const byId = new Map(rows.map((r) => [r.id, r.values]));
+  return (personId, fallbackName) => {
+    const v = personId ? byId.get(personId) : null;
+    return friendlyName(v && v[PEOPLE_COLS.firstName], v && v[PEOPLE_COLS.lastName], (v && v[PEOPLE_COLS.fullName]) || fallbackName);
+  };
 }
 
 // Build the member-visible event set: published + upcoming planning rows, each
@@ -874,7 +925,7 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
     || (opts.previewer && isApprovedUpcoming(r, PLANNING_COLS, today)));
   if (opts.onlyId) rows = rows.filter((r) => r.id === opts.onlyId);
   const items = rows.map((r) => projectEventForMember(r, slotsByEvent.get(r.id) || [], claimsBySlot, callerName, {
-    includeClaimants: !!opts.includeClaimants, callerId,
+    includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf,
     preview: !!opts.previewer && !isPublishedUpcoming(r, PLANNING_COLS, today),
   }));
   items.sort((a, b) => String(a.date || a.windowStart || '').localeCompare(String(b.date || b.windowStart || '')));
