@@ -265,7 +265,14 @@ function eventToCodaCells(e){
    doc-scoped token server-side and gates writes on Google sign-in + role.
    References (holidays/partners) stay on the built-in overlays until Hebcal
    wiring (later). */
-const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
+// Dev affordance: point the app at a different Worker (e.g. a `wrangler
+// versions upload` preview) without editing code —
+//   localStorage.setItem('est-proxy-base','https://<version>-est-planning-proxy...workers.dev')
+// then reload; localStorage.removeItem('est-proxy-base') to go back to prod.
+const PROXY_BASE = (() => {
+  const prod = 'https://est-planning-proxy.eastsidetribe.workers.dev';
+  try { return localStorage.getItem('est-proxy-base') || prod; } catch (_) { return prod; }
+})();
                          // ← deployed Worker. CORS allows the deploy origin plus
                          //   http://localhost:8080 for local dev (see wrangler.toml).
 
@@ -352,7 +359,8 @@ const CodaSource = {
   async update(e){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(e.id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); if(!r.ok) await this._fail(r); return e; },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
-  async publishEventbrite(rowId, draftOnly){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; throw e; } return j; },
+  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; throw e; } return j; },
+  async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async cancelEventbrite(rowId){ const r=await fetch(`${this.base}/cancel/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`cancel failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
   async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
@@ -738,12 +746,15 @@ function publishPanelHTML(ev, canEdit){
       <span class="hint">Builds a draft in Eventbrite — review it there, then Publish.</span>`;
   } else {
     const open = `<a class="reflink" href="${esc(ev.eventbriteUrl||'#')}" target="_blank" rel="noopener">Open in Eventbrite ↗</a>`;
-    const dirty = !!ev._ebDirty;
-    const btns = st==='Published'
-      ? `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Update &amp; re-publish</button>`
-      : `<button type="button" class="btn sm${dirty?' primary':''}" data-act="publish-eb-draft">Update draft</button><button type="button" class="btn sm${dirty?'':' primary'}" data-act="publish-eb-publish">Publish</button>`;
-    const sync = dirty ? `<div class="ndoc-warn">Eventbrite is behind your latest edits — ${st==='Published'?'update &amp; re-publish':'update the draft'} to sync.</div>` : '';
-    inner = `${sync}${open} ${btns} ${badge}
+    // Push buttons are DIRTY-GATED (#f_ebpush, hidden until the fields diverge
+    // from the live values loadEbLive seeds). A draft's Publish stays visible —
+    // going live is its whole point, edits or not.
+    const dirtyBtns = st==='Published'
+      ? `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Update published event</button>`
+      : `<button type="button" class="btn sm primary" data-act="publish-eb-draft">Update draft</button>`;
+    const alwaysBtns = st==='Published' ? '' : `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Publish</button>`;
+    inner = `<div class="eb-live" id="f_eblive"><div class="hint"><span class="ndoc-spin"></span> Checking the live Eventbrite listing…</div></div>
+      <div class="eb-actions">${open} <span id="f_ebpush" hidden>${dirtyBtns}</span> ${alwaysBtns} ${badge}</div>
       <div class="hint" style="margin-top:6px">On your phone, tap through to Check-In in the Eventbrite Organizer app.</div>`;
   }
   const err = ev.lastPublishError && (ev.publishStatus==='Error') ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
@@ -752,8 +763,73 @@ function publishPanelHTML(ev, canEdit){
 // Wires (and, after each outerHTML swap, re-wires) the publish panel's click
 // handler. Named function instead of arguments.callee so it can rebind itself
 // onto the fresh DOM node `outerHTML` produces.
+/* ---- live Eventbrite view: once pushed, Eventbrite is the truth; the row's
+   publish fields are staging. Fetched async so the panel paints instantly. ---- */
+const stripTags = s => String(s||'').replace(/<[^>]*>/g,' ');
+function ebLiveHTML(st){
+  const L=st.live||{};
+  const liveDate=(L.startLocal||'').slice(0,10), liveStart=(L.startLocal||'').slice(11,16), liveEnd=(L.endLocal||'').slice(11,16);
+  const statusCls = L.status==='live' ? 'live' : (L.status==='draft' ? 'draft' : 'past');
+  const conflict = st.editedSincePush ? `<div class="ndoc-warn">Edited directly in Eventbrite after the last push — pushing an update will overwrite those Eventbrite-side changes.</div>` : '';
+  return `${conflict}
+    <div class="eb-facts">
+      <span class="badge b-${statusCls}">${esc((L.status||'—').replace(/^./,c=>c.toUpperCase()))}</span>
+      <b class="eb-name">${esc(L.name||'')}</b>
+      <span>${esc(liveDate)}${liveStart?` · ${esc(liveStart)}${liveEnd?`–${esc(liveEnd)}`:''}`:''}</span>
+      <span>${L.sold||0}${L.capacity?` of ${L.capacity}`:''} registered</span>
+      ${L.venueName?`<span>📍 ${esc(L.venueName)}</span>`:(L.onlineEvent?'<span>Online</span>':'')}
+      ${L.ticketClasses>1?`<span class="hint">${L.ticketClasses} ticket types — managed in Eventbrite, pushes leave them alone</span>`:''}
+    </div>
+    <div class="hint">Live Eventbrite listing. The fields below show its current values — edit them to stage an update.</div>`;
+}
+// Seed the publish fields from the LIVE listing and dirty-gate the push button:
+// it appears only when an edit makes the fields diverge from what's live.
+// Address visibility is our own concept (not readable from Eventbrite) so it
+// keeps the staged value but still counts toward dirtiness.
+function seedLiveFields(st){
+  const L=st.live||{};
+  const s=document.getElementById('f_pubsummary'), d=document.getElementById('f_pubdesc'), c=document.getElementById('f_capacity');
+  if(!s||!d||!c) return;
+  if(s.hasAttribute('data-livewait')){
+    // Seed all three from the LIVE listing, then mirror those live values into
+    // staging (Coda) so "what you see is what gets pushed": a later edit to one
+    // field pushes the others back unchanged (an unchanged description matches →
+    // its rich formatting is preserved; capacity/summary are no-ops).
+    s.value=L.summary||''; d.value=L.descriptionText||''; c.value=L.capacity!=null?L.capacity:'';
+    [s,d,c].forEach(el=>{ el.disabled=false; el.removeAttribute('data-livewait'); });
+    document.querySelectorAll('[data-act="copy-internal"][data-livewait]').forEach(b=>{ b.disabled=false; b.removeAttribute('data-livewait'); });
+    if(editing){
+      const cap = c.value!==''?Number(c.value):'';
+      const changed = String(editing.publicSummary??'')!==s.value || String(editing.publicDescription??'')!==d.value || String(editing.capacity??'')!==String(cap);
+      editing.publicSummary=s.value; editing.publicDescription=d.value; editing.capacity=cap;
+      if(changed && editing.id) scheduleAutosave();   // persist live values to staging so displayed == pushed
+    }
+  }
+  const avVal=()=>{ const b=document.querySelector('#f_addrvis button[aria-pressed="true"]'); return b?b.dataset.addrvis:'Public'; };
+  const baseline=JSON.stringify([s.value,d.value,String(c.value),avVal()]);
+  const toggle=()=>{ const push=document.getElementById('f_ebpush'); if(push) push.hidden = JSON.stringify([s.value,d.value,String(c.value),avVal()])===baseline; };
+  [s,d,c].forEach(el=>el.addEventListener('input', toggle));
+  const av=document.getElementById('f_addrvis'); if(av) av.addEventListener('click', ()=>setTimeout(toggle,0));
+  toggle();
+}
+async function loadEbLive(pub){
+  const box=pub && pub.querySelector('#f_eblive');
+  if(!box || !editing || !editing.id || !editing.eventbriteId) { if(box) box.remove(); return; }
+  const rowId=editing.id;
+  const st=await DB.ebStatus(rowId);
+  if(!box.isConnected || !editing || editing.id!==rowId) return;   // panel re-rendered / event switched
+  const unstick=()=>{ // live load failed: fall back to staged values + visible push button
+    document.querySelectorAll('[data-livewait]').forEach(el=>{ el.disabled=false; el.removeAttribute('data-livewait'); });
+    const push=document.getElementById('f_ebpush'); if(push) push.hidden=false;
+  };
+  if(!st){ box.innerHTML=`<div class="hint">Couldn’t reach Eventbrite just now — showing your staged copy; pushing still works.</div>`; unstick(); return; }
+  if(!st.linked){ box.remove(); unstick(); return; }
+  box.innerHTML=ebLiveHTML(st);
+  seedLiveFields(st);
+}
 function wirePublishPanel(pub){
   if(!pub) return;
+  loadEbLive(pub);
   pub.addEventListener('click', async e=>{
     const b=e.target.closest('[data-act="publish-eb-draft"],[data-act="publish-eb-publish"]'); if(!b) return;
     if(!editing || !editing.id){ toast('Save the event first','err'); return; }
@@ -762,7 +838,19 @@ function wirePublishPanel(pub){
     await flushAutosave();   // ensure Coda has the latest public copy the Worker reads
     pub.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> ${draftOnly?'Creating Eventbrite draft':'Publishing to Eventbrite'}… <span class="hint">(a few seconds)</span></div>`;
     try{
-      const res=await DB.publishEventbrite(rowId, draftOnly);
+      let res;
+      try{ res=await DB.publishEventbrite(rowId, draftOnly); }
+      catch(err){
+        // Eventbrite-side edits since our last push: make the overwrite explicit.
+        if(!(err && err.conflict)) throw err;
+        const go=window.confirm('This event was edited directly in Eventbrite after the last push.\n\nPushing now will overwrite those Eventbrite-side changes with your staged copy here. Push anyway?');
+        if(!go){
+          const p=document.getElementById('f_publish');
+          if(p && (!editing||editing.id===rowId)){ p.outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
+          return;
+        }
+        res=await DB.publishEventbrite(rowId, draftOnly, true);
+      }
       const newStatus = res.draft ? 'Draft' : 'Published';
       if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus=newStatus; editing.lastPublishError=''; editing._ebDirty=false; }
       const item=state.events.find(x=>x.id===rowId); if(item){ item.eventbriteId=editing.eventbriteId; item.eventbriteUrl=editing.eventbriteUrl; item.publishStatus=newStatus; }
@@ -1102,19 +1190,41 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
 
 /* Publish section — public listing copy + capacity + address visibility + the
    Eventbrite publish panel. Only meaningful once the event is approved. */
+/* Two modes:
+   - UNLINKED (no Eventbrite event yet): the fields are STAGING for the first
+     push, with the Create-draft flow below them.
+   - LINKED: Eventbrite is the truth. The live card sits on top, the fields are
+     seeded from the LIVE listing once it loads (data-livewait marks them), and
+     the push button only appears when an edit makes them diverge from live. */
+function publishFieldsHTML(vals, dis, livewait){
+  // In linked mode all three (summary, description, capacity) seed from the LIVE
+  // listing, so they wait (dimmed) until loadEbLive fills them. The description
+  // is read as plain text, so editing it replaces the listing's rich formatting;
+  // leaving it untouched preserves it (the push skips an unchanged description).
+  const lw = livewait ? 'data-livewait disabled' : dis;
+  const descHint = livewait
+    ? '(plain text — editing replaces the listing’s rich formatting; leave it untouched to keep that formatting)'
+    : '(listing body)';
+  return `
+    <div class="fld full"><label>Public summary <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(vals.summary||'')}" ${lw} placeholder="One-line blurb for the listing"></div>
+    <div class="fld full"><label>Public description <span class="hint">${descHint}</span> <button type="button" class="btn xs" data-act="copy-internal" ${lw}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${lw} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea></div>
+    <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${lw} placeholder="e.g. 40"></div>
+    <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(vals.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${vals.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>`;
+}
 function renderPublish(ev, canEdit, locked){
   if(ev.status!=='approved') return `<div class="fld full"><div class="locknote">Approve this event under Planning to publish it to Eventbrite.</div></div>`;
   const dis=(!canEdit||locked)?'disabled':'';
-  return `
-    <div class="fld full"><label>Public summary <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing"></div>
-    <div class="fld full"><label>Public description <span class="hint">(listing body)</span> <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea></div>
-    <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40"></div>
-    <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(ev.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${ev.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>
-    ${publishPanelHTML(ev, canEdit && !locked)}`;
+  const staged={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
+  if(!ev.eventbriteId)
+    return `${publishFieldsHTML(staged, dis, false)}${publishPanelHTML(ev, canEdit && !locked)}`;
+  // linked: live card first; fields wait for the live values (staged shown
+  // dimmed meanwhile) unless the viewer can't edit at all.
+  return `${publishPanelHTML(ev, canEdit && !locked)}
+    ${publishFieldsHTML(staged, dis, dis==='')}`;
 }
 function wirePublish(panel, ev, canEdit, locked){
   const ci=panel.querySelector('[data-act="copy-internal"]');
-  if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; scheduleAutosave(); } });
+  if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; t.dispatchEvent(new Event('input',{bubbles:true})); scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
   if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); scheduleAutosave(); });
   wirePublishPanel(panel.querySelector('#f_publish'));

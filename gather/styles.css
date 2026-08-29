@@ -131,6 +131,11 @@ a.card:active{transform:translateY(1px);}
 .mine-item .what b{display:block;}
 .mine-item .what .sub{font-size:.85rem;color:var(--muted);}
 
+/* already registered on Eventbrite (lazy lookup) */
+.reg-pill{display:flex;align-items:center;justify-content:center;gap:.4rem;margin-bottom:.5rem;
+  padding:.45rem .8rem;border-radius:10px;font-weight:600;font-size:.9rem;
+  background:color-mix(in srgb,var(--ok) 16%,var(--card));color:var(--accent-ink);}
+
 /* ---- toast ---- */
 .toast{position:fixed;left:50%;bottom:1.25rem;transform:translateX(-50%);z-index:50;
   max-width:90%;padding:.6rem 1rem;border-radius:999px;background:var(--ink);color:var(--bg);

@@ -31,19 +31,23 @@ export function zonedToUtcISO(dateStr, timeStr, tz) {
 const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
 // event.* create/update body. Times are exact wall-clock (HH:MM) in `tz`.
-export function eventToEventbritePayload(ev, tz) {
-  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140)) || stripHtml(ev.description).slice(0, 140);
-  return {
-    event: {
-      'name': { html: ev.title || '' },
-      'start': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.start, tz) },
-      'end': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.end || ev.start, tz) },
-      'currency': 'USD',
-      'capacity': Number(ev.capacity) || undefined,
-      'listed': true,           // public by decision
-      'summary': summary,
-    },
+// summary is Eventbrite's short listing blurb. Critically it is OMITTED when we
+// have no staged summary — Eventbrite's read returns summary as null (it's
+// effectively write-only), so sending an empty string would silently WIPE a
+// blurb the organizer set. On create we fall back to a description snippet.
+export function eventToEventbritePayload(ev, tz, opts = {}) {
+  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140))
+    || (opts.isCreate ? stripHtml(ev.description).slice(0, 140) : '');
+  const event = {
+    'name': { html: ev.title || '' },
+    'start': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.start, tz) },
+    'end': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.end || ev.start, tz) },
+    'currency': 'USD',
+    'capacity': Number(ev.capacity) || undefined,
+    'listed': true,           // public by decision
   };
+  if (summary) event.summary = summary;
+  return { event };
 }
 
 // Free (v1) or paid (v2). Paid cost is "USD,<cents>".
@@ -101,4 +105,79 @@ export function venuePayload(venue, addressVisibility, area) {
 
 export function eventbriteWebUrl(eventId) {
   return `https://www.eventbrite.com/myevent?eid=${eventId}`;
+}
+
+// --- read side: live view + conflict guard + registration lookup -------------
+
+// Normalize `GET /events/{id}/?expand=venue,ticket_classes` into the compact
+// snapshot the plan app's Publish panel renders. Once an event is published,
+// Eventbrite is the truth — the planning row's publish fields are staging.
+export function ebEventSnapshot(body) {
+  const b = body || {};
+  const tcs = Array.isArray(b.ticket_classes) ? b.ticket_classes : [];
+  const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+  return {
+    name: (b.name && (b.name.text != null ? b.name.text : stripHtml(b.name.html))) || '',
+    summary: b.summary || '',                        // the short listing blurb (our Public summary)
+    status: b.status || '',                          // draft | live | started | ended | completed | canceled
+    url: b.url || '',
+    startLocal: (b.start && b.start.local) || '',    // wall clock 'YYYY-MM-DDTHH:MM:SS'
+    endLocal: (b.end && b.end.local) || '',
+    timezone: (b.start && b.start.timezone) || '',
+    capacity: num(b.capacity) || null,
+    listed: b.listed === true,
+    changed: b.changed || '',                        // ISO — bumped on any Eventbrite-side edit
+    venueName: (b.venue && b.venue.name) || '',
+    onlineEvent: b.online_event === true,
+    ticketClasses: tcs.length,
+    sold: tcs.reduce((n, t) => n + num(t.quantity_sold), 0),
+    ticketTotal: tcs.reduce((n, t) => n + num(t.quantity_total), 0),
+  };
+}
+
+// Whitespace-normalized text compare (the plan app edits the description as
+// PLAIN text seeded from the stripped live copy, so text-equality is the "did
+// the user actually change it?" signal).
+export function normText(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim();
+}
+
+// HTML -> readable plain text: block boundaries (<p>, <br>, <li>, headings)
+// become newlines so paragraphs survive; inline tags drop; entities unescape.
+function htmlToText(h) {
+  return String(h || '')
+    .replace(/<\s*(?:br|\/p|\/div|\/li|\/h[1-6])\s*\/?\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&#39;/gi, "'").replace(/&quot;/gi, '"')
+    .split('\n').map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+}
+
+// Plain text of the event's Structured Content (where our description lives).
+export function structuredContentText(getBody) {
+  const mods = (getBody && getBody.modules) || [];
+  return mods
+    .filter((m) => m && m.type === 'text')
+    .map((m) => htmlToText(m.data && m.data.body && m.data.body.text))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+// Was the Eventbrite copy edited after our last push? A 60s skew allowance
+// keeps our own push — which bumps `changed` moments before we stamp
+// `Last EB push at` — from ever reading as a conflict. Unknown timestamps
+// (old events pushed before the stamp existed) never block.
+export function editedSincePush(changedIso, lastPushIso) {
+  const c = Date.parse(changedIso || ''), p = Date.parse(lastPushIso || '');
+  if (!Number.isFinite(c) || !Number.isFinite(p)) return false;
+  return c > p + 60_000;
+}
+
+// Active attendee emails (lowercased) from a `GET /events/{id}/attendees/`
+// page. Cancelled/refunded rows and missing profiles are skipped.
+export function activeAttendeeEmails(attendees) {
+  return (attendees || [])
+    .filter((a) => a && !a.cancelled && !a.refunded)
+    .map((a) => String((a.profile && a.profile.email) || '').toLowerCase().trim())
+    .filter(Boolean);
 }
