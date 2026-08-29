@@ -3,6 +3,18 @@
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';
 
 // --- Coda relation-cell coercion -------------------------------------------
+// Coda's `rich` valueFormat returns TEXT as markdown: plain strings come back
+// fenced in triple backticks (```Main dish```) with markdown punctuation
+// backslash-escaped. stripRich undoes that encoding so callers always see the
+// raw text; non-strings pass through untouched.
+export function stripRich(s) {
+  if (typeof s !== 'string') return s;
+  let t = s;
+  const m = /^```([\s\S]*)```$/.exec(t);
+  if (m) t = m[1];
+  return t.replace(/\\([\\`*_~[\]()#+\-.!>|{}])/g, '$1');
+}
+
 // A relation cell reads back one of two ways depending on valueFormat:
 //   simpleWithArrays -> a display-name string (or array of them)
 //   rich (default)   -> a { rowId, name, ... } row-reference object (or array)
@@ -11,8 +23,8 @@ import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';
 // name-only cell so an id comparison can never silently pass on a display name.
 export function relName(cell) {
   const first = Array.isArray(cell) ? cell[0] : cell;
-  if (first && typeof first === 'object') return first.name || '';
-  return first == null ? '' : String(first);
+  if (first && typeof first === 'object') return stripRich(first.name || '');
+  return first == null ? '' : stripRich(String(first));
 }
 export function relId(cell) {
   const first = Array.isArray(cell) ? cell[0] : cell;
@@ -24,8 +36,8 @@ export function relId(cell) {
 // formats); this unwraps them so the projection sees primitives. Arrays -> first.
 export function plain(cell) {
   const f = Array.isArray(cell) ? cell[0] : cell;
-  if (f && typeof f === 'object') return f.name !== undefined ? f.name : (f.value !== undefined ? f.value : '');
-  return f == null ? '' : f;
+  if (f && typeof f === 'object') return stripRich(f.name !== undefined ? f.name : (f.value !== undefined ? f.value : ''));
+  return f == null ? '' : stripRich(f);
 }
 
 // --- People find-or-create (open signup) -----------------------------------
@@ -98,16 +110,35 @@ export function slotCells(input, cols, opts = {}) {
 }
 
 // --- Published + upcoming filter for the member home list --------------------
-// A planning row (id-keyed values) is visible to members when Published? is true
-// AND its effective date is today or later. Effective date = exact Date, else the
+// A planning row (id-keyed values) is visible to members when Published? is true,
+// its Status isn't Cancelled, AND its effective date is today or later. The
+// Cancelled guard matters because cancelling tears down the Eventbrite listing
+// but leaves the Published? checkbox set — without it a cancelled-after-publish
+// event would keep showing to members. Effective date = exact Date, else the
 // range window end/start, else the Month date. Undated published rows are kept
 // (shown) rather than hidden. `todayISO` = 'YYYY-MM-DD'.
 export function isPublishedUpcoming(row, cols, todayISO) {
   const v = (row && row.values) || {};
   const pub = plain(v[cols.published]);
   if (!(pub === true || pub === 'true')) return false;
+  if (String(plain(v[cols.status])).toLowerCase() === 'cancelled') return false;
+  return effectiveUpcoming(v, cols, todayISO);
+}
+
+// Planner preview: an APPROVED row that isn't published yet, same upcoming
+// window. Only ever shown to write-authorized callers (leads/council) so they
+// can see the member-facing sheet before publishing.
+export function isApprovedUpcoming(row, cols, todayISO) {
+  const v = (row && row.values) || {};
+  if (String(plain(v[cols.status])).toLowerCase() !== 'approved') return false;
+  return effectiveUpcoming(v, cols, todayISO);
+}
+
+// Effective date = exact Date, else the range window end/start, else the Month
+// date. Undated rows are kept (shown) rather than hidden.
+function effectiveUpcoming(v, cols, todayISO) {
   const eff = plain(v[cols.date]) || plain(v[cols.windowEnd]) || plain(v[cols.windowStart]) || null;
-  if (!eff) return true;                          // published but undated -> show
+  if (!eff) return true;
   return String(eff).slice(0, 10) >= String(todayISO).slice(0, 10);
 }
 
@@ -146,6 +177,7 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
   const ad = plain(v[PLANNING_COLS.allDay]);
   return {
     id: row && row.id,
+    ...(opts.preview ? { preview: true } : {}),   // approved-but-unpublished, planner eyes only
     title: plain(v[PLANNING_COLS.title]) || '',
     scheduling: plain(v[PLANNING_COLS.scheduling]) || null,
     date: plain(v[PLANNING_COLS.date]) || null,

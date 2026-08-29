@@ -1120,7 +1120,7 @@ function comingSoonHTML(sec){
 function renderSlots(ev, canEdit){
   if(!ev.id) return `<div class="slots-wrap"><div class="soon-teaser"><div class="soon-h">Volunteers & potluck</div><div class="hint">Save the event first, then add sign-up slots here.</div></div></div>`;
   return `<div class="slots-wrap" id="f_slots">
-      <p class="hint">Add potluck dishes or volunteer roles. These go live to members in <b>gather</b> once the event is published.</p>
+      <p class="hint">Add potluck dishes or volunteer roles. These go live to members in <b>gather</b> once the event is published — once approved, leads &amp; council can already preview them there.</p>
       <div class="slots-list" aria-live="polite"><div class="hint">Loading slots…</div></div>
       ${canEdit ? `<form class="slot-add" autocomplete="off">
         <div class="whenseg" id="f_slotkind">
@@ -1139,6 +1139,20 @@ async function wireSlots(panel, ev, canEdit){
   const wrap=panel.querySelector('#f_slots'); if(!wrap) return;
   const list=wrap.querySelector('.slots-list'); if(!list) return;   // save-first teaser has no list
   let slots=[];
+  // Optimistic overlay (mirrors the planning _recent stack): every mutation paints
+  // immediately, and a delayed reconcile pulls server truth. Coda reads are
+  // eventually consistent, so a refetch right after a write often misses the new
+  // row — `recent` keeps just-changed slots alive until the server catches up.
+  const recent=new Map();                                            // slotId -> {until, slot|deleted}
+  const remember=(id,rec)=>recent.set(id, Object.assign({until:Date.now()+8000}, rec));
+  const merge=(server)=>{
+    const now=Date.now();
+    for(const [id,rec] of [...recent]) if(rec.until<=now) recent.delete(id);
+    const out=server.filter(s=>{ const r=recent.get(s.id); return !(r&&r.deleted); })   // hide just-deleted
+                    .map(s=>{ const r=recent.get(s.id); return (r&&r.slot)?r.slot:s; });// keep just-edited
+    for(const [id,rec] of recent) if(rec.slot && !server.some(s=>s.id===id)) out.push(rec.slot); // keep just-created
+    return out;
+  };
   const paint=()=>{
     if(!slots.length){ list.innerHTML=`<div class="hint">No slots yet.${canEdit?' Add one below.':''}</div>`; return; }
     list.innerHTML=slots.map((s,i)=>`
@@ -1153,11 +1167,14 @@ async function wireSlots(panel, ev, canEdit){
         </span>`:''}
       </div>`).join('');
   };
+  const sortPaint=()=>{ slots.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); paint(); };
   const load=async()=>{
-    try{ slots=await DB.listSlots(ev.id); slots.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); }
-    catch(err){ list.innerHTML=`<div class="hint err">Couldn't load slots: ${esc(err.message||'')}</div>`; return; }
-    paint();
+    try{ slots=merge(await DB.listSlots(ev.id)); }
+    catch(err){ if(!slots.length) list.innerHTML=`<div class="hint err">Couldn't load slots: ${esc(err.message||'')}</div>`; return; }
+    sortPaint();
   };
+  let _reconT;
+  const reconcile=()=>{ clearTimeout(_reconT); _reconT=setTimeout(load, 2500); };   // let Coda index, then pull server truth
   const form=wrap.querySelector('.slot-add');
   if(form && canEdit){
     let kind='Potluck';
@@ -1170,7 +1187,12 @@ async function wireSlots(panel, ev, canEdit){
       const neededQty=Math.max(1, Math.min(99, parseInt(qtyEl.value,10)||1));
       const sortOrder=(slots.length?Math.max(...slots.map(s=>s.sortOrder||0)):0)+1;
       const btn=form.querySelector('button[type=submit]'); btn.disabled=true;
-      try{ await DB.createSlot({event:ev.id, kind, label, neededQty, sortOrder}); labEl.value=''; qtyEl.value='1'; await load(); labEl.focus(); }
+      try{
+        const r=await DB.createSlot({event:ev.id, kind, label, neededQty, sortOrder});
+        const s={id:(r&&r.id)||`tmp-${Date.now()}`, event:ev.id, kind, label, neededQty, sortOrder};
+        slots.push(s); remember(s.id,{slot:s}); sortPaint();          // show it now; server read lags
+        labEl.value=''; qtyEl.value='1'; labEl.focus(); reconcile();
+      }
       catch(err){ toast(err.message||'Could not add slot','err'); }
       finally{ btn.disabled=false; }
     });
@@ -1178,8 +1200,10 @@ async function wireSlots(panel, ev, canEdit){
   if(canEdit) list.addEventListener('click', async e=>{
     const row=e.target.closest('.slot-item'); if(!row) return; const id=row.dataset.id;
     if(e.target.closest('[data-del]')){
-      row.style.opacity='.5';
-      try{ await DB.removeSlot(id); await load(); }catch(err){ toast(err.message||'Could not remove','err'); row.style.opacity=''; }
+      const gone=slots.find(s=>s.id===id); if(!gone) return;
+      slots=slots.filter(s=>s.id!==id); remember(id,{deleted:true}); paint();   // drop it now
+      try{ await DB.removeSlot(id); reconcile(); }
+      catch(err){ recent.delete(id); slots.push(gone); sortPaint(); toast(err.message||'Could not remove','err'); }
       return;
     }
     const mv=e.target.closest('[data-move]');
@@ -1187,9 +1211,9 @@ async function wireSlots(panel, ev, canEdit){
       const dir=parseInt(mv.dataset.move,10), i=slots.findIndex(s=>s.id===id), j=i+dir;
       if(i<0||j<0||j>=slots.length) return;
       const a=slots[i], b=slots[j], ao=a.sortOrder||0, bo=b.sortOrder||0;
-      mv.disabled=true;
-      try{ await DB.updateSlot(a.id,{sortOrder:bo}); await DB.updateSlot(b.id,{sortOrder:ao}); await load(); }
-      catch(err){ toast(err.message||'Could not reorder','err'); mv.disabled=false; }
+      a.sortOrder=bo; b.sortOrder=ao; remember(a.id,{slot:a}); remember(b.id,{slot:b}); sortPaint();   // swap now
+      try{ await Promise.all([DB.updateSlot(a.id,{sortOrder:bo}), DB.updateSlot(b.id,{sortOrder:ao})]); reconcile(); }
+      catch(err){ a.sortOrder=ao; b.sortOrder=bo; recent.delete(a.id); recent.delete(b.id); sortPaint(); toast(err.message||'Could not reorder','err'); }
     }
   });
   load();

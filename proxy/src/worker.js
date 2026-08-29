@@ -30,7 +30,7 @@ import { verifyFirebaseIdToken, verifyFirebaseToken } from './auth.js';
 import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
-  claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, relId, plain,
+  claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, plain,
 } from './gather.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
@@ -442,7 +442,7 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         const m = await resolveMember(who, base, docId, auth);
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, {});
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { previewer: m.canWrite });
         if (res.error) return pass(res.error, cors);
         return json({ items: res.items }, 200, cors);
       }
@@ -453,7 +453,7 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         const m = await resolveMember(who, base, docId, auth);
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true });
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, previewer: m.canWrite });
         if (res.error) return pass(res.error, cors);
         if (!res.items.length) return json({ error: 'not found' }, 404, cors);
         return json(res.items[0], 200, cors);
@@ -717,13 +717,18 @@ async function memberAuth(request, env) {
 }
 // Resolve a verified member to their existing People row id — NO create. personId
 // is null if they've never been seen (reads still work; mineClaimed just stays off).
+// canWrite (Program Lead / Tribal Council) gates the approved-but-unpublished
+// planner preview in the event reads — same statuses that gate slot authoring.
 async function resolveMember(who, base, docId, auth) {
   const rows = await peopleRows(base, docId, auth);
   const row = findPersonByEmail(rows, who.email, PEOPLE_COLS);
+  const st = row && row.values[PEOPLE_COLS.leadershipStatus];
+  const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
   return {
     email: who.email,
     name: (row && row.values[PEOPLE_COLS.fullName]) || who.name || who.email,
     personId: row ? row.id : null,
+    canWrite: roles.some((s) => WRITE_STATUSES.includes(s)),
   };
 }
 // Open signup: match the verified email, else create a self-onboarded People row.
@@ -768,9 +773,15 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
     if (!sid) continue;
     (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
   }
-  let rows = ev.items.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, today));
+  // Members see published+upcoming only. Write-authorized callers (leads/council)
+  // ALSO see approved-but-unpublished rows, flagged `preview` for the tag in gather.
+  let rows = ev.items.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, today)
+    || (opts.previewer && isApprovedUpcoming(r, PLANNING_COLS, today)));
   if (opts.onlyId) rows = rows.filter((r) => r.id === opts.onlyId);
-  const items = rows.map((r) => projectEventForMember(r, slotsByEvent.get(r.id) || [], claimsBySlot, callerName, { includeClaimants: !!opts.includeClaimants, callerId }));
+  const items = rows.map((r) => projectEventForMember(r, slotsByEvent.get(r.id) || [], claimsBySlot, callerName, {
+    includeClaimants: !!opts.includeClaimants, callerId,
+    preview: !!opts.previewer && !isPublishedUpcoming(r, PLANNING_COLS, today),
+  }));
   items.sort((a, b) => String(a.date || a.windowStart || '').localeCompare(String(b.date || b.windowStart || '')));
   return { items };
 }

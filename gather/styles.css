@@ -93,6 +93,9 @@ a.card:active{transform:translateY(1px);}
   padding:.25rem .6rem;border-radius:999px;background:var(--chip);color:var(--brand-ink);}
 .pill.open{background:color-mix(in srgb,var(--accent) 16%,#fff);color:var(--accent-ink);}
 .pill.full{background:color-mix(in srgb,var(--muted) 14%,#fff);color:var(--muted);}
+/* approved-but-unpublished: visible to leads/council only (dashed = draft, like plan) */
+.pill.preview{background:color-mix(in srgb,var(--brand) 10%,#fff);color:var(--brand);border:1px dashed var(--brand);}
+.preview-note{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.35rem 0 .6rem;font-size:.85rem;color:var(--muted);}
 
 /* ---- detail ---- */
 .back{display:inline-flex;align-items:center;gap:.3rem;color:var(--muted);font-size:.9rem;margin-bottom:.75rem;}

@@ -4,6 +4,7 @@ import {
   slotRemaining, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
+  isApprovedUpcoming, stripRich, plain,
 } from '../src/gather.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, PEOPLE_COLS } from '../src/coda-columns.js';
 
@@ -165,6 +166,46 @@ test('slotCells writes the Event relation only on create, only provided fields',
   assert.equal(u[SLOT_COLS.label], 'Setup');
 });
 
+test('stripRich unwraps rich-format markdown text (fences + escapes)', () => {
+  // Coda valueFormat=rich fences text values in ``` and backslash-escapes markdown
+  assert.equal(stripRich('```Main dish```'), 'Main dish');
+  assert.equal(stripRich('```Potluck```'), 'Potluck');
+  assert.equal(stripRich('Setup 5\\-6pm'), 'Setup 5-6pm');
+  assert.equal(stripRich('```multi\nline```'), 'multi\nline');
+  assert.equal(stripRich('plain'), 'plain');                       // untouched
+  assert.equal(stripRich(true), true);                             // non-strings pass through
+  assert.equal(stripRich(3), 3);
+});
+
+test('plain / relName strip the rich-format fencing from strings and object names', () => {
+  assert.equal(plain('```PJ Library Musical Shabbat```'), 'PJ Library Musical Shabbat');
+  assert.equal(plain({ name: '```Potluck```' }), 'Potluck');
+  assert.equal(plain(['```Dessert```']), 'Dessert');
+  assert.equal(plain(true), true);                                 // booleans untouched (Published?)
+  assert.equal(relName({ rowId: 'i-1', name: '```Leah Cohen```' }), 'Leah Cohen');
+});
+
+test('projectEventForMember: preview flag set only when asked', () => {
+  const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'X' } };
+  assert.equal(projectEventForMember(row, [], {}, '').preview, undefined);
+  assert.equal(projectEventForMember(row, [], {}, '', { preview: true }).preview, true);
+});
+
+test('isApprovedUpcoming gates on Status=Approved AND effective date', () => {
+  const mk = (v) => ({ values: v });
+  const today = '2026-08-24';
+  // approved + future -> preview-eligible (rich reads fence the select value)
+  assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: '```Approved```', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), true);
+  assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: 'Approved', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), true);
+  // not approved -> never, regardless of date
+  assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: 'Proposed', [PLANNING_COLS.date]: '2027-01-01' }), PLANNING_COLS, today), false);
+  assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: 'Cancelled', [PLANNING_COLS.date]: '2027-01-01' }), PLANNING_COLS, today), false);
+  assert.equal(isApprovedUpcoming(mk({}), PLANNING_COLS, today), false);
+  // approved + past -> hidden; undated -> shown
+  assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: 'Approved', [PLANNING_COLS.date]: '2026-08-01' }), PLANNING_COLS, today), false);
+  assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: 'Approved' }), PLANNING_COLS, today), true);
+});
+
 test('isPublishedUpcoming gates on Published? AND effective date', () => {
   const mk = (v) => ({ values: v });
   const today = '2026-08-24';
@@ -179,4 +220,17 @@ test('isPublishedUpcoming gates on Published? AND effective date', () => {
   // published, undated -> shown; falls back to window end
   assert.equal(isPublishedUpcoming(mk({ [PLANNING_COLS.published]: true }), PLANNING_COLS, today), true);
   assert.equal(isPublishedUpcoming(mk({ [PLANNING_COLS.published]: true, [PLANNING_COLS.windowEnd]: '2026-12-01' }), PLANNING_COLS, today), true);
+});
+
+test('isPublishedUpcoming hides cancelled events even when Published? is still set', () => {
+  const mk = (v) => ({ values: v });
+  const today = '2026-08-24';
+  // cancel tears down the EB listing but leaves Published? checked — must still hide
+  assert.equal(isPublishedUpcoming(mk({ [PLANNING_COLS.published]: true, [PLANNING_COLS.status]: 'Cancelled', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), false);
+  // rich reads fence the select value
+  assert.equal(isPublishedUpcoming(mk({ [PLANNING_COLS.published]: true, [PLANNING_COLS.status]: '```Cancelled```', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), false);
+  // any other status stays visible
+  assert.equal(isPublishedUpcoming(mk({ [PLANNING_COLS.published]: true, [PLANNING_COLS.status]: 'Approved', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), true);
+  // and a cancelled row is not preview-eligible either (no leak to leads)
+  assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: 'Cancelled', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), false);
 });

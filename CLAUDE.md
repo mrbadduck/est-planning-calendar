@@ -194,6 +194,11 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   backing, not browser storage.
 - After any JS edit, sanity-check by extracting the `<script>` and running
   `node --check` on it.
+- **Coda `valueFormat=rich` fences text values in triple backticks** (```` ```Main dish``` ````)
+  and backslash-escapes markdown punctuation. Every rich read must unwrap via
+  `stripRich` in `proxy/src/gather.js` — `plain()`/`relName()` already do; never
+  pass a rich cell string to output any other way (this once leaked ```-fenced
+  titles/labels into both apps).
 - **Reference Coda columns by stable *id*, not name** — column names change freely
   in the doc and silently break name-keyed reads. IDs live in one place,
   `proxy/src/coda-columns.js` (each id commented with its human name); read rows
