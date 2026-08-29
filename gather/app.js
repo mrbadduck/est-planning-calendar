@@ -4,7 +4,12 @@
  * shared/auth-firebase.js -> window.estAuth) owns identity; we send the ID token
  * as a Bearer header. All member routes require that token. */
 
-const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
+// Dev affordance: point the app at a different Worker (e.g. a `wrangler
+// versions upload` preview) via localStorage.setItem('est-proxy-base', url).
+const PROXY_BASE = (() => {
+  const prod = 'https://est-planning-proxy.eastsidetribe.workers.dev';
+  try { return localStorage.getItem('est-proxy-base') || prod; } catch (_) { return prod; }
+})();
 
 const state = {
   idToken: null,        // latest Firebase ID token (in memory only)

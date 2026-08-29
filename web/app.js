@@ -265,7 +265,14 @@ function eventToCodaCells(e){
    doc-scoped token server-side and gates writes on Google sign-in + role.
    References (holidays/partners) stay on the built-in overlays until Hebcal
    wiring (later). */
-const PROXY_BASE = 'https://est-planning-proxy.eastsidetribe.workers.dev';
+// Dev affordance: point the app at a different Worker (e.g. a `wrangler
+// versions upload` preview) without editing code —
+//   localStorage.setItem('est-proxy-base','https://<version>-est-planning-proxy...workers.dev')
+// then reload; localStorage.removeItem('est-proxy-base') to go back to prod.
+const PROXY_BASE = (() => {
+  const prod = 'https://est-planning-proxy.eastsidetribe.workers.dev';
+  try { return localStorage.getItem('est-proxy-base') || prod; } catch (_) { return prod; }
+})();
                          // ← deployed Worker. CORS allows the deploy origin plus
                          //   http://localhost:8080 for local dev (see wrangler.toml).
 
