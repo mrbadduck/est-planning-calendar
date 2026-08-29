@@ -83,6 +83,14 @@
   .signin-email input{font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--hair-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
   .signin-email input:focus{outline:2px solid var(--accent-tint);outline-offset:1px;border-color:var(--accent)}
   .gate-busy{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;justify-content:center}
+  .contact-line{font-size:11.5px;color:var(--muted);margin:12px 0 0;text-align:center}
+  .contact-line a{color:var(--accent);font-weight:600;text-decoration:underline}
+  .signin-sent{text-align:center;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .signin-sent .sent-emoji{font-size:26px;line-height:1}
+  .signin-sent b{font-size:14px}
+  .signin-sent p{margin:2px 0;font-size:12.5px;line-height:1.5;color:var(--ink)}
+  .signin-sent .sent-spam{color:var(--muted);font-size:12px}
+  .signin-sent .btn{margin-top:6px}
   .acct{position:relative;display:flex}
   .avatar{
     width:30px;height:30px;flex:0 0 auto;border-radius:50%;border:1px solid var(--hair-strong);

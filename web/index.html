@@ -71,12 +71,16 @@
     <h1>EST Planning Calendar</h1>
     <p>Sign in to view and plan East Side Tribe programming.</p>
     <div class="signin-card" id="gateCard" hidden>
-      <button class="btn primary block" id="gateGoogle">Continue with Google</button>
-      <div class="signin-or">or</div>
-      <form id="gateEmailForm" class="signin-email">
-        <input id="gateEmailInput" type="email" required placeholder="you@email.com" autocomplete="email">
-        <button class="btn block" type="submit">Email me a link</button>
-      </form>
+      <div id="gateForm">
+        <button class="btn primary block" id="gateGoogle">Continue with Google</button>
+        <div class="signin-or">or</div>
+        <form id="gateEmailForm" class="signin-email">
+          <input id="gateEmailInput" type="email" required placeholder="you@email.com" autocomplete="email">
+          <button class="btn block" type="submit">Email me a link</button>
+        </form>
+        <p class="contact-line" id="gateContact">Trouble signing in? <a href="mailto:eastsidetribenashville@gmail.com">Email us</a></p>
+      </div>
+      <div id="gateSent" hidden></div>
     </div>
     <div class="gate-busy" id="gateBusy"><span class="ndoc-spin"></span> One moment…</div>
   </div>

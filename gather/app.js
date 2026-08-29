@@ -113,15 +113,33 @@ document.addEventListener('click', (e) => {
 });
 
 /* ---------- sign-in (shared wiring for the header menu + inline CTAs) ---------- */
+const SUPPORT_EMAIL = 'eastsidetribenashville@gmail.com';
+const LINK_SENDER = 'noreply@est-planning-calendar.firebaseapp.com';
+const contactHTML = (label = 'Trouble signing in?') =>
+  `<p class="contact-line">${label} <a href="mailto:${SUPPORT_EMAIL}">Email us</a></p>`;
+
 function wireSignIn(root){
   const g = root.querySelector('[data-signin-google]');
-  if (g) g.addEventListener('click', async () => { try { await window.estAuth.signInWithGoogle(); } catch (_) { toast('Google sign-in failed', 'err'); } });
+  if (g) g.addEventListener('click', async () => {
+    try { await window.estAuth.signInWithGoogle(); }
+    catch (err) {
+      // popup blocked / closed / not-allowed — tell them how to recover
+      const msg = /popup/i.test(String(err && err.code || '')) ? 'Pop-up blocked — allow pop-ups or use the email link instead' : 'Google sign-in didn’t work — try the email link instead';
+      toast(msg, 'err');
+    }
+  });
   const f = root.querySelector('form[data-signin-email]');
   if (f) f.addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = (f.querySelector('input[type=email]').value || '').trim(); if (!email) return;
-    try { await window.estAuth.sendEmailLink(email); toast('Check your email for a sign-in link'); }
-    catch (_) { toast('Could not send sign-in link', 'err'); }
+    const btn = f.querySelector('button[type=submit]'); if (btn) btn.disabled = true;
+    try {
+      await window.estAuth.sendEmailLink(email);
+      root.innerHTML = signInSentHTML(email);          // persistent confirmation, not a fleeting toast
+      const again = root.querySelector('[data-signin-again]');
+      if (again) again.addEventListener('click', () => { root.innerHTML = signInFormHTML(); wireSignIn(root); });
+    }
+    catch (_) { toast('Could not send the link — check the address, or email us', 'err'); if (btn) btn.disabled = false; }
   });
 }
 function signInFormHTML(){
@@ -131,7 +149,18 @@ function signInFormHTML(){
       <input type="email" required placeholder="you@email.com" autocomplete="email">
       <button class="btn accent" type="submit">Email me a link</button>
     </form>
-    <p class="muted" style="font-size:.78rem;margin:.75rem 0 0">New here? Signing in adds you to the tribe — no account setup needed.</p>`;
+    <p class="muted" style="font-size:.78rem;margin:.75rem 0 .2rem">New here? Signing in adds you to the tribe — no account setup needed.</p>
+    ${contactHTML()}`;
+}
+function signInSentHTML(email){
+  return `<div class="signin-sent">
+      <div class="sent-emoji">✉️</div>
+      <b>Check your email</b>
+      <p>We sent a sign-in link to <b>${esc(email)}</b>. Open it on this device to finish signing in.</p>
+      <p class="sent-spam">Don’t see it within a minute? Check your <b>spam / junk</b> folder — the link comes from <b>${LINK_SENDER}</b>.</p>
+      <button type="button" class="btn ghost sm" data-signin-again>Use a different email</button>
+      ${contactHTML('Still stuck?')}
+    </div>`;
 }
 
 /* ---------- router ---------- */
@@ -177,7 +206,7 @@ async function renderHome(){
   view().innerHTML = `<div class="loading"><span class="spinner"></span> Loading events…</div>`;
   let items;
   try { items = (await api('/events')).items || []; }
-  catch (e){ view().innerHTML = `<div class="empty"><h2>Couldn’t load events</h2><p>${esc(e.message)}</p></div>`; return; }
+  catch (e){ view().innerHTML = `<div class="empty"><h2>Couldn’t load events</h2><p>Try refreshing in a moment.</p>${contactHTML('Still down?')}</div>`; return; }
   if (!items.length){ view().innerHTML = `<div class="empty"><h2>Nothing published yet</h2><p>Check back soon — new events show up here as they’re announced.</p></div>`; return; }
   const cards = items.map((ev) => `
     <a class="card" href="#/event/${encodeURIComponent(ev.id)}">
@@ -200,7 +229,7 @@ async function renderDetail(id){
   view().innerHTML = `<div class="loading"><span class="spinner"></span> Loading…</div>`;
   let ev;
   try { ev = await api(`/events/${encodeURIComponent(id)}`); }
-  catch (e){ view().innerHTML = `<a class="back" href="#/">← All events</a><div class="empty"><h2>Couldn’t load this event</h2><p>${esc(e.message)}</p></div>`; return; }
+  catch (e){ view().innerHTML = `<a class="back" href="#/">← All events</a><div class="empty"><h2>Couldn’t load this event</h2><p>Try refreshing in a moment.</p>${contactHTML('Still down?')}</div>`; return; }
   _detail = { id, ev, recent: new Map(), reconT: 0 };
   paintDetail();
 }
@@ -387,7 +416,7 @@ async function renderMine(){
   view().innerHTML = `<div class="loading"><span class="spinner"></span> Loading your sign-ups…</div>`;
   let items;
   try { items = (await api('/me/claims')).items || []; }
-  catch (e){ view().innerHTML = `<div class="empty"><h2>Couldn’t load your sign-ups</h2><p>${esc(e.message)}</p></div>`; return; }
+  catch (e){ view().innerHTML = `<div class="empty"><h2>Couldn’t load your sign-ups</h2><p>Try refreshing in a moment.</p>${contactHTML('Still down?')}</div>`; return; }
   if (!items.length){ view().innerHTML = `<div class="empty"><h2>No sign-ups yet</h2><p>Browse <a href="#/" style="color:var(--brand);font-weight:600">events</a> and claim a spot.</p></div>`; return; }
   const rows = items.map((c) => `
     <div class="mine-item" data-claim-row="${esc(c.claimId)}">
@@ -415,7 +444,11 @@ async function renderMine(){
 /* ---------- boot ---------- */
 function start(){
   window.estAuth.init({ onToken: onFirebaseToken, onSignedOut: onFirebaseSignedOut });
-  window.estAuth.completeEmailLinkIfPresent().catch(() => {});
+  // A magic-link click that fails (expired, already used, wrong email) used to
+  // dead-end silently on the signed-out app. Tell them how to recover.
+  window.estAuth.completeEmailLinkIfPresent().catch(() => {
+    toast('That sign-in link didn’t work — it may have expired. Tap “Sign in” to get a fresh one.', 'err');
+  });
 }
 route();   // show the loading state until Firebase resolves
 if (window.estAuth) start();
