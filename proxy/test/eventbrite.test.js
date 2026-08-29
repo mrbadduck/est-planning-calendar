@@ -103,6 +103,7 @@ test('ebEventSnapshot normalizes the expanded event read', () => {
     ticket_classes: [{ quantity_sold: 12, quantity_total: 40 }, { quantity_sold: 3, quantity_total: 10 }],
   });
   assert.equal(s.name, 'Break Fast');
+  assert.equal(s.summary, '');
   assert.equal(s.status, 'live');
   assert.equal(s.startLocal, '2026-09-22T18:00:00');
   assert.equal(s.capacity, 40);

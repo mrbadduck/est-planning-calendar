@@ -114,6 +114,7 @@ export function ebEventSnapshot(body) {
   const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
   return {
     name: (b.name && (b.name.text != null ? b.name.text : stripHtml(b.name.html))) || '',
+    summary: b.summary || '',                        // the short listing blurb (our Public summary)
     status: b.status || '',                          // draft | live | started | ended | completed | canceled
     url: b.url || '',
     startLocal: (b.start && b.start.local) || '',    // wall clock 'YYYY-MM-DDTHH:MM:SS'

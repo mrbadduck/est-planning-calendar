@@ -381,8 +381,9 @@ export default {
             if (!r.ok) return fail('update', r);
           }
 
-          // 2. venue (empty -> online; named -> resolve/create + attach)
-          const venueRes = await ensureEbVenue(env, base, docId, auth, V, ev.addressVisibility, ebId);
+          // 2. venue (named -> resolve/create + attach; empty -> online on CREATE
+          // only, untouched on update — see ensureEbVenue)
+          const venueRes = await ensureEbVenue(env, base, docId, auth, V, ev.addressVisibility, ebId, !ev.ebId);
           if (venueRes && venueRes.error) return fail('venue', venueRes.error);
 
           // 3. ticket class (free v1). Updating an EXISTING class with no staged
@@ -1129,10 +1130,15 @@ async function logPublish(env, base, docId, auth, rec) {
 //     venue_id on the event.
 // Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
 const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
-async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId) {
+async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId, isCreate) {
   const names = Array.isArray(V['Venue']) ? V['Venue'] : (V['Venue'] ? [V['Venue']] : []);
   const name = names[0];
   if (!name) {
+    // No staged venue: only a brand-new event gets marked online (it must have
+    // SOME location posture to publish). On an update, leave the Eventbrite
+    // side alone — a venue set directly in Eventbrite must not be clobbered
+    // into "online" just because the planning row never had one.
+    if (!isCreate) return null;
     const r = await ebUpdateEvent(env, ebId, { event: { online_event: true } });
     return r.ok ? null : { error: r };
   }
@@ -1146,9 +1152,11 @@ async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId)
   const found = out.ok ? out.items.find(row => String((row.values || {})['Venue Name'] || '') === String(name)) : null;
   const realAddress = (found && found.values['Address']) || '';
   // A public venue with no street address on file can't be created (Eventbrite
-  // requires one) → fall back to online rather than 400. Registrants-only always
-  // has a coarse area, so it's fine.
+  // requires one) → on CREATE fall back to online rather than 400; on update,
+  // leave the Eventbrite-side venue alone. Registrants-only always has a coarse
+  // area, so it's fine.
   if (!registrantsOnly && !realAddress) {
+    if (!isCreate) return null;
     const r = await ebUpdateEvent(env, ebId, { event: { online_event: true } });
     return r.ok ? null : { error: r };
   }

@@ -2,7 +2,7 @@
     color-scheme:light;
     --surface:#fff;            /* raised surfaces: modal, cards, inputs, buttons */
     --soft:#F1F0EC;            /* subtle hover / passive fills */
-    --soft2:var(--soft2);           /* disabled fills */
+    --soft2:#F7F6F3;           /* disabled fills */
     --mixbase:#fff;            /* chips mix their program hue against this */
     --mixink:#000;             /* ...and their text toward this */
     --paper:#FBFAF7; --ink:#1C1B22; --muted:#6B6A76; --faint:#9A9AA5;
@@ -492,8 +492,8 @@
   .eb-facts{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;font-size:12.5px;color:var(--muted);
     padding:8px 10px;border:1px solid var(--hair);border-radius:8px;background:var(--surface)}
   .eb-facts .eb-name{color:var(--ink);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .eb-diff{font-size:12px;color:#B07D2B}
-  .eb-insync{font-size:12px;color:#3C7A55}
+  .eb-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  [data-livewait]{opacity:.55}
   .slots-list{display:flex;flex-direction:column;gap:14px}
   .slot-group{display:flex;flex-direction:column;gap:6px}
   .slot-group-h{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
@@ -576,7 +576,5 @@
     .savestat.error{color:#E08585}
     .ndoc-warn{color:#D9B96C}
     .weekhead .wd.we{color:#C9938A}
-    .eb-diff{color:#D9B96C}
-    .eb-insync{color:#82C89D}
     .toast{color:var(--paper)}
   }
