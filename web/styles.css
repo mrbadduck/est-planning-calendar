@@ -315,7 +315,7 @@
   .fld .hint{text-transform:none;font-weight:400;color:var(--faint);letter-spacing:0}
   /* when/time: date + inline all-day, then side-by-side times (only when timed) */
   .daterow{display:flex;gap:12px;align-items:center}
-  .daterow .fld{flex:0 0 50%;max-width:50%}   /* Date field 50% wide */
+  .daterow > input{flex:0 0 50%;max-width:50%}   /* Date field 50% wide; All-day centers beside it */
   /* bordered clusters for When / Where */
   .fieldgroup{border:1px solid var(--hair);border-radius:9px;padding:12px;display:flex;flex-direction:column;gap:10px;background:color-mix(in srgb,var(--soft2) 45%,transparent)}
   .fieldgroup-h{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
