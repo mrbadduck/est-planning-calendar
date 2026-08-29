@@ -364,7 +364,7 @@ export default {
           // 1. create-once (store id immediately so a retry never duplicates)
           let ebId = ev.ebId;
           if (!ebId) {
-            const r = await ebCreateEvent(env, eventToEventbritePayload(ev, tz));
+            const r = await ebCreateEvent(env, eventToEventbritePayload(ev, tz, { isCreate: true }));
             if (!r.ok) return fail('create', r);
             ebId = r.body.id;
             // Verify the id write-back: if Coda fails to persist the id, a retry
@@ -402,7 +402,13 @@ export default {
           // 4. structured content (description body) — read current version, write current+1.
           // SC write shape ({publish:true}+modules, version in path) verified against the live API in Task 6.
           // page_version_number comes back as a STRING; nextScVersion coerces it (see helper).
-          const scText = ev.publicDescription || V['Event Description'] || '';
+          // On UPDATE, the description is ONLY the staged Public description — no
+          // fallback to the internal Event Description, which would clobber the
+          // live public listing. (Create still falls back so a new event gets a
+          // body.) Combined with the skip below, an empty staged description on
+          // an update leaves the live description — and its rich formatting —
+          // untouched.
+          const scText = ev.publicDescription || (ev.ebId ? '' : (V['Event Description'] || ''));
           const writeSc = async () => {
             const sc = await ebGetStructuredContent(env, ebId);
             // Our writes are PLAIN text (a single text module), but the listing may

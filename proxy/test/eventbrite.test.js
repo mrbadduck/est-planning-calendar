@@ -15,10 +15,10 @@ test('zonedToUtcISO converts Central wall-time to UTC (CST, winter, crosses midn
   assert.equal(zonedToUtcISO('2026-01-15', '18:00', TZ), '2026-01-16T00:00:00Z');
 });
 
-test('eventToEventbritePayload builds create body with utc+tz, currency, capacity, summary', () => {
+test('eventToEventbritePayload builds create body with utc+tz, currency, capacity; create falls back to description snippet for summary', () => {
   const ev = { title: 'Kabbalat Shabbat', date: '2026-09-01', start: '18:00', end: '20:00',
     capacity: 40, description: 'Come sing with us. '.repeat(20) };
-  const p = eventToEventbritePayload(ev, TZ);
+  const p = eventToEventbritePayload(ev, TZ, { isCreate: true });
   assert.equal(p.event.name.html, 'Kabbalat Shabbat');
   assert.deepEqual(p.event.start, { timezone: TZ, utc: '2026-09-01T23:00:00Z' });
   assert.deepEqual(p.event.end, { timezone: TZ, utc: '2026-09-02T01:00:00Z' });
@@ -34,6 +34,16 @@ test('eventToEventbritePayload prefers publicSummary for summary (<=140)', () =>
   const p = eventToEventbritePayload(ev, TZ);
   assert.equal(p.event.summary, 'Sing in Shabbat with us.');
   assert.ok(p.event.summary.length <= 140);
+});
+
+test('eventToEventbritePayload OMITS summary on update when none staged (never wipes the live blurb)', () => {
+  const ev = { title: 'Kabbalat Shabbat', date: '2026-09-01', start: '18:00', end: '20:00', description: 'internal copy' };
+  const upd = eventToEventbritePayload(ev, TZ);                 // no isCreate, no publicSummary
+  assert.equal('summary' in upd.event, false);                 // omitted -> Eventbrite keeps its summary
+  const crt = eventToEventbritePayload(ev, TZ, { isCreate: true });
+  assert.equal(crt.event.summary, 'internal copy');            // create still seeds one
+  // a staged summary is always sent (update included)
+  assert.equal(eventToEventbritePayload({ ...ev, publicSummary: 'Blurb' }, TZ).event.summary, 'Blurb');
 });
 
 test('ticketClassPayload — free ticket uses capacity', () => {

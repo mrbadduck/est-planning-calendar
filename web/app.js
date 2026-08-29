@@ -790,15 +790,20 @@ function seedLiveFields(st){
   const L=st.live||{};
   const s=document.getElementById('f_pubsummary'), d=document.getElementById('f_pubdesc'), c=document.getElementById('f_capacity');
   if(!s||!d||!c) return;
-  const waiting=s.hasAttribute('data-livewait');
-  if(waiting){
+  if(s.hasAttribute('data-livewait')){
+    // Seed all three from the LIVE listing, then mirror those live values into
+    // staging (Coda) so "what you see is what gets pushed": a later edit to one
+    // field pushes the others back unchanged (an unchanged description matches →
+    // its rich formatting is preserved; capacity/summary are no-ops).
     s.value=L.summary||''; d.value=L.descriptionText||''; c.value=L.capacity!=null?L.capacity:'';
     [s,d,c].forEach(el=>{ el.disabled=false; el.removeAttribute('data-livewait'); });
     document.querySelectorAll('[data-act="copy-internal"][data-livewait]').forEach(b=>{ b.disabled=false; b.removeAttribute('data-livewait'); });
-    // keep the in-memory event + Coda-autosave baseline consistent with what's
-    // now shown, so a later user edit autosaves the live-seeded values too
-    if(editing){ editing.publicSummary=s.value; editing.publicDescription=d.value; editing.capacity=c.value; }
-    _lastSavedSnap=snap(readForm());
+    if(editing){
+      const cap = c.value!==''?Number(c.value):'';
+      const changed = String(editing.publicSummary??'')!==s.value || String(editing.publicDescription??'')!==d.value || String(editing.capacity??'')!==String(cap);
+      editing.publicSummary=s.value; editing.publicDescription=d.value; editing.capacity=cap;
+      if(changed && editing.id) scheduleAutosave();   // persist live values to staging so displayed == pushed
+    }
   }
   const avVal=()=>{ const b=document.querySelector('#f_addrvis button[aria-pressed="true"]'); return b?b.dataset.addrvis:'Public'; };
   const baseline=JSON.stringify([s.value,d.value,String(c.value),avVal()]);
@@ -1192,10 +1197,17 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
      seeded from the LIVE listing once it loads (data-livewait marks them), and
      the push button only appears when an edit makes them diverge from live. */
 function publishFieldsHTML(vals, dis, livewait){
+  // In linked mode all three (summary, description, capacity) seed from the LIVE
+  // listing, so they wait (dimmed) until loadEbLive fills them. The description
+  // is read as plain text, so editing it replaces the listing's rich formatting;
+  // leaving it untouched preserves it (the push skips an unchanged description).
   const lw = livewait ? 'data-livewait disabled' : dis;
+  const descHint = livewait
+    ? '(plain text — editing replaces the listing’s rich formatting; leave it untouched to keep that formatting)'
+    : '(listing body)';
   return `
     <div class="fld full"><label>Public summary <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(vals.summary||'')}" ${lw} placeholder="One-line blurb for the listing"></div>
-    <div class="fld full"><label>Public description <span class="hint">${livewait?'(plain text — editing this replaces any rich formatting on Eventbrite; untouched, the formatting is left alone)':'(listing body)'}</span> <button type="button" class="btn xs" data-act="copy-internal" ${lw}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${lw} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea></div>
+    <div class="fld full"><label>Public description <span class="hint">${descHint}</span> <button type="button" class="btn xs" data-act="copy-internal" ${lw}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${lw} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea></div>
     <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${lw} placeholder="e.g. 40"></div>
     <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(vals.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${vals.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>`;
 }

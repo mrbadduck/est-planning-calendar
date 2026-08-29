@@ -31,19 +31,23 @@ export function zonedToUtcISO(dateStr, timeStr, tz) {
 const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 
 // event.* create/update body. Times are exact wall-clock (HH:MM) in `tz`.
-export function eventToEventbritePayload(ev, tz) {
-  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140)) || stripHtml(ev.description).slice(0, 140);
-  return {
-    event: {
-      'name': { html: ev.title || '' },
-      'start': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.start, tz) },
-      'end': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.end || ev.start, tz) },
-      'currency': 'USD',
-      'capacity': Number(ev.capacity) || undefined,
-      'listed': true,           // public by decision
-      'summary': summary,
-    },
+// summary is Eventbrite's short listing blurb. Critically it is OMITTED when we
+// have no staged summary — Eventbrite's read returns summary as null (it's
+// effectively write-only), so sending an empty string would silently WIPE a
+// blurb the organizer set. On create we fall back to a description snippet.
+export function eventToEventbritePayload(ev, tz, opts = {}) {
+  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140))
+    || (opts.isCreate ? stripHtml(ev.description).slice(0, 140) : '');
+  const event = {
+    'name': { html: ev.title || '' },
+    'start': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.start, tz) },
+    'end': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.end || ev.start, tz) },
+    'currency': 'USD',
+    'capacity': Number(ev.capacity) || undefined,
+    'listed': true,           // public by decision
   };
+  if (summary) event.summary = summary;
+  return { event };
 }
 
 // Free (v1) or paid (v2). Paid cost is "USD,<cents>".
