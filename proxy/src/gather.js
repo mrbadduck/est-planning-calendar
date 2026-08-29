@@ -71,6 +71,15 @@ export function friendlyName(first, last, full) {
   return 'Anonymous Neighbor';
 }
 
+// Coerce a URL cell. Rich reads return link columns as urlref objects whose
+// `name` is often EMPTY ({ url, name:'', type:'urlref' }) — plain() would take
+// the empty name and drop the link, so URLs get their own coercion.
+export function urlOf(cell) {
+  const f = Array.isArray(cell) ? cell[0] : cell;
+  if (f && typeof f === 'object') return String(f.url || f.href || '');
+  return f == null ? '' : stripRich(String(f));
+}
+
 // --- People find-or-create (open signup) -----------------------------------
 // Split a display name: first = first token, last = the rest.
 export function splitName(name) {
@@ -236,7 +245,7 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
     summary: plain(v[PLANNING_COLS.publicSummary]) || '',
     description: plain(v[PLANNING_COLS.publicDescription]) || '',
     location: relName(v[PLANNING_COLS.venue]) || relName(v[PLANNING_COLS.venueOther]) || '',   // coarse: venue name/other, no street address
-    eventbriteUrl: plain(v[PLANNING_COLS.eventbriteUrl]) || '',
+    eventbriteUrl: urlOf(v[PLANNING_COLS.eventbriteUrl]) || '',
     // hasSlots lets a signed-out browser show the "sign in to volunteer" CTA;
     // opts.anonymous strips the sheet itself (labels, counts, claimants) —
     // slot details are for signed-in members only.
