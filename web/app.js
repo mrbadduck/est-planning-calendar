@@ -1150,7 +1150,7 @@ function renderPlanning(ev, canEdit, locked, canApprove){
       <div class="fieldgroup-h">Where</div>
       <div class="whenseg vtype-seg" id="f_vtype_seg">
         <button type="button" data-vtype="" aria-pressed="${!ev.venueType}" ${dis}>Any</button>
-        ${VENUE_TYPES.filter(t=>t.name!=='Other').map(t=>`<button type="button" data-vtype="${t.id}" aria-pressed="${t.id===ev.venueType}" ${dis}>${esc(t.name)}</button>`).join('')}
+        ${VENUE_TYPES.map(t=>`<button type="button" data-vtype="${t.id}" aria-pressed="${t.id===ev.venueType}" ${dis}>${esc(t.name)}</button>`).join('')}
       </div>
       <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
     </div>
