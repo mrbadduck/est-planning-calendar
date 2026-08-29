@@ -352,7 +352,8 @@ const CodaSource = {
   async update(e){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(e.id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells:eventToCodaCells(e)}})}); if(!r.ok) await this._fail(r); return e; },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
-  async publishEventbrite(rowId, draftOnly){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; throw e; } return j; },
+  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; throw e; } return j; },
+  async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async cancelEventbrite(rowId){ const r=await fetch(`${this.base}/cancel/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`cancel failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
   async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
@@ -743,7 +744,8 @@ function publishPanelHTML(ev, canEdit){
       ? `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Update &amp; re-publish</button>`
       : `<button type="button" class="btn sm${dirty?' primary':''}" data-act="publish-eb-draft">Update draft</button><button type="button" class="btn sm${dirty?'':' primary'}" data-act="publish-eb-publish">Publish</button>`;
     const sync = dirty ? `<div class="ndoc-warn">Eventbrite is behind your latest edits — ${st==='Published'?'update &amp; re-publish':'update the draft'} to sync.</div>` : '';
-    inner = `${sync}${open} ${btns} ${badge}
+    inner = `${sync}<div class="eb-live" id="f_eblive"><div class="hint"><span class="ndoc-spin"></span> Checking the live Eventbrite listing…</div></div>
+      ${open} ${btns} ${badge}
       <div class="hint" style="margin-top:6px">On your phone, tap through to Check-In in the Eventbrite Organizer app.</div>`;
   }
   const err = ev.lastPublishError && (ev.publishStatus==='Error') ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
@@ -752,8 +754,52 @@ function publishPanelHTML(ev, canEdit){
 // Wires (and, after each outerHTML swap, re-wires) the publish panel's click
 // handler. Named function instead of arguments.callee so it can rebind itself
 // onto the fresh DOM node `outerHTML` produces.
+/* ---- live Eventbrite view: once pushed, Eventbrite is the truth; the row's
+   publish fields are staging. Fetched async so the panel paints instantly. ---- */
+const stripTags = s => String(s||'').replace(/<[^>]*>/g,' ');
+function ebLiveHTML(st){
+  const L=st.live||{};
+  const liveDate=(L.startLocal||'').slice(0,10), liveStart=(L.startLocal||'').slice(11,16), liveEnd=(L.endLocal||'').slice(11,16);
+  const norm=s=>String(s||'').replace(/\s+/g,' ').trim();
+  const diffs=[];
+  if(editing){
+    if(norm(editing.title)!==norm(L.name)) diffs.push('title');
+    if((editing.date||'') && (editing.date||'')!==liveDate) diffs.push('date');
+    if((editing.start||'') && (editing.start||'')!==liveStart) diffs.push('start time');
+    if((editing.end||'') && (editing.end||'')!==liveEnd) diffs.push('end time');
+    const stagedDesc=norm(stripTags(editing.publicDescription||editing.description||''));
+    if(stagedDesc && norm(L.descriptionText)!==stagedDesc) diffs.push('description');
+  }
+  const statusCls = L.status==='live' ? 'live' : (L.status==='draft' ? 'draft' : 'past');
+  const conflict = st.editedSincePush ? `<div class="ndoc-warn">Edited directly in Eventbrite after the last push — publishing will overwrite those Eventbrite-side changes.</div>` : '';
+  const diff = diffs.length
+    ? `<div class="eb-diff">Staged copy differs from Eventbrite (<b>${diffs.map(esc).join(', ')}</b>) — pushing applies your staged values.</div>`
+    : `<div class="eb-insync">In sync with your staged copy ✓</div>`;
+  return `${conflict}
+    <div class="eb-facts">
+      <span class="badge b-${statusCls}">${esc((L.status||'—').replace(/^./,c=>c.toUpperCase()))}</span>
+      <b class="eb-name">${esc(L.name||'')}</b>
+      <span>${esc(liveDate)}${liveStart?` · ${esc(liveStart)}${liveEnd?`–${esc(liveEnd)}`:''}`:''}</span>
+      <span>${L.sold||0}${L.capacity?` of ${L.capacity}`:''} registered</span>
+      ${L.venueName?`<span>📍 ${esc(L.venueName)}</span>`:(L.onlineEvent?'<span>Online</span>':'')}
+      ${L.ticketClasses>1?`<span class="hint">${L.ticketClasses} ticket types — managed in Eventbrite, pushes leave them alone</span>`:''}
+    </div>
+    ${diff}
+    <div class="hint">Live Eventbrite listing — the fields above are staging and only apply when you push.</div>`;
+}
+async function loadEbLive(pub){
+  const box=pub && pub.querySelector('#f_eblive');
+  if(!box || !editing || !editing.id || !editing.eventbriteId) { if(box) box.remove(); return; }
+  const rowId=editing.id;
+  const st=await DB.ebStatus(rowId);
+  if(!box.isConnected || !editing || editing.id!==rowId) return;   // panel re-rendered / event switched
+  if(!st){ box.innerHTML=`<div class="hint">Couldn’t reach Eventbrite just now — the buttons below still work.</div>`; return; }
+  if(!st.linked){ box.remove(); return; }
+  box.innerHTML=ebLiveHTML(st);
+}
 function wirePublishPanel(pub){
   if(!pub) return;
+  loadEbLive(pub);
   pub.addEventListener('click', async e=>{
     const b=e.target.closest('[data-act="publish-eb-draft"],[data-act="publish-eb-publish"]'); if(!b) return;
     if(!editing || !editing.id){ toast('Save the event first','err'); return; }
@@ -762,7 +808,19 @@ function wirePublishPanel(pub){
     await flushAutosave();   // ensure Coda has the latest public copy the Worker reads
     pub.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> ${draftOnly?'Creating Eventbrite draft':'Publishing to Eventbrite'}… <span class="hint">(a few seconds)</span></div>`;
     try{
-      const res=await DB.publishEventbrite(rowId, draftOnly);
+      let res;
+      try{ res=await DB.publishEventbrite(rowId, draftOnly); }
+      catch(err){
+        // Eventbrite-side edits since our last push: make the overwrite explicit.
+        if(!(err && err.conflict)) throw err;
+        const go=window.confirm('This event was edited directly in Eventbrite after the last push.\n\nPushing now will overwrite those Eventbrite-side changes with your staged copy here. Push anyway?');
+        if(!go){
+          const p=document.getElementById('f_publish');
+          if(p && (!editing||editing.id===rowId)){ p.outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
+          return;
+        }
+        res=await DB.publishEventbrite(rowId, draftOnly, true);
+      }
       const newStatus = res.draft ? 'Draft' : 'Published';
       if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus=newStatus; editing.lastPublishError=''; editing._ebDirty=false; }
       const item=state.events.find(x=>x.id===rowId); if(item){ item.eventbriteId=editing.eventbriteId; item.eventbriteUrl=editing.eventbriteUrl; item.publishStatus=newStatus; }

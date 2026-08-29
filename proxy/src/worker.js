@@ -25,7 +25,10 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion } from './eventbrite.js';
+import {
+  eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
+  ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails,
+} from './eventbrite.js';
 import { verifyFirebaseIdToken, verifyFirebaseToken } from './auth.js';
 import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
 import {
@@ -296,6 +299,7 @@ export default {
         const rowId = body.rowId;
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
         const draftOnly = body.draftOnly === true;   // build/sync the EB draft but do NOT publish (go live)
+        const force = body.force === true;           // caller confirmed overwriting Eventbrite-side edits
 
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
         const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
@@ -337,6 +341,20 @@ export default {
           ebId: V['Eventbrite Event ID'] || '', tcId: V['Eventbrite Ticket Class ID'] || '',
         };
         const tz = env.EVENTBRITE_TZ || 'America/Chicago';
+
+        // Conflict guard: pushing is a blind overwrite of the Eventbrite copy, so
+        // if it was edited directly in Eventbrite after our last push (its
+        // `changed` stamp vs our Last EB push at), stop with a 409 the client
+        // turns into an explicit confirm; a `force:true` retry proceeds.
+        if (ev.ebId && !force) {
+          const cur = await ebFetch(env, `/events/${ev.ebId}/`);
+          if (cur.ok && editedSincePush(cur.body && cur.body.changed, V['Last EB push at'])) {
+            return json({
+              error: 'This event was edited directly in Eventbrite after the last push — publishing would overwrite those changes.',
+              conflict: true, ebChanged: cur.body.changed, lastPushAt: V['Last EB push at'] || null,
+            }, 409, cors);
+          }
+        }
         await setRow([{ column: 'Publish status', value: 'Publishing' }]);
 
         // A thrown error (network reject, readAllRows throwing, etc.) must NOT
@@ -406,6 +424,7 @@ export default {
           const okCells = [
             { column: 'Publish status', value: draftOnly ? 'Draft' : 'Published' },
             { column: 'Last publish error', value: '' },
+            { column: PLANNING_COLS.lastEbPushAt, value: new Date().toISOString() },   // conflict-guard baseline (drafts too)
           ];
           if (!draftOnly) okCells.push({ column: 'Published?', value: true }, { column: 'Last published at', value: new Date().toISOString() });
           await setRow(okCells);
@@ -417,6 +436,31 @@ export default {
           await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'exception', ok: false, status: 0, message: msg });
           return json({ error: msg, step: 'exception' }, 502, cors);
         }
+      }
+      if (parts[0] === 'eventbrite' && parts[1] === 'status' && request.method === 'GET') {
+        // Live Eventbrite snapshot for the plan app's Publish panel: once an
+        // event is pushed, Eventbrite is the truth — the planning row's publish
+        // fields are staging. Role-gated like the other publish tooling.
+        if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const rowId = url.searchParams.get('rowId');
+        if (!rowId) return json({ error: 'rowId required' }, 400, cors);
+        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+        const V = (await one.json()).values || {};
+        const ebId = V['Eventbrite Event ID'] || '';
+        if (!ebId) return json({ linked: false }, 200, cors);
+        const [evr, scr] = await Promise.all([
+          ebFetch(env, `/events/${ebId}/?expand=venue,ticket_classes`),
+          ebGetStructuredContent(env, ebId),
+        ]);
+        if (!evr.ok) return json({ error: `eventbrite read failed (${evr.status})`, linked: true }, 502, cors);
+        const live = ebEventSnapshot(evr.body);
+        live.descriptionText = scr.ok ? structuredContentText(scr.body) : '';
+        const lastPushAt = V['Last EB push at'] || null;
+        return json({ linked: true, live, lastPushAt, editedSincePush: editedSincePush(live.changed, lastPushAt) }, 200, cors);
       }
       if (parts[0] === 'cancel' && parts[1] === 'eventbrite' && request.method === 'POST') {
         // Cancel a planning event: tear down its Eventbrite listing (unpublish, or
@@ -517,6 +561,30 @@ export default {
         return json({ items: res.items }, 200, cors);
       }
 
+      if (parts[0] === 'events' && parts[1] && parts[2] === 'registration' && parts.length === 3 && request.method === 'GET') {
+        // Is the signed-in member registered on Eventbrite for this event?
+        // Matches ALL of their known emails (People `All Emails`) — members
+        // often register with a different address than they sign in with. The
+        // response is only the caller's own boolean + ticket count; other
+        // attendees' data never leaves the Worker, and the KV cache holds
+        // SHA-256 hashes of attendee emails, never raw addresses.
+        if (!env.EVENTBRITE_TOKEN) return json({ linked: false, registered: false }, 200, cors);
+        let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!who) return json({ error: 'sign in' }, 401, cors);
+        const rowId = decodeURIComponent(parts[1]);
+        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+        if (!one.ok) return json({ error: 'not found' }, 404, cors);
+        const ebId = plain(((await one.json()).values || {})[PLANNING_COLS.eventbriteId]) || '';
+        if (!ebId) return json({ linked: false, registered: false }, 200, cors);
+        const m = await resolveMember(who, base, docId, auth, env, ctx);
+        const emails = new Set([String(who.email).toLowerCase(), ...(m.emails || [])]);
+        let hashes;
+        try { hashes = await ebAttendeeEmailHashes(env, ctx, ebId); }
+        catch (e) { return json({ linked: true, registered: false, lookup: 'failed' }, 200, cors); }   // soft-fail: never break the page over this
+        const mine = new Set(await Promise.all([...emails].map(sha256Hex)));
+        const qty = hashes.reduce((n, h) => n + (mine.has(h) ? 1 : 0), 0);
+        return json({ linked: true, registered: qty > 0, qty }, 200, cors);
+      }
       if (parts[0] === 'events' && parts[1] && parts.length === 2 && request.method === 'GET') {
         // Event detail: one event + slots + claimant names ("what's coming").
         // Anonymous allowed — public fields + hasSlots, no sheet (see above).
@@ -850,12 +918,37 @@ async function resolveMember(who, base, docId, auth, env, ctx) {
   const row = findPersonByEmail(rows, who.email, PEOPLE_COLS);
   const st = row && row.values[PEOPLE_COLS.leadershipStatus];
   const roles = (st == null || st === '') ? [] : (Array.isArray(st) ? st : [st]);
+  const em = row && row.values[PEOPLE_COLS.allEmails];
   return {
     email: who.email,
     name: (row && row.values[PEOPLE_COLS.fullName]) || who.name || who.email,
     personId: row ? row.id : null,
     canWrite: roles.some((s) => WRITE_STATUSES.includes(s)),
+    emails: (em == null || em === '') ? [] : (Array.isArray(em) ? em : [em]).map((x) => String(x).toLowerCase()),   // ALL known addresses — EB registrations often use a different one
   };
+}
+
+// SHA-256 hex of a string (attendee-email hashing for the KV cache — raw
+// registrant addresses never persist anywhere).
+async function sha256Hex(s) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(s)));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+// Hashed emails of an event's active attendees, KV-cached (soft 60s / hard 5m)
+// so repeated detail opens don't hammer the Eventbrite API.
+async function ebAttendeeEmailHashes(env, ctx, ebId) {
+  return swrGet(env, ctx, `eb-att-${ebId}`, 60_000, 300_000, async () => {
+    const emails = [];
+    let cont = null, pages = 0;
+    do {
+      const r = await ebFetch(env, `/events/${ebId}/attendees/?status=attending${cont ? `&continuation=${encodeURIComponent(cont)}` : ''}`, 'GET', undefined, { quiet: true });
+      if (!r.ok) throw new Error(`attendees read failed (${r.status})`);
+      emails.push(...activeAttendeeEmails(r.body && r.body.attendees));
+      const pg = r.body && r.body.pagination;
+      cont = (pg && pg.has_more_items && pg.continuation) || null;
+    } while (cont && ++pages < 10);
+    return Promise.all(emails.map(sha256Hex));
+  });
 }
 // Open signup: match the verified email, else create a self-onboarded People row.
 // Patches the new row into both cache layers so it's matchable immediately after.
@@ -968,7 +1061,7 @@ async function buildMyClaims(base, docId, tableId, env, auth, personId) {
 // route inspects those and never lets a non-2xx pass silently. The pure payload
 // builders live in ./eventbrite.js (imported above) — this file only does I/O.
 const EB_BASE = 'https://www.eventbriteapi.com/v3';
-async function ebFetch(env, path, method = 'GET', body) {
+async function ebFetch(env, path, method = 'GET', body, opts = {}) {
   const reqBody = body ? JSON.stringify(body) : undefined;
   const r = await fetch(`${EB_BASE}${path}`, {
     method,
@@ -980,10 +1073,12 @@ async function ebFetch(env, path, method = 'GET', body) {
   // Full request/response trace for wrangler tail + Workers Logs. The bearer token
   // is never in `path`/`reqBody`, so this is safe to log verbatim. Response headers
   // included (rate-limit + request-id help when Eventbrite is flaky).
+  // opts.quiet logs status only — used for attendee reads, whose bodies carry
+  // registrant PII that must never land in logs.
   try {
     console.log('eb', JSON.stringify({
-      req: { method, path, body: reqBody },
-      res: { status: r.status, headers: Object.fromEntries(r.headers), body: text },
+      req: { method, path, body: opts.quiet ? undefined : reqBody },
+      res: opts.quiet ? { status: r.status } : { status: r.status, headers: Object.fromEntries(r.headers), body: text },
     }));
   } catch (_) {}
   return { ok: r.ok, status: r.status, body: j, text };

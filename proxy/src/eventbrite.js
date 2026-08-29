@@ -102,3 +102,60 @@ export function venuePayload(venue, addressVisibility, area) {
 export function eventbriteWebUrl(eventId) {
   return `https://www.eventbrite.com/myevent?eid=${eventId}`;
 }
+
+// --- read side: live view + conflict guard + registration lookup -------------
+
+// Normalize `GET /events/{id}/?expand=venue,ticket_classes` into the compact
+// snapshot the plan app's Publish panel renders. Once an event is published,
+// Eventbrite is the truth — the planning row's publish fields are staging.
+export function ebEventSnapshot(body) {
+  const b = body || {};
+  const tcs = Array.isArray(b.ticket_classes) ? b.ticket_classes : [];
+  const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+  return {
+    name: (b.name && (b.name.text != null ? b.name.text : stripHtml(b.name.html))) || '',
+    status: b.status || '',                          // draft | live | started | ended | completed | canceled
+    url: b.url || '',
+    startLocal: (b.start && b.start.local) || '',    // wall clock 'YYYY-MM-DDTHH:MM:SS'
+    endLocal: (b.end && b.end.local) || '',
+    timezone: (b.start && b.start.timezone) || '',
+    capacity: num(b.capacity) || null,
+    listed: b.listed === true,
+    changed: b.changed || '',                        // ISO — bumped on any Eventbrite-side edit
+    venueName: (b.venue && b.venue.name) || '',
+    onlineEvent: b.online_event === true,
+    ticketClasses: tcs.length,
+    sold: tcs.reduce((n, t) => n + num(t.quantity_sold), 0),
+    ticketTotal: tcs.reduce((n, t) => n + num(t.quantity_total), 0),
+  };
+}
+
+// Plain text of the event's Structured Content (where our description lives).
+export function structuredContentText(getBody) {
+  const mods = (getBody && getBody.modules) || [];
+  return mods
+    .filter((m) => m && m.type === 'text')
+    .map((m) => stripHtml(m.data && m.data.body && m.data.body.text))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+// Was the Eventbrite copy edited after our last push? A 60s skew allowance
+// keeps our own push — which bumps `changed` moments before we stamp
+// `Last EB push at` — from ever reading as a conflict. Unknown timestamps
+// (old events pushed before the stamp existed) never block.
+export function editedSincePush(changedIso, lastPushIso) {
+  const c = Date.parse(changedIso || ''), p = Date.parse(lastPushIso || '');
+  if (!Number.isFinite(c) || !Number.isFinite(p)) return false;
+  return c > p + 60_000;
+}
+
+// Active attendee emails (lowercased) from a `GET /events/{id}/attendees/`
+// page. Cancelled/refunded rows and missing profiles are skipped.
+export function activeAttendeeEmails(attendees) {
+  return (attendees || [])
+    .filter((a) => a && !a.cancelled && !a.refunded)
+    .map((a) => String((a.profile && a.profile.email) || '').toLowerCase().trim())
+    .filter(Boolean);
+}

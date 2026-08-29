@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   zonedToUtcISO, eventToEventbritePayload, ticketClassPayload,
   structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
+  ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails,
 } from '../src/eventbrite.js';
 
 const TZ = 'America/Chicago';
@@ -89,4 +90,61 @@ test('venuePayload — registrants-only sends only a coarse area + generic name,
 
 test('eventbriteWebUrl builds the myevent manage link', () => {
   assert.equal(eventbriteWebUrl('123456789'), 'https://www.eventbrite.com/myevent?eid=123456789');
+});
+
+test('ebEventSnapshot normalizes the expanded event read', () => {
+  const s = ebEventSnapshot({
+    name: { text: 'Break Fast', html: '<b>Break Fast</b>' },
+    status: 'live', url: 'https://www.eventbrite.com/e/123', listed: true, capacity: 40,
+    changed: '2026-08-30T10:00:00Z',
+    start: { local: '2026-09-22T18:00:00', timezone: 'America/Chicago' },
+    end: { local: '2026-09-22T20:00:00' },
+    venue: { name: 'JCC' }, online_event: false,
+    ticket_classes: [{ quantity_sold: 12, quantity_total: 40 }, { quantity_sold: 3, quantity_total: 10 }],
+  });
+  assert.equal(s.name, 'Break Fast');
+  assert.equal(s.status, 'live');
+  assert.equal(s.startLocal, '2026-09-22T18:00:00');
+  assert.equal(s.capacity, 40);
+  assert.equal(s.venueName, 'JCC');
+  assert.equal(s.ticketClasses, 2);
+  assert.equal(s.sold, 15);
+  assert.equal(s.ticketTotal, 50);
+  assert.equal(s.changed, '2026-08-30T10:00:00Z');
+  // sparse body -> safe defaults
+  const empty = ebEventSnapshot({});
+  assert.equal(empty.name, '');
+  assert.equal(empty.sold, 0);
+  assert.equal(empty.capacity, null);
+});
+
+test('structuredContentText extracts + strips the text modules', () => {
+  const body = { modules: [
+    { type: 'text', data: { body: { text: '<p>Come <b>eat</b>.</p>' } } },
+    { type: 'image', data: {} },
+    { type: 'text', data: { body: { text: 'Bring a dish.' } } },
+  ] };
+  assert.equal(structuredContentText(body), 'Come eat.\nBring a dish.');
+  assert.equal(structuredContentText({}), '');
+  assert.equal(structuredContentText(null), '');
+});
+
+test('editedSincePush: conflict only when EB changed > last push + 60s skew', () => {
+  const push = '2026-08-30T10:00:00Z';
+  assert.equal(editedSincePush('2026-08-30T12:00:00Z', push), true);    // real EB-side edit
+  assert.equal(editedSincePush('2026-08-30T10:00:30Z', push), false);   // our own push bumping `changed`
+  assert.equal(editedSincePush('2026-08-30T09:00:00Z', push), false);   // older than push
+  assert.equal(editedSincePush('', push), false);                       // unknown -> never block
+  assert.equal(editedSincePush('2026-08-30T12:00:00Z', ''), false);     // no stamp yet (pre-guard events)
+});
+
+test('activeAttendeeEmails filters cancelled/refunded and normalizes', () => {
+  const emails = activeAttendeeEmails([
+    { cancelled: false, refunded: false, profile: { email: 'Leah@X.com ' } },
+    { cancelled: true, profile: { email: 'gone@x.com' } },
+    { refunded: true, profile: { email: 'refund@x.com' } },
+    { cancelled: false, profile: {} },
+    null,
+  ]);
+  assert.deepEqual(emails, ['leah@x.com']);
 });

@@ -21,6 +21,7 @@ export const PLANNING_COLS = {
   addressVisibility: 'c-TrnSY-vnb4', // Address visibility
   eventbriteUrl:     'c-3AYH04FRwQ', // Eventbrite URL
   eventbriteId:      'c-BgcuPz_B7_', // Eventbrite Event ID
+  lastEbPushAt:      'c-dnQgyLVxPo', // Last EB push at (Worker-written; publish conflict guard)
   published:         'c-My7LREwSH9', // Published?
   status:            'c-ioK48RRF3x', // Status
 };

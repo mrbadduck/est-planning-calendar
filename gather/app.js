@@ -236,6 +236,24 @@ function paintDetail(){
   const cta = document.getElementById('sheetCta');
   if (cta) wireSignIn(cta);
   wireSheet();
+  checkRegistration();
+}
+
+// Ask the Worker whether the signed-in member is already registered on
+// Eventbrite for this event (matched across ALL their known emails, since
+// people often register with a different address). Fills in lazily — the page
+// never waits on it, and a lookup failure just leaves the plain CTA.
+function checkRegistration(){
+  const d = _detail;
+  if (!d || !state.member || !d.ev.eventbriteUrl) return;
+  api(`/events/${encodeURIComponent(d.id)}/registration`).then((r) => {
+    if (_detail !== d || !r || !r.registered) return;
+    const cta = view().querySelector('.eb-cta');
+    if (cta && !cta.querySelector('.reg-pill')){
+      cta.insertAdjacentHTML('afterbegin', `<div class="reg-pill">✓ You’re registered${r.qty > 1 ? ` · ${r.qty} tickets` : ''}</div>`);
+      const btn = cta.querySelector('a.btn'); if (btn) btn.textContent = 'View on Eventbrite ↗';
+    }
+  }).catch(() => {});
 }
 
 function rememberOp(key, rec){ if (_detail) _detail.recent.set(key, Object.assign({ until: Date.now() + 15000 }, rec)); }
