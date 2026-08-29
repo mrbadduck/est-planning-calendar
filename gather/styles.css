@@ -66,6 +66,8 @@ button{font:inherit;cursor:pointer;}
 .acct-who{padding:.4rem .5rem .6rem;border-bottom:1px solid var(--line);margin-bottom:.4rem;display:flex;flex-direction:column;gap:.15rem;}
 .acct-who .role{font-size:.75rem;color:var(--muted);}
 .signingin{font-size:.85rem;color:var(--muted);display:inline-flex;align-items:center;gap:.4rem;}
+.acct-menu.signin-menu{min-width:260px;padding:.75rem;}
+.acct-menu.signin-menu .btn.block{width:100%;}
 
 /* sign-in gate (main content when signed out) */
 .gate{max-width:22rem;margin:2rem auto;text-align:center;}

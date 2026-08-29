@@ -93,35 +93,40 @@ function renderAuth(){
   } else if (state.authPending){
     el.innerHTML = `<span class="signingin"><span class="spinner"></span> Signing in…</span>`;
   } else {
-    el.innerHTML = '';   // signed out: the sign-in gate (main content) is the CTA
+    // Signed out: header Sign in button + dropdown (same pattern as plan's).
+    el.innerHTML = `<div class="acct">
+      <button class="btn primary" id="signInBtn">Sign in</button>
+      <div class="acct-menu signin-menu" id="signInMenu" role="menu" hidden>${signInFormHTML()}</div>
+    </div>`;
+    $('#signInBtn', el).addEventListener('click', (e) => { e.stopPropagation(); const m = $('#signInMenu', el); m.hidden = !m.hidden; });
+    wireSignIn($('#signInMenu', el));
   }
 }
-document.addEventListener('click', () => { const m = document.getElementById('acctMenu'); if (m) m.hidden = true; });
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.acct')) return;   // clicks inside the menu (e.g. the email field) keep it open
+  for (const id of ['acctMenu', 'signInMenu']){ const m = document.getElementById(id); if (m) m.hidden = true; }
+});
 
-/* ---------- sign-in gate ---------- */
-function renderGate(){
-  document.getElementById('tabs').hidden = true;
-  view().innerHTML = `
-    <div class="gate">
-      <h1>Welcome to gather</h1>
-      <p>Sign in to see East Side Tribe events and sign up to bring a dish or lend a hand.</p>
-      <div class="signin-card">
-        <button class="btn primary block" id="googleBtn">Continue with Google</button>
-        <div class="signin-or">or</div>
-        <form id="emailForm" class="signin-email">
-          <input id="emailInput" type="email" required placeholder="you@email.com" autocomplete="email">
-          <button class="btn accent" type="submit">Email me a link</button>
-        </form>
-        <p class="muted" style="font-size:.78rem;margin:.75rem 0 0">New here? Signing in adds you to the tribe — no account setup needed.</p>
-      </div>
-    </div>`;
-  $('#googleBtn').addEventListener('click', async () => { try { await window.estAuth.signInWithGoogle(); } catch (_) { toast('Google sign-in failed', 'err'); } });
-  $('#emailForm').addEventListener('submit', async (e) => {
+/* ---------- sign-in (shared wiring for the header menu + inline CTAs) ---------- */
+function wireSignIn(root){
+  const g = root.querySelector('[data-signin-google]');
+  if (g) g.addEventListener('click', async () => { try { await window.estAuth.signInWithGoogle(); } catch (_) { toast('Google sign-in failed', 'err'); } });
+  const f = root.querySelector('form[data-signin-email]');
+  if (f) f.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = $('#emailInput').value.trim(); if (!email) return;
+    const email = (f.querySelector('input[type=email]').value || '').trim(); if (!email) return;
     try { await window.estAuth.sendEmailLink(email); toast('Check your email for a sign-in link'); }
     catch (_) { toast('Could not send sign-in link', 'err'); }
   });
+}
+function signInFormHTML(){
+  return `<button class="btn primary block" data-signin-google>Continue with Google</button>
+    <div class="signin-or">or</div>
+    <form class="signin-email" data-signin-email>
+      <input type="email" required placeholder="you@email.com" autocomplete="email">
+      <button class="btn accent" type="submit">Email me a link</button>
+    </form>
+    <p class="muted" style="font-size:.78rem;margin:.75rem 0 0">New here? Signing in adds you to the tribe — no account setup needed.</p>`;
 }
 
 /* ---------- router ---------- */
@@ -132,13 +137,19 @@ function setTab(name){
 }
 function route(){
   if (!state.authResolved){ view().innerHTML = `<div class="loading"><span class="spinner"></span> Loading…</div>`; return; }
-  if (!state.member){ renderGate(); return; }
+  // Public entry: anyone can browse events + details; the sign-up sheet and
+  // "My sign-ups" are member-only (the Worker strips slot details anonymously).
   document.getElementById('tabs').hidden = false;
+  const mineTab = document.querySelector('#tabs a[data-tab="mine"]');
+  if (mineTab) mineTab.hidden = !state.member;
   const h = (location.hash || '#/').replace(/^#/, '') || '/';
   const m = h.match(/^\/event\/(.+)$/);
   if (m){ setTab(null); renderDetail(decodeURIComponent(m[1])); return; }
   _detail = null;   // leaving the detail view cancels its optimistic state + reconcile
-  if (h === '/mine'){ setTab('mine'); renderMine(); return; }
+  if (h === '/mine'){
+    if (!state.member){ location.hash = '#/'; return; }
+    setTab('mine'); renderMine(); return;
+  }
   setTab('events'); renderHome();
 }
 window.addEventListener('hashchange', route);
@@ -146,6 +157,7 @@ window.addEventListener('hashchange', route);
 /* ---------- home (published upcoming events) ---------- */
 function slotSummary(ev){
   const slots = ev.slots || [];
+  if (!state.member) return ev.hasSlots ? `<span class="pill open">Sign in to volunteer &amp; potluck</span>` : `<span class="pill">RSVP on Eventbrite</span>`;
   if (!slots.length) return `<span class="pill">RSVP on Eventbrite</span>`;
   const open = slots.reduce((n, s) => n + (s.remaining || 0), 0);
   const kinds = [...new Set(slots.map((s) => s.kind).filter(Boolean))];
@@ -197,7 +209,12 @@ function paintDetail(){
   const kindOrder = ['Potluck', 'Volunteer'];
   const kinds = Object.keys(byKind).sort((a, b) => (kindOrder.indexOf(a) + 1 || 99) - (kindOrder.indexOf(b) + 1 || 99));
 
-  const sheet = slots.length ? kinds.map((k) => `
+  const sheet = (!state.member && ev.hasSlots)
+    ? `<div class="signin-card" id="sheetCta">
+        <p style="margin:0 0 .9rem;font-weight:600;text-align:center">Sign in to volunteer and contribute to the potluck!</p>
+        ${signInFormHTML()}
+      </div>`
+    : slots.length ? kinds.map((k) => `
     <div class="kind-group">
       <div class="kind-label">${esc(k)}</div>
       <div class="sheet">${byKind[k].map((s) => slotHTML(s)).join('')}</div>
@@ -213,9 +230,11 @@ function paintDetail(){
       ${ev.summary ? `<p class="desc">${esc(ev.summary)}</p>` : ''}
       ${ev.description && ev.description !== ev.summary ? `<p class="desc">${esc(ev.description)}</p>` : ''}
       ${ev.eventbriteUrl ? `<div class="eb-cta"><a class="btn primary block" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">Register on Eventbrite ↗</a></div>` : ''}
-      ${slots.length ? `<div class="section-title">Sign-up sheet</div>` : ''}
+      ${(state.member ? slots.length : ev.hasSlots) ? `<div class="section-title">Sign-up sheet</div>` : ''}
       <div id="sheet">${sheet}</div>
     </div>`;
+  const cta = document.getElementById('sheetCta');
+  if (cta) wireSignIn(cta);
   wireSheet();
 }
 
