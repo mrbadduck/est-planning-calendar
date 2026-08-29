@@ -4,7 +4,7 @@ import {
   slotRemaining, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
-  isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells, urlOf,
+  isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells, urlOf, memberEventbriteUrl,
 } from '../src/gather.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, PEOPLE_COLS } from '../src/coda-columns.js';
 
@@ -320,4 +320,21 @@ test('isPublishedUpcoming hides cancelled events even when Published? is still s
   assert.equal(isPublishedUpcoming(mk({ [PLANNING_COLS.published]: true, [PLANNING_COLS.status]: 'Approved', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), true);
   // and a cancelled row is not preview-eligible either (no leak to leads)
   assert.equal(isApprovedUpcoming(mk({ [PLANNING_COLS.status]: 'Cancelled', [PLANNING_COLS.date]: '2026-09-01' }), PLANNING_COLS, today), false);
+});
+
+test('memberEventbriteUrl: canonical /e/<id> + aff tag, URL cell only as legacy fallback', () => {
+  assert.equal(memberEventbriteUrl('123456789', 'https://pasted.example/x'), 'https://www.eventbrite.com/e/123456789?aff=gather');
+  assert.equal(memberEventbriteUrl('', 'https://www.eventbrite.com/e/999'), 'https://www.eventbrite.com/e/999');   // no id -> fall back
+  assert.equal(memberEventbriteUrl(null, null), '');
+});
+
+test('projectEventForMember constructs the EB url from the stored event id', () => {
+  const row = { id: 'i-ev', values: {
+    [PLANNING_COLS.title]: 'X',
+    [PLANNING_COLS.eventbriteId]: '```987654321```',                 // rich reads fence the id
+    [PLANNING_COLS.eventbriteUrl]: 'https://hand-pasted.example/whatever',
+  } };
+  const proj = projectEventForMember(row, [], {}, '');
+  assert.equal(proj.eventbriteUrl, 'https://www.eventbrite.com/e/987654321?aff=gather');
+  assert.ok(!JSON.stringify(proj).includes('hand-pasted'));
 });
