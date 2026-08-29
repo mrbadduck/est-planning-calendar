@@ -385,12 +385,15 @@ export default {
           const venueRes = await ensureEbVenue(env, base, docId, auth, V, ev.addressVisibility, ebId);
           if (venueRes && venueRes.error) return fail('venue', venueRes.error);
 
-          // 3. ticket class (free v1)
+          // 3. ticket class (free v1). Updating an EXISTING class with no staged
+          // Capacity is skipped: there's nothing to change, Eventbrite rejects a
+          // class update without quantity_total, and skipping leaves EB-side
+          // ticketing (renames, quantity tweaks) alone.
           if (!ev.tcId) {
             const r = await ebCreateTicket(env, ebId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
             await setRow([{ column: 'Eventbrite Ticket Class ID', value: r.body.id }]);
-          } else {
+          } else if (ev.capacity) {
             const r = await ebUpdateTicket(env, ebId, ev.tcId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
           }
