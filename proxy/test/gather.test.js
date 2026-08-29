@@ -4,7 +4,7 @@ import {
   slotRemaining, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
-  isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells,
+  isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells, urlOf,
 } from '../src/gather.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, PEOPLE_COLS } from '../src/coda-columns.js';
 
@@ -224,6 +224,21 @@ test('slotCells writes the Event relation only on create, only provided fields',
   const u = Object.fromEntries(update.map((x) => [x.column, x.value]));
   assert.equal(SLOT_COLS.event in u, false);
   assert.equal(u[SLOT_COLS.label], 'Setup');
+});
+
+test('urlOf reads a rich urlref (even with an empty name) and plain strings', () => {
+  // the live shape that hid the Eventbrite CTA: urlref with name:''
+  assert.equal(urlOf({ url: 'https://www.eventbrite.com/e/x-123', name: '', type: 'urlref' }), 'https://www.eventbrite.com/e/x-123');
+  assert.equal(urlOf('https://eb.com/e/1'), 'https://eb.com/e/1');
+  assert.equal(urlOf('```https://eb.com/e/1```'), 'https://eb.com/e/1');
+  assert.equal(urlOf([{ url: 'https://a' }]), 'https://a');
+  assert.equal(urlOf(null), '');
+  assert.equal(urlOf(''), '');
+});
+
+test('projectEventForMember surfaces the Eventbrite URL from a urlref cell', () => {
+  const row = { id: 'i-ev', values: { [PLANNING_COLS.eventbriteUrl]: { url: 'https://www.eventbrite.com/e/t-1', name: '', type: 'urlref' } } };
+  assert.equal(projectEventForMember(row, [], {}, '').eventbriteUrl, 'https://www.eventbrite.com/e/t-1');
 });
 
 test('stripRich unwraps rich-format markdown text (fences + escapes)', () => {
