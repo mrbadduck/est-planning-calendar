@@ -58,6 +58,17 @@ export function slimPeopleRows(rows, cols) {
   }));
 }
 
+// Member-facing Eventbrite URL: constructed from the stored Eventbrite Event
+// ID — never the free-text URL cell, which can hold hand-pasted test links.
+// The canonical /e/<id> path is what iOS/Android app-link handoff matches, and
+// the aff tag makes gather-sourced traffic visible in Eventbrite's reporting.
+// Falls back to the URL cell only when no id exists (legacy/manual rows).
+export function memberEventbriteUrl(ebId, fallbackUrl) {
+  const id = String(ebId || '').trim();
+  if (id) return `https://www.eventbrite.com/e/${encodeURIComponent(id)}?aff=gather`;
+  return String(fallbackUrl || '');
+}
+
 // Member-facing display name — never the full name. "First L." when we have
 // name parts (or can split a spaced full name); people rows self-onboarded via
 // email often have the address in Full Name and empty first/last, so a
@@ -245,7 +256,7 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
     summary: plain(v[PLANNING_COLS.publicSummary]) || '',
     description: plain(v[PLANNING_COLS.publicDescription]) || '',
     location: relName(v[PLANNING_COLS.venue]) || relName(v[PLANNING_COLS.venueOther]) || '',   // coarse: venue name/other, no street address
-    eventbriteUrl: urlOf(v[PLANNING_COLS.eventbriteUrl]) || '',
+    eventbriteUrl: memberEventbriteUrl(plain(v[PLANNING_COLS.eventbriteId]), urlOf(v[PLANNING_COLS.eventbriteUrl])),
     // hasSlots lets a signed-out browser show the "sign in to volunteer" CTA;
     // opts.anonymous strips the sheet itself (labels, counts, claimants) —
     // slot details are for signed-in members only.
