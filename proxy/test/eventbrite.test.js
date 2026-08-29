@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   zonedToUtcISO, eventToEventbritePayload, ticketClassPayload,
   structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
-  ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails,
+  ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
 } from '../src/eventbrite.js';
 
 const TZ = 'America/Chicago';
@@ -148,4 +148,14 @@ test('activeAttendeeEmails filters cancelled/refunded and normalizes', () => {
     null,
   ]);
   assert.deepEqual(emails, ['leah@x.com']);
+});
+
+test('normText: the did-the-user-change-it signal for the description skip', () => {
+  assert.equal(normText('  Come   eat.\n\nBring a dish. '), 'Come eat. Bring a dish.');
+  // stripped live copy vs re-staged plain text: equal -> the SC rewrite is
+  // skipped and Eventbrite-side rich formatting survives
+  const liveSc = { modules: [{ type: 'text', data: { body: { text: '<p>Come <b>eat</b>.</p><p>Bring a dish.</p>' } } }] };
+  assert.equal(normText(structuredContentText(liveSc)), normText('Come eat.\nBring a dish.'));
+  assert.equal(normText(''), '');
+  assert.equal(normText(null), '');
 });

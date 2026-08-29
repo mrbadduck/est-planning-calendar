@@ -27,7 +27,7 @@
 import { parseVEvents } from './ical.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
-  ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails,
+  ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
 } from './eventbrite.js';
 import { verifyFirebaseIdToken, verifyFirebaseToken } from './auth.js';
 import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
@@ -405,6 +405,14 @@ export default {
           const scText = ev.publicDescription || V['Event Description'] || '';
           const writeSc = async () => {
             const sc = await ebGetStructuredContent(env, ebId);
+            // Our writes are PLAIN text (a single text module), but the listing may
+            // carry rich formatting (bold, links, lists) added in Eventbrite. Never
+            // flatten it as a side effect: skip the rewrite when nothing is staged,
+            // or when the staged text matches the live text content (the publish tab
+            // seeds the field from that same stripped copy, so text-equality means
+            // "the user didn't touch the description").
+            if (!normText(scText) || normText(structuredContentText(sc.body)) === normText(scText))
+              return { ver: null, res: { ok: true, skipped: true } };
             const ver = nextScVersion(sc.body);
             const { _version, ...scBody } = structuredContentBody(scText, ver);
             return { ver, res: await ebSetStructuredContent(env, ebId, ver, scBody) };

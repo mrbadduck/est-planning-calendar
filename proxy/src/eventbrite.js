@@ -131,12 +131,29 @@ export function ebEventSnapshot(body) {
   };
 }
 
+// Whitespace-normalized text compare (the plan app edits the description as
+// PLAIN text seeded from the stripped live copy, so text-equality is the "did
+// the user actually change it?" signal).
+export function normText(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim();
+}
+
+// HTML -> readable plain text: block boundaries (<p>, <br>, <li>, headings)
+// become newlines so paragraphs survive; inline tags drop; entities unescape.
+function htmlToText(h) {
+  return String(h || '')
+    .replace(/<\s*(?:br|\/p|\/div|\/li|\/h[1-6])\s*\/?\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&#39;/gi, "'").replace(/&quot;/gi, '"')
+    .split('\n').map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+}
+
 // Plain text of the event's Structured Content (where our description lives).
 export function structuredContentText(getBody) {
   const mods = (getBody && getBody.modules) || [];
   return mods
     .filter((m) => m && m.type === 'text')
-    .map((m) => stripHtml(m.data && m.data.body && m.data.body.text))
+    .map((m) => htmlToText(m.data && m.data.body && m.data.body.text))
     .filter(Boolean)
     .join('\n')
     .trim();

@@ -1195,7 +1195,7 @@ function publishFieldsHTML(vals, dis, livewait){
   const lw = livewait ? 'data-livewait disabled' : dis;
   return `
     <div class="fld full"><label>Public summary <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(vals.summary||'')}" ${lw} placeholder="One-line blurb for the listing"></div>
-    <div class="fld full"><label>Public description <span class="hint">(listing body)</span> <button type="button" class="btn xs" data-act="copy-internal" ${lw}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${lw} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea></div>
+    <div class="fld full"><label>Public description <span class="hint">${livewait?'(plain text — editing this replaces any rich formatting on Eventbrite; untouched, the formatting is left alone)':'(listing body)'}</span> <button type="button" class="btn xs" data-act="copy-internal" ${lw}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${lw} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea></div>
     <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${lw} placeholder="e.g. 40"></div>
     <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(vals.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${vals.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>`;
 }
