@@ -232,6 +232,20 @@ export default {
         if (!id) return json({ signedIn: false }, 200, cors);
         return json({ signedIn: true, matched: id.matched, name: id.name || null, canWrite: id.canWrite, canApprove: id.canApprove }, 200, cors);
       }
+      if (parts[0] === 'admin' && parts[1] === 'refresh-people' && request.method === 'POST') {
+        // Manual People-cache refresh (Tribal Council only): pull People fresh from
+        // Coda NOW and rewrite the KV snapshot, so a just-granted role (or any
+        // person edit) takes effect immediately instead of waiting out the TTL.
+        // Also drops /ref/people's per-isolate cache so the editor pickers refresh.
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canApprove) return json({ error: 'refresh requires Tribal Council' }, 403, cors);
+        try {
+          const rows = await peopleRows(base, docId, auth, env, ctx, { force: true });
+          REF_CACHE.delete('people');
+          return json({ ok: true, people: rows.length }, 200, cors);
+        } catch (e) { return json({ error: String((e && e.message) || e) }, 502, cors); }
+      }
       if (parts[0] === 'feedback' && parts.length === 1 && request.method === 'GET') {
         // Votable roadmap-ideas board. Public read; auth-aware `votedByMe` when a
         // (optional) Bearer token is present. Relation cells come back as display
@@ -866,17 +880,24 @@ const APPROVE_STATUSES = ['Tribal Council'];
 // cost on sign-in and every authed request.
 let _people = null, _peopleExp = 0;
 const PEOPLE_KV_KEY = 'people-slim-v2';   // v2: + first/last name (bump on any slim-shape change)
-async function peopleRows(base, docId, auth, env, ctx) {
-  if (_people && Date.now() < _peopleExp) return _people;
+async function peopleRows(base, docId, auth, env, ctx, opts = {}) {
+  if (!opts.force && _people && Date.now() < _peopleExp) return _people;
   const fetchSlim = async () => {
     const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
     if (!out.ok) throw new Error(`people read failed (${out.resp.status})`);
     return slimPeopleRows(out.items, PEOPLE_COLS);
   };
   let rows;
-  try { rows = await swrGet(env, ctx, PEOPLE_KV_KEY, 300_000, 1_800_000, fetchSlim); }   // soft 5min / hard 30min
-  catch (_) { return _people || []; }                  // read failed: last isolate copy, never cache the failure
-  _people = rows; _peopleExp = Date.now() + 300_000;   // 5-min L1
+  if (opts.force) {
+    // Manual refresh: bypass BOTH caches, pull fresh from Coda, and rewrite KV so
+    // every isolate converges on the next read (their short L1 expires in ~60s).
+    rows = await fetchSlim();
+    if (env.CACHE) { try { await env.CACHE.put(PEOPLE_KV_KEY, JSON.stringify({ at: Date.now(), data: rows })); } catch (_) {} }
+  } else {
+    try { rows = await swrGet(env, ctx, PEOPLE_KV_KEY, 300_000, 1_800_000, fetchSlim); }   // soft 5min / hard 30min
+    catch (_) { return _people || []; }                // read failed: last isolate copy, never cache the failure
+  }
+  _people = rows; _peopleExp = Date.now() + 60_000;    // 60s L1 (kept short so a manual refresh propagates across isolates fast)
   return _people;
 }
 // A member self-onboarded: patch them into both cache layers so their very next

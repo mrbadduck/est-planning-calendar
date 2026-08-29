@@ -361,6 +361,7 @@ const CodaSource = {
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
   async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; throw e; } return j; },
   async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
+  async refreshPeople(){ const r=await fetch(`${this.base}/admin/refresh-people`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`refresh failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async cancelEventbrite(rowId){ const r=await fetch(`${this.base}/cancel/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`cancel failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
   async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
@@ -1831,11 +1832,19 @@ function renderAuth(){
         <button class="avatar" id="avatarBtn" aria-haspopup="menu" aria-expanded="false" title="${esc(name)}">${pic ? `<img src="${esc(pic)}" alt="" referrerpolicy="no-referrer">` : esc(initials(name))}</button>
         <div class="acct-menu" id="acctMenu" role="menu" hidden>
           <div class="acct-who"><b>${esc(name)}</b><span class="role">${esc(roleLabel(id))}</span></div>
+          ${id.canApprove?`<button class="btn ghost" id="refreshPeople" role="menuitem" title="Pull People + roles fresh from Coda now (after granting someone a role)">Refresh roles &amp; people</button>`:''}
           <button class="btn ghost" id="signOut" role="menuitem">Sign out</button>
         </div>
       </div>`;
     el.querySelector('#avatarBtn').addEventListener('click', e=>{ e.stopPropagation(); acctMenu(); });
     el.querySelector('#signOut').addEventListener('click', signOut);
+    const rp=el.querySelector('#refreshPeople');
+    if(rp) rp.addEventListener('click', async ()=>{
+      rp.disabled=true; const prev=rp.textContent; rp.textContent='Refreshing…';
+      try{ const j=await DB.refreshPeople(); toast(`Roles refreshed (${j.people} people)`,'ok'); loadPeople(); }
+      catch(err){ toast(err.message||'Refresh failed','err'); }
+      finally{ rp.disabled=false; rp.textContent=prev; acctMenu(false); }
+    });
   } else if(state.authPending){
     // Gap between returning from Google and /me resolving — show progress.
     el.innerHTML = `<span class="signingin"><span class="ndoc-spin"></span> Signing in…</span>`;
