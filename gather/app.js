@@ -166,7 +166,7 @@ async function renderHome(){
       <div class="when">${esc(fmtDate(ev))}</div>
       <h2>${esc(ev.title || 'Untitled event')}</h2>
       ${ev.location ? `<div class="where">${esc(ev.location)}</div>` : ''}
-      <div class="slotline">${slotSummary(ev)}</div>
+      <div class="slotline">${ev.preview ? '<span class="pill preview">Unpublished — planner preview</span>' : ''}${slotSummary(ev)}</div>
     </a>`).join('');
   view().innerHTML = `<div class="stack">${cards}</div>`;
 }
@@ -194,6 +194,7 @@ async function renderDetail(id){
     <div class="detail">
       <div class="when" style="color:var(--brand);font-size:.8rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase">${esc(fmtDate(ev))}</div>
       <h1>${esc(ev.title || 'Untitled event')}</h1>
+      ${ev.preview ? `<div class="preview-note"><span class="pill preview">Unpublished — planner preview</span> Members can’t see this yet; it goes live when the event is published.</div>` : ''}
       <div class="meta">${ev.location ? `📍 ${esc(ev.location)}` : ''}</div>
       ${ev.summary ? `<p class="desc">${esc(ev.summary)}</p>` : ''}
       ${ev.description && ev.description !== ev.summary ? `<p class="desc">${esc(ev.description)}</p>` : ''}

@@ -20,10 +20,20 @@ const EMAIL_KEY = 'est-emailForSignIn';
 
 window.estAuth = {
   // app.js calls this once with callbacks; we stream ID tokens as they change.
+  // ID tokens expire after 1h and the SDK does NOT refresh them in the
+  // background — apps cache the raw string, so without the proactive refresh
+  // below a long-open tab starts getting 401 "invalid token" from the Worker.
   init({ onToken, onSignedOut }) {
     onIdTokenChanged(auth, async (user) => {
       if (user) onToken(await user.getIdToken());
       else onSignedOut();
+    });
+    // Force-refresh well before the 1h expiry; onIdTokenChanged streams the new
+    // token to the app. And on returning to the tab (wake/refocus — timers may
+    // not have fired), refresh lazily: getIdToken() re-mints only if expired.
+    setInterval(() => { if (auth.currentUser) auth.currentUser.getIdToken(true).catch(() => {}); }, 45 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && auth.currentUser) auth.currentUser.getIdToken().catch(() => {});
     });
   },
   async signInWithGoogle() {
