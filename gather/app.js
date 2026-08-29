@@ -229,7 +229,7 @@ function paintDetail(){
       <div class="meta">${ev.location ? `📍 ${esc(ev.location)}` : ''}</div>
       ${ev.summary ? `<p class="desc">${esc(ev.summary)}</p>` : ''}
       ${ev.description && ev.description !== ev.summary ? `<p class="desc">${esc(ev.description)}</p>` : ''}
-      ${ev.eventbriteUrl ? `<div class="eb-cta"><a class="btn primary block" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">Register on Eventbrite ↗</a></div>` : ''}
+      ${ev.eventbriteUrl ? `<div class="eb-cta"><a class="btn primary block" href="${esc(ev.eventbriteUrl)}">Register on Eventbrite ↗</a></div>` : ''}
       ${(state.member ? slots.length : ev.hasSlots) ? `<div class="section-title">Sign-up sheet</div>` : ''}
       <div id="sheet">${sheet}</div>
     </div>`;
