@@ -107,7 +107,22 @@ a.card:active{transform:translateY(1px);}
 .detail .meta{color:var(--muted);font-size:.95rem;line-height:1.5;}
 .detail .desc{margin:1rem 0;line-height:1.6;white-space:pre-wrap;}
 .eb-cta{margin:1rem 0;}
-.section-title{font-family:Fraunces,serif;font-size:1.15rem;margin:1.5rem 0 .6rem;}
+.section-title{font-family:Fraunces,serif;font-size:1.15rem;margin:0;}
+/* unpublished planner-preview banner (above the title) */
+.preview-banner{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:0 0 1rem;
+  padding:.6rem .8rem;border-radius:10px;font-size:.85rem;line-height:1.4;
+  background:color-mix(in srgb,var(--brand) 12%,var(--card));color:var(--brand-ink);
+  border:1px dashed var(--brand);}
+/* sticky sign-up sheet header + per-kind jump bar (sits below topbar+tabs) */
+.sheet-head{position:sticky;top:100px;z-index:12;margin:1.5rem 0 .6rem;padding:.5rem 0;
+  background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);
+  display:flex;flex-direction:column;gap:.5rem;}
+.sheet-jump{display:flex;flex-wrap:wrap;gap:.4rem;}
+.sheet-jump-btn{display:inline-flex;align-items:center;gap:.3rem;font-size:.82rem;
+  padding:.3rem .7rem;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);}
+.sheet-jump-btn b{color:var(--brand);font-variant-numeric:tabular-nums;}
+.sheet-jump-btn:active{transform:translateY(1px);}
+.kind-group{scroll-margin-top:160px;}
 .sheet{display:flex;flex-direction:column;gap:.6rem;}
 .slot{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.85rem;}
 .slot-head{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;}
