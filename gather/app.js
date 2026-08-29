@@ -214,32 +214,46 @@ function paintDetail(){
   const kindOrder = ['Potluck', 'Volunteer'];
   const kinds = Object.keys(byKind).sort((a, b) => (kindOrder.indexOf(a) + 1 || 99) - (kindOrder.indexOf(b) + 1 || 99));
 
+  const grpId = (k) => `grp-${k.replace(/[^A-Za-z]/g, '')}`;
+  const kindIcon = (k) => (k === 'Potluck' ? '🍲' : k === 'Volunteer' ? '🙌' : '📋');
+
   const sheet = (!state.member && ev.hasSlots)
     ? `<div class="signin-card" id="sheetCta">
         <p style="margin:0 0 .9rem;font-weight:600;text-align:center">Sign in to volunteer and contribute to the potluck!</p>
         ${signInFormHTML()}
       </div>`
     : slots.length ? kinds.map((k) => `
-    <div class="kind-group">
+    <div class="kind-group" id="${grpId(k)}">
       <div class="kind-label">${esc(k)}</div>
       <div class="sheet">${byKind[k].map((s) => slotHTML(s)).join('')}</div>
     </div>`).join('') : `<p class="muted">No sign-up sheet for this event — just register on Eventbrite.</p>`;
 
+  // Sticky sheet header: when a member sees BOTH potluck and volunteer sections,
+  // a jump bar with per-kind counts so the volunteer roles below a long potluck
+  // list are discoverable (and one tap scrolls to each section).
+  const showSheet = state.member ? slots.length : ev.hasSlots;
+  const jump = (state.member && kinds.length > 1)
+    ? `<div class="sheet-jump">${kinds.map((k) => `<button type="button" class="sheet-jump-btn" data-jump="${grpId(k)}">${kindIcon(k)} ${esc(k)} <b>${byKind[k].length}</b></button>`).join('')}</div>`
+    : '';
+
   view().innerHTML = `
     <a class="back" href="#/">← All events</a>
+    ${ev.preview ? `<div class="preview-banner"><span class="pill preview">Unpublished</span> Planner preview — members can’t see this yet; it goes live when the event is published.</div>` : ''}
     <div class="detail">
       <div class="when" style="color:var(--brand);font-size:.8rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase">${esc(fmtDate(ev))}</div>
       <h1>${esc(ev.title || 'Untitled event')}</h1>
-      ${ev.preview ? `<div class="preview-note"><span class="pill preview">Unpublished — planner preview</span> Members can’t see this yet; it goes live when the event is published.</div>` : ''}
       <div class="meta">${ev.location ? `📍 ${esc(ev.location)}` : ''}</div>
       ${ev.summary ? `<p class="desc">${esc(ev.summary)}</p>` : ''}
-      ${ev.description && ev.description !== ev.summary ? `<p class="desc">${esc(ev.description)}</p>` : ''}
       ${ev.eventbriteUrl ? `<div class="eb-cta"><a class="btn primary block" href="${esc(ev.eventbriteUrl)}">Register on Eventbrite ↗</a></div>` : ''}
-      ${(state.member ? slots.length : ev.hasSlots) ? `<div class="section-title">Sign-up sheet</div>` : ''}
+      ${showSheet ? `<div class="sheet-head"><div class="section-title">Sign-up sheet</div>${jump}</div>` : ''}
       <div id="sheet">${sheet}</div>
     </div>`;
   const cta = document.getElementById('sheetCta');
   if (cta) wireSignIn(cta);
+  view().querySelectorAll('[data-jump]').forEach((b) => b.addEventListener('click', () => {
+    const el = document.getElementById(b.getAttribute('data-jump'));
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
   wireSheet();
   checkRegistration();
 }

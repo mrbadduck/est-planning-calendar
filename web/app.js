@@ -652,15 +652,18 @@ let whenType='exact';
 // Editor workspace sections (left rail). `live` sections have real panels;
 // the rest render a muted "coming soon" teaser. No icon webfont — text labels.
 const SECTIONS = [
-  { id:'planning', label:'Planning', live:true },
-  { id:'publish',  label:'Publish',  live:true },
-  { id:'budget',    label:'Budget & expenses',   live:false },
-  { id:'comms',     label:'Comms',               live:false },
-  { id:'volunteers',label:'Volunteers & potluck', live:true },
-  { id:'attendance',label:'Attendance',          live:false },
-  { id:'feedback',  label:'Feedback',            live:false },
+  { id:'details',   label:'Details',              live:true },
+  { id:'notes',     label:'Planning Notes',       live:true },
+  { id:'volunteers',label:'Potluck & Volunteers', live:true },
+  { id:'publish',   label:'Publish',              live:true },
+  { id:'budget',    label:'Budget & expenses',    live:false },
+  { id:'comms',     label:'Comms',                live:false },
+  { id:'attendance',label:'Attendance',           live:false },
+  { id:'feedback',  label:'Feedback',             live:false },
 ];
-let activeSection = 'planning';
+// Back-compat: the Details section was formerly 'planning'; map old deep links.
+const sectionId = id => (id==='planning' ? 'details' : id);
+let activeSection = 'details';
 
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
 function whenFieldsHTML(type,ev,dis){
@@ -706,25 +709,45 @@ const gdocEditUrl    = u => { const id=_gdocId(u); return id?`https://docs.googl
 function notesDocEmbedHTML(url){
   const pv=gdocPreviewUrl(url);
   if(!pv) return `<div class="ndoc-warn">That doesn't look like a Google Doc link.</div>`;
-  return `<iframe class="ndoc-frame" src="${esc(pv)}" title="Planning notes (Google Doc)" loading="lazy"></iframe>
-    <div class="ndoc-bar">
+  // Edit button on TOP; the preview fills the remaining panel height and scrolls
+  // internally (the .ndoc-full wrapper is a height-bound flex column).
+  return `<div class="ndoc-bar">
       <a class="btn sm primary" href="${esc(gdocEditUrl(url))}" target="_blank" rel="noopener">Edit in Google Docs ↗</a>
       <span class="hint">Preview needs you signed into Google with access to the doc.</span>
-    </div>`;
+    </div>
+    <iframe class="ndoc-frame" src="${esc(pv)}" title="Planning notes (Google Doc)" loading="lazy"></iframe>`;
 }
 let _ndocGen = 0;   // bumped when the editor closes / a new create starts — cancels stale notes-doc polls
 const NDOC_CREATE_HTML = `<div class="ndoc-empty">
   <button type="button" class="btn sm primary" data-act="ndoc-create">Create notes doc</button>
   <span class="hint">Generates a Google Doc from the planning template.</span>
 </div>`;
-function notesDocPanelHTML(ev, canEdit){
+// The Planning Notes rail section — a Google Doc, full-panel height.
+function renderNotes(ev, canEdit){
   let inner;
   if(ev.notesDocUrl)          inner = notesDocEmbedHTML(ev.notesDocUrl);
   else if(canEdit && ev.id)   inner = NDOC_CREATE_HTML;
   else if(canEdit && !ev.id)  inner = `<div class="ndoc-empty"><span class="hint">Save the event first, then add a notes doc.</span></div>`;
   else                        inner = `<div class="ndoc-empty"><span class="hint">No notes doc yet.</span></div>`;
-  return `<div class="fld full"><label>Notes doc <span class="hint">(Google Docs)</span></label>
-    <div class="ndoc" id="f_ndoc">${inner}</div></div>`;
+  const legacy = ev.planningNotes ? `<div class="fld full"><label>Legacy notes</label><div class="legacynotes">${esc(ev.planningNotes)}</div></div>` : '';
+  return `<div class="ndoc-full ${ev.notesDocUrl?'has-doc':''}" id="f_ndoc">${inner}</div>${legacy}`;
+}
+function wireNotes(panel, ev, canEdit){
+  // "Create notes doc" → push the Coda button via the proxy, then poll for the URL.
+  const ndoc=panel.querySelector('#f_ndoc');
+  if(!ndoc || !canEdit) return;
+  ndoc.addEventListener('click', async e=>{
+    const b=e.target.closest('[data-act="ndoc-create"]'); if(!b) return;
+    if(!editing || !editing.id){ toast('Save the event first','err'); return; }
+    ndoc.classList.remove('has-doc');
+    ndoc.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Setting up your notes doc… <span class="hint">(this can take up to a minute)</span></div>`;
+    const gen = ++_ndocGen;
+    const rowId = editing.id;
+    const pushed = await pushNotesDocButton(rowId, gen);   // retries past Coda's row-settle lag
+    if(pushed==='cancelled') return;                       // editor closed / superseded
+    if(pushed!=='ok'){ toast('Could not start — try again in a moment','err'); if(panel.querySelector('#f_ndoc')) ndoc.innerHTML=NDOC_CREATE_HTML; return; }
+    pollForNotesDoc(rowId, 0, gen);
+  });
 }
 
 /* ---- publish-to-Eventbrite panel — mirrors the notes-doc panel's shape:
@@ -884,7 +907,7 @@ async function pollForNotesDoc(rowId, tries, gen){
   if(ev && ev.notesDocUrl){
     if(editing && editing.id===rowId) editing.notesDocUrl=ev.notesDocUrl;
     const item=state.events.find(x=>x.id===rowId); if(item) item.notesDocUrl=ev.notesDocUrl;
-    const e=el(); if(e && (!editing || editing.id===rowId)) e.innerHTML=notesDocEmbedHTML(ev.notesDocUrl);
+    const e=el(); if(e && (!editing || editing.id===rowId)){ e.innerHTML=notesDocEmbedHTML(ev.notesDocUrl); e.classList.add('has-doc'); }
     toast('Notes doc ready','ok');
     return;
   }
@@ -942,7 +965,8 @@ function footerActionsHTML(ev, canWrite, canApprove){
 }
 function openEditor(ev, section){
   editing = ev;
-  activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'planning';   // reset per open; honor a deep-linked section
+  section = sectionId(section);
+  activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'details';   // reset per open; honor a deep-linked section
   const isRef = ev.source==='ref';
   const canEdit = !isRef && !!(state.identity && state.identity.canWrite);
   const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
@@ -1068,7 +1092,7 @@ function openFromUrl(){
   const p=new URL(location.href).searchParams;
   const id=p.get('event'); if(!id) return;
   const ev=state.events.find(x=>x.id===id); if(!ev) return;
-  openEditor(ev, p.get('section')||'planning');
+  openEditor(ev, sectionId(p.get('section')||'details'));
 }
 
 /* ---- editor workspace: rail + section panels ------------------------------
@@ -1089,6 +1113,7 @@ function renderSection(id, ev, canEdit, locked, canApprove){
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='publish'){ panel.innerHTML=renderPublish(ev, canEdit, locked); wirePublish(panel, ev, canEdit, locked); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
+  if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
   panel.innerHTML=renderPlanning(ev, canEdit, locked, canApprove); wirePlanning(panel, ev, canEdit, locked, canApprove);
 }
 
@@ -1098,68 +1123,67 @@ function renderSection(id, ev, canEdit, locked, canApprove){
 function renderPlanning(ev, canEdit, locked, canApprove){
   const dis = (!canEdit || locked) ? 'disabled' : '';
   const sched = ev.scheduling || 'exact';
+  const progList = PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id))));
+  const progSel = (ev.programs&&ev.programs.length?ev.programs:[ev.program]).filter(Boolean);
   return `
     <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
     <div class="fld full"><label>Internal description <span class="hint">(planning copy — not shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
-    <div class="fld full"><label>Program(s)</label><div class="leadchips" id="f_progs">${PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id)))).map(p=>`<button type="button" class="leadchip" data-p="${p.id}" aria-pressed="${(ev.programs&&ev.programs.length?ev.programs:[ev.program]).includes(p.id)}" ${dis}>${esc(p.name)}</button>`).join('')}</div></div>
+    <div class="fld full"><label>Program(s)</label>
+      <div class="msel${dis?' dis':''}" id="f_progs" data-sel="${esc(progSel.join(','))}">
+        <button type="button" class="msel-btn" ${dis} aria-haspopup="listbox" aria-expanded="false"><span class="msel-label"></span><span class="msel-caret">▾</span></button>
+        <div class="msel-menu" role="listbox" hidden>${progList.map(p=>`<label class="msel-opt"><input type="checkbox" value="${p.id}" ${progSel.includes(p.id)?'checked':''} ${dis}><span>${esc(p.name)}</span></label>`).join('')}</div>
+      </div>
+    </div>
     <div class="fld full"><label>Leads <span class="hint">(program leads auto-added)</span></label><div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
-    <div class="fld full"><label>When</label>
+    <div class="fieldgroup">
+      <div class="fieldgroup-h">When</div>
       <div class="whenseg" id="f_when">
         <button type="button" data-when="exact" aria-pressed="${sched==='exact'}" ${dis}>Exact date</button>
         <button type="button" data-when="range" aria-pressed="${sched==='range'}" ${dis}>Date range</button>
         <button type="button" data-when="month" aria-pressed="${sched==='month'}" ${dis}>Whole month</button>
       </div>
+      <div class="fld full" id="whenFields"></div>
     </div>
-    <div class="fld full" id="whenFields"></div>
-    <div class="fld full"><label>Where</label>
-      <div class="whenseg typeseg" id="f_vtype_seg">
+    <div class="fieldgroup">
+      <div class="fieldgroup-h">Where</div>
+      <div class="whenseg vtype-seg" id="f_vtype_seg">
         <button type="button" data-vtype="" aria-pressed="${!ev.venueType}" ${dis}>Any</button>
         ${VENUE_TYPES.map(t=>`<button type="button" data-vtype="${t.id}" aria-pressed="${t.id===ev.venueType}" ${dis}>${esc(t.name)}</button>`).join('')}
       </div>
+      <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
     </div>
-    <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
-    <div class="fld full"><label>Volunteers <span class="hint">(any member)</span></label><div class="typeahead${dis?' dis':''}" id="f_vols"><input class="ta-input" type="text" placeholder="Search people…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div></div>
-    ${notesDocPanelHTML(ev, canEdit && !locked)}
-    ${ev.planningNotes ? `<div class="fld full"><label>Planning notes <span class="hint">(legacy)</span></label><div class="legacynotes">${esc(ev.planningNotes)}</div></div>` : ''}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
-    ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}
-    ${ev.id?`<div class="meta"><span>Created by ${esc(ev.createdBy||'—')}</span><span>Last edited by ${esc(ev.editedBy||'—')}</span></div>`:''}`;
+    ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}`;
 }
 
 function wirePlanning(panel, ev, canEdit, locked, canApprove){
   const sched = ev.scheduling || 'exact';
-  // leads (leadership cohort) + volunteers (all people) + venue typeaheads
+  // leads (leadership cohort) + venue typeaheads
   const resolveIds = (ids, names) => (ids && ids.length) ? ids : (names||[]).map(n=>peopleIdByName[n]).filter(Boolean);
   const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST, onChange:scheduleAutosave });
-  const volBox=document.getElementById('f_vols');   if(volBox)   initTypeahead(volBox,   { selected:resolveIds(ev.volunteers, ev.volunteerNames), pool:()=>PEOPLE_LIST, onChange:scheduleAutosave });
   const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev, { onChange:scheduleAutosave });
 
-  // notes doc: "Create notes doc" → push the Coda button via the proxy, then poll
-  const ndoc=document.getElementById('f_ndoc');
-  if(ndoc) ndoc.addEventListener('click', async e=>{
-    const b=e.target.closest('[data-act="ndoc-create"]'); if(!b) return;
-    if(!editing || !editing.id){ toast('Save the event first','err'); return; }
-    ndoc.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Setting up your notes doc… <span class="hint">(this can take up to a minute)</span></div>`;
-    const gen = ++_ndocGen;
-    const rowId = editing.id;
-    const pushed = await pushNotesDocButton(rowId, gen);   // retries past Coda's row-settle lag
-    if(pushed==='cancelled') return;                       // editor closed / superseded
-    if(pushed!=='ok'){ toast('Could not start — try again in a moment','err'); if(document.getElementById('f_ndoc')) ndoc.innerHTML=NDOC_CREATE_HTML; return; }
-    pollForNotesDoc(rowId, 0, gen);
-  });
+  // program(s): dropdown multiselect — checking a program appends its Current Leads
+  const prog=document.getElementById('f_progs');
+  if(prog){
+    const btn=prog.querySelector('.msel-btn'), menu=prog.querySelector('.msel-menu'), label=prog.querySelector('.msel-label');
+    const syncLabel=()=>{ const on=[...prog.querySelectorAll('input:checked')]; label.textContent = on.length ? on.map(i=>(PROG[i.value]||{}).name||i.value).join(', ') : 'Select programs…'; label.classList.toggle('placeholder', !on.length); };
+    syncLabel();
+    if(canEdit && !locked){
+      btn.addEventListener('click', e=>{ e.stopPropagation(); const open=menu.hidden; document.querySelectorAll('.msel-menu').forEach(m=>m.hidden=true); menu.hidden=!open; btn.setAttribute('aria-expanded', String(open)); });
+      menu.addEventListener('click', e=>e.stopPropagation());
+      menu.addEventListener('change', e=>{
+        const cb=e.target.closest('input[type=checkbox]'); if(!cb) return;
+        if(cb.checked && leadsBox && leadsBox.addPerson){
+          const p=PROG[cb.value];
+          (p && p.currentLeadNames || []).forEach(nm=>{ const id=peopleIdByName[nm]; if(id) leadsBox.addPerson(id); });
+        }
+        syncLabel(); scheduleAutosave();
+      });
+    }
+  }
 
-  // program chips: toggle + append that program's Current Leads when selected
   if(canEdit && !locked){
-    document.getElementById('f_progs').addEventListener('click', e=>{
-      const b=e.target.closest('.leadchip'); if(!b) return;
-      const now = b.getAttribute('aria-pressed')!=='true';
-      b.setAttribute('aria-pressed', String(now));
-      if(now && leadsBox && leadsBox.addPerson){
-        const prog=PROG[b.dataset.p];
-        (prog && prog.currentLeadNames || []).forEach(nm=>{ const id=peopleIdByName[nm]; if(id) leadsBox.addPerson(id); });
-      }
-      scheduleAutosave();
-    });
     // Where: venue-type switcher (single-select) — filters the venue typeahead pool
     document.getElementById('f_vtype_seg').addEventListener('click', e=>{
       const b=e.target.closest('button[data-vtype]'); if(!b) return;
@@ -1510,7 +1534,7 @@ function readForm(){
   const chipIds=sel=>[...document.querySelectorAll(sel)].map(c=>c.dataset.id);
   const hasProgs=!!g('f_progs');
   const programs=hasProgs
-    ? [...document.querySelectorAll('#f_progs .leadchip')].filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.p)
+    ? [...document.querySelectorAll('#f_progs .msel-opt input:checked')].map(b=>b.value)
     : ((editing&&editing.programs&&editing.programs.length) ? editing.programs.slice() : ((editing&&editing.program)?[editing.program]:[]));
   const leads=g('f_leads') ? chipIds('#f_leads .ta-chip') : ((editing&&editing.leads)||[]);
   const volunteers=g('f_vols') ? chipIds('#f_vols .ta-chip') : ((editing&&editing.volunteers)||[]);
@@ -1790,6 +1814,7 @@ document.getElementById('feedbackBtn').addEventListener('click', ()=>{
 document.addEventListener('click', e=>{
   if(!e.target.closest('.acct')) acctMenu(false);
   if(!e.target.closest('#ovfPanel') && !e.target.closest('#ovfBtn')) ovfMenu(false);
+  if(!e.target.closest('.msel')) document.querySelectorAll('.msel-menu').forEach(m=>{ m.hidden=true; const b=m.parentElement.querySelector('.msel-btn'); if(b) b.setAttribute('aria-expanded','false'); });
 });
 document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ acctMenu(false); ovfMenu(false); } });
 
