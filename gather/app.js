@@ -137,6 +137,7 @@ function route(){
   const h = (location.hash || '#/').replace(/^#/, '') || '/';
   const m = h.match(/^\/event\/(.+)$/);
   if (m){ setTab(null); renderDetail(decodeURIComponent(m[1])); return; }
+  _detail = null;   // leaving the detail view cancels its optimistic state + reconcile
   if (h === '/mine'){ setTab('mine'); renderMine(); return; }
   setTab('events'); renderHome();
 }
@@ -172,11 +173,24 @@ async function renderHome(){
 }
 
 /* ---------- event detail + sign-up sheet ---------- */
+/* Coda reads are eventually consistent: refetching right after a claim write
+   usually misses the new row. So the detail view is stateful — claim/unclaim
+   mutate the local copy and repaint instantly, `recent` remembers those ops for
+   15s, and a delayed reconcile pulls server truth and re-applies any op the
+   server hasn't caught up to yet. */
+let _detail = null;   // { id, ev, recent:Map, reconT }
 async function renderDetail(id){
   view().innerHTML = `<div class="loading"><span class="spinner"></span> Loading…</div>`;
   let ev;
   try { ev = await api(`/events/${encodeURIComponent(id)}`); }
   catch (e){ view().innerHTML = `<a class="back" href="#/">← All events</a><div class="empty"><h2>Couldn’t load this event</h2><p>${esc(e.message)}</p></div>`; return; }
+  _detail = { id, ev, recent: new Map(), reconT: 0 };
+  paintDetail();
+}
+
+function paintDetail(){
+  if (!_detail) return;
+  const ev = _detail.ev;
   const slots = (ev.slots || []).slice().sort((a, b) => (a.sortOrder - b.sortOrder));
   const byKind = {};
   for (const s of slots){ const k = s.kind || 'Sign-ups'; (byKind[k] = byKind[k] || []).push(s); }
@@ -202,7 +216,44 @@ async function renderDetail(id){
       ${slots.length ? `<div class="section-title">Sign-up sheet</div>` : ''}
       <div id="sheet">${sheet}</div>
     </div>`;
-  wireSheet(id);
+  wireSheet();
+}
+
+function rememberOp(key, rec){ if (_detail) _detail.recent.set(key, Object.assign({ until: Date.now() + 15000 }, rec)); }
+function scheduleDetailReconcile(){
+  if (!_detail) return;
+  clearTimeout(_detail.reconT);
+  _detail.reconT = setTimeout(reconcileDetail, 4000);   // let Coda index, then pull server truth
+}
+async function reconcileDetail(){
+  const d = _detail; if (!d) return;
+  let fresh; try { fresh = await api(`/events/${encodeURIComponent(d.id)}`); } catch (_) { return; }
+  if (_detail !== d) return;                            // navigated away meanwhile
+  const now = Date.now();
+  for (const [k, rec] of [...d.recent]) if (rec.until <= now) d.recent.delete(k);
+  for (const [k, rec] of d.recent){
+    if (rec.added){                                     // server missing my just-added claim -> keep it
+      const s = (fresh.slots || []).find((x) => x.id === rec.added.slot);
+      if (s && !(s.claims || []).some((c) => c.claimId === k)){
+        (s.claims = s.claims || []).push(rec.added.claim);
+        s.remaining = Math.max(0, (s.remaining || 0) - (rec.added.claim.qty || 1));
+        s.mineClaimed = true;
+      }
+    }
+    if (rec.removed){                                   // server still showing my just-removed claim -> drop it
+      for (const s of (fresh.slots || [])){
+        if (!s.claims) continue;
+        const before = s.claims.length;
+        s.claims = s.claims.filter((c) => c.claimId !== k);
+        if (s.claims.length < before){
+          s.remaining = (s.remaining || 0) + 1;
+          s.mineClaimed = s.claims.some((c) => c.mine);
+        }
+      }
+    }
+  }
+  d.ev = fresh;
+  paintDetail();
 }
 
 function slotHTML(s){
@@ -231,29 +282,45 @@ function slotHTML(s){
     </div>`;
 }
 
-function wireSheet(eventId){
+function wireSheet(){
   view().querySelectorAll('form[data-claim]').forEach((f) => {
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const slot = f.getAttribute('data-claim');
+      const slotId = f.getAttribute('data-claim');
       const contribution = (f.contribution.value || '').trim();
       const btn = f.querySelector('button'); btn.disabled = true;
       try {
-        await api('/claims', { method: 'POST', body: JSON.stringify({ slot, contributionDetail: contribution, qty: 1 }) });
+        const res = await api('/claims', { method: 'POST', body: JSON.stringify({ slot: slotId, contributionDetail: contribution, qty: 1 }) });
+        const s = _detail && _detail.ev.slots.find((x) => x.id === slotId);
+        if (s){                                          // show it NOW — the server read lags the write
+          const c = { name: (state.member && state.member.name) || 'You', contribution, qty: 1, mine: true, claimId: (res && res.id) || `tmp-${Date.now()}` };
+          (s.claims = s.claims || []).push(c);
+          s.remaining = Math.max(0, (s.remaining || 0) - 1);
+          s.mineClaimed = true;
+          rememberOp(c.claimId, { added: { slot: s.id, claim: c } });
+        }
         toast('You’re signed up!');
-        await renderDetail(eventId);
+        paintDetail(); scheduleDetailReconcile();
       } catch (err){ toast(err.message || 'Could not sign up', 'err'); btn.disabled = false; }
     });
   });
   view().querySelectorAll('button[data-unclaim]').forEach((b) => {
     b.addEventListener('click', async () => {
       const claimId = b.getAttribute('data-unclaim');
+      const slotId = b.getAttribute('data-slot');
       if (!claimId){ toast('Can’t find your sign-up to remove', 'err'); return; }
       b.disabled = true;
       try {
         await api(`/claims/${encodeURIComponent(claimId)}`, { method: 'DELETE' });
+        const s = _detail && _detail.ev.slots.find((x) => x.id === slotId);
+        if (s && s.claims){
+          s.claims = s.claims.filter((c) => c.claimId !== claimId);
+          s.remaining = (s.remaining || 0) + 1;
+          s.mineClaimed = s.claims.some((c) => c.mine);
+          rememberOp(claimId, { removed: true });
+        }
         toast('Removed');
-        await renderDetail(eventId);
+        paintDetail(); scheduleDetailReconcile();
       } catch (err){ toast(err.message || 'Could not remove', 'err'); b.disabled = false; }
     });
   });
@@ -280,7 +347,10 @@ async function renderMine(){
       const claimId = b.getAttribute('data-unclaim-mine'); b.disabled = true;
       try {
         await api(`/claims/${encodeURIComponent(claimId)}`, { method: 'DELETE' });
-        toast('Removed'); renderMine();
+        toast('Removed');
+        // drop the row locally — an immediate refetch would still show it (Coda read lag)
+        const row = b.closest('.mine-item'); if (row) row.remove();
+        if (!view().querySelector('.mine-item')) view().innerHTML = `<div class="empty"><h2>No sign-ups yet</h2><p>Browse <a href="#/" style="color:var(--brand);font-weight:600">events</a> and claim a spot.</p></div>`;
       } catch (err){ toast(err.message || 'Could not remove', 'err'); b.disabled = false; }
     });
   });

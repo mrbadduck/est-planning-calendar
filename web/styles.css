@@ -461,13 +461,15 @@
 
   /* ---- Volunteers & potluck: gather slot builder (editor section) ---- */
   .slots-wrap{display:flex;flex-direction:column;gap:12px}
-  .slots-list{display:flex;flex-direction:column;gap:6px}
-  .slot-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--hair);
+  .slots-list{display:flex;flex-direction:column;gap:14px}
+  .slot-group{display:flex;flex-direction:column;gap:6px}
+  .slot-group-h{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+    align-self:flex-start;padding:2px 8px;border-radius:20px;white-space:nowrap}
+  .slot-group-h.pot{background:#F6EDDF;color:#8A5A0B}
+  .slot-group-h.vol{background:#E7EEF9;color:#2F5FA3}
+  .slot-item{display:flex;flex-direction:column;gap:4px;padding:7px 9px;border:1px solid var(--hair);
     border-radius:var(--radius);background:#fff}
-  .slot-kind{font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;
-    padding:2px 7px;border-radius:20px;white-space:nowrap}
-  .slot-kind.pot{background:#F6EDDF;color:#8A5A0B}
-  .slot-kind.vol{background:#E7EEF9;color:#2F5FA3}
+  .slot-head{display:flex;align-items:center;gap:9px}
   .slot-name{flex:1;min-width:0;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .slot-need{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
   .slot-ctl{display:inline-flex;gap:2px;flex:0 0 auto}
@@ -476,10 +478,27 @@
   .iconbtn:hover:not([disabled]){border-color:var(--accent);color:var(--accent);background:var(--accent-tint)}
   .iconbtn.del:hover:not([disabled]){border-color:#B44;color:#B44;background:#FBECEC}
   .iconbtn[disabled]{opacity:.35;cursor:default}
-  .slot-add{display:flex;flex-direction:column;gap:8px;padding-top:4px;border-top:1px solid var(--hair)}
-  .slot-add-row{display:flex;gap:8px;align-items:center}
-  .slot-add .slot-label{flex:1;min-width:0}
-  .slot-add .slot-qty{width:64px}
-  .slot-add input{font:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--hair-strong);
-    border-radius:var(--radius);background:#fff;color:var(--ink)}
-  .slot-add input:focus{outline:2px solid var(--accent-tint);outline-offset:1px;border-color:var(--accent)}
+  /* the ghost add form — styled as "the next row" in the group */
+  .slot-ghost{flex-direction:row;align-items:center;gap:8px;border-style:dashed;border-color:var(--hair-strong);background:transparent}
+  .slot-ghost .slot-label{flex:1;min-width:0}
+  .slot-ghost .slot-qty{width:56px}
+  .slot-ghost input,.claim-form input{font:inherit;font-size:13px;padding:5px 7px;border:1px solid transparent;
+    border-radius:6px;background:transparent;color:var(--ink)}
+  .slot-ghost input::placeholder,.claim-form input::placeholder{color:var(--muted)}
+  .slot-ghost input:hover,.claim-form input:hover{border-color:var(--hair)}
+  .slot-ghost input:focus,.claim-form input:focus{outline:2px solid var(--accent-tint);outline-offset:1px;border-color:var(--accent);background:#fff}
+  /* claims (sign-ups) under each slot */
+  .slot-claims{display:flex;flex-direction:column;gap:2px;margin-left:2px;padding-left:9px;border-left:2px solid var(--hair)}
+  .claim-row{display:flex;align-items:center;gap:6px;font-size:12.5px;min-height:24px}
+  .claim-who{font-weight:600;color:var(--ink);white-space:nowrap}
+  .claim-what{flex:1;min-width:0;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .claim-qty{color:var(--muted);font-variant-numeric:tabular-nums}
+  .claim-ctl{display:inline-flex;gap:2px;margin-left:auto;opacity:0;transition:opacity .12s}
+  .claim-row:hover .claim-ctl{opacity:1}
+  .claim-form{flex-wrap:wrap}
+  .claim-form .claim-person{width:130px}
+  .claim-form .claim-detail{flex:1;min-width:110px}
+  .claim-form .claim-qtyin{width:52px}
+  .claim-addbtn{align-self:flex-start;border:0;background:none;padding:2px 0;font:inherit;font-size:12px;
+    color:var(--accent);cursor:pointer}
+  .claim-addbtn:hover{text-decoration:underline}

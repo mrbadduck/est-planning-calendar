@@ -50,10 +50,25 @@ export function slimPeopleRows(rows, cols) {
     id: r.id,
     values: {
       [cols.fullName]: (r.values && r.values[cols.fullName]) || '',
+      [cols.firstName]: (r.values && r.values[cols.firstName]) || '',
+      [cols.lastName]: (r.values && r.values[cols.lastName]) || '',
       [cols.allEmails]: (r.values && r.values[cols.allEmails]) || [],
       [cols.leadershipStatus]: (r.values && r.values[cols.leadershipStatus]) || [],
     },
   }));
+}
+
+// Member-facing display name — never the full name. "First L." when we have
+// name parts (or can split a spaced full name); people rows self-onboarded via
+// email often have the address in Full Name and empty first/last, so a
+// single-token or blank name falls back to a friendly placeholder.
+export function friendlyName(first, last, full) {
+  const f = String(first || '').trim(), l = String(last || '').trim(), n = String(full || '').trim();
+  if (f && l) return `${f} ${l[0].toUpperCase()}.`;
+  if (f) return f;
+  const parts = n.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+  return 'Anonymous Neighbor';
 }
 
 // --- People find-or-create (open signup) -----------------------------------
@@ -164,19 +179,35 @@ export function slotRemaining(neededQty, claims) {
   return Math.max(0, (Number(neededQty) || 0) - filled);
 }
 
-// Validate + normalize a POST /claims body. Throws on missing slot.
+// Validate + normalize a POST /claims body. Throws on missing slot. `member`
+// (a People row id) is only honored by the Worker for write-authorized callers
+// — a lead signing someone else up from the plan-side builder.
 export function validateClaimInput(body) {
   const b = body || {};
   if (!b.slot || typeof b.slot !== 'string') throw new Error('slot required');
-  let qty = Math.floor(Number(b.qty));
-  if (!Number.isFinite(qty) || qty < 1) qty = 1;
-  if (qty > 20) qty = 20;                                  // sane upper bound
   return {
     slot: b.slot,
-    qty,
+    qty: clampQty(b.qty),
     contributionDetail: String(b.contributionDetail || '').trim(),
     notes: String(b.notes || '').trim(),
+    member: (typeof b.member === 'string' && b.member) || '',
   };
+}
+function clampQty(q) {
+  let qty = Math.floor(Number(q));
+  if (!Number.isFinite(qty) || qty < 1) qty = 1;
+  if (qty > 20) qty = 20;                                  // sane upper bound
+  return qty;
+}
+
+// Cells for a PUT /claims/:id patch (qty + contribution only — the slot and
+// member relations are immutable; delete + re-add to move a claim).
+export function claimUpdateCells(body, cols) {
+  const b = body || {};
+  return [
+    { column: cols.qty, value: clampQty(b.qty) },
+    { column: cols.contributionDetail, value: String(b.contributionDetail || '').trim() },
+  ];
 }
 
 // Project a planning-event row to the PUBLIC, member-safe shape. This is an
@@ -210,11 +241,14 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
       const sv = (s && s.values) || {};
       const claimRows = (claimsBySlot && claimsBySlot[s.id]) || [];
       const claims = claimRows.map((c) => {
-        const name = relName(c.values && c.values[CLAIM_COLS.member]);   // name-string OR rich {name}
-        const mine = (callerId && relId(c.values && c.values[CLAIM_COLS.member]) === callerId)
-          || (!callerId && !!callerName && name === callerName);
+        const rawName = relName(c.values && c.values[CLAIM_COLS.member]);   // name-string OR rich {name}
+        const memberId = relId(c.values && c.values[CLAIM_COLS.member]);
+        const mine = (callerId && memberId === callerId)
+          || (!callerId && !!callerName && rawName === callerName);          // mine matches on the RAW name
         const o = {
-          name,
+          // opts.nameOf maps a member to their member-safe display form ("First
+          // L." / placeholder) — full names must not reach other members.
+          name: opts.nameOf ? opts.nameOf(memberId, rawName) : rawName,
           contribution: plain(c.values && c.values[CLAIM_COLS.contributionDetail]) || '',
           qty: Number(plain(c.values && c.values[CLAIM_COLS.qty])) || 1,
           mine,

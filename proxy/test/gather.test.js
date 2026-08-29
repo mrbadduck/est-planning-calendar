@@ -4,7 +4,7 @@ import {
   slotRemaining, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
-  isApprovedUpcoming, stripRich, plain, slimPeopleRows,
+  isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells,
 } from '../src/gather.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, PEOPLE_COLS } from '../src/coda-columns.js';
 
@@ -16,7 +16,7 @@ test('slotRemaining subtracts filled qty, never negative', () => {
 
 test('validateClaimInput requires slot, defaults + clamps qty, trims strings', () => {
   assert.throws(() => validateClaimInput({}), /slot required/);
-  assert.deepEqual(validateClaimInput({ slot: 'i-1' }), { slot: 'i-1', qty: 1, contributionDetail: '', notes: '' });
+  assert.deepEqual(validateClaimInput({ slot: 'i-1' }), { slot: 'i-1', qty: 1, contributionDetail: '', notes: '', member: '' });
   assert.equal(validateClaimInput({ slot: 'i-1', qty: '3' }).qty, 3);
   assert.equal(validateClaimInput({ slot: 'i-1', qty: 0 }).qty, 1);
   assert.equal(validateClaimInput({ slot: 'i-1', qty: 100 }).qty, 20);
@@ -128,6 +128,8 @@ test('slimPeopleRows keeps only the auth/picker columns, same row shape', () => 
   const rows = [
     { id: 'i-a', values: {
       [PEOPLE_COLS.fullName]: 'Leah Cohen',
+      [PEOPLE_COLS.firstName]: 'Leah',
+      [PEOPLE_COLS.lastName]: 'Cohen',
       [PEOPLE_COLS.allEmails]: ['leah@x.com'],
       [PEOPLE_COLS.leadershipStatus]: ['Tribal Council'],
       'c-something-huge': 'FIFTY OTHER COLUMNS OF PAYLOAD',
@@ -137,13 +139,49 @@ test('slimPeopleRows keeps only the auth/picker columns, same row shape', () => 
   const slim = slimPeopleRows(rows, PEOPLE_COLS);
   assert.deepEqual(slim[0], { id: 'i-a', values: {
     [PEOPLE_COLS.fullName]: 'Leah Cohen',
+    [PEOPLE_COLS.firstName]: 'Leah',
+    [PEOPLE_COLS.lastName]: 'Cohen',
     [PEOPLE_COLS.allEmails]: ['leah@x.com'],
     [PEOPLE_COLS.leadershipStatus]: ['Tribal Council'],
   } });
-  assert.deepEqual(slim[1], { id: 'i-b', values: { [PEOPLE_COLS.fullName]: '', [PEOPLE_COLS.allEmails]: [], [PEOPLE_COLS.leadershipStatus]: [] } });
+  assert.deepEqual(slim[1], { id: 'i-b', values: { [PEOPLE_COLS.fullName]: '', [PEOPLE_COLS.firstName]: '', [PEOPLE_COLS.lastName]: '', [PEOPLE_COLS.allEmails]: [], [PEOPLE_COLS.leadershipStatus]: [] } });
   assert.ok(!JSON.stringify(slim).includes('FIFTY OTHER'));
   // the slim shape still feeds the existing matcher unchanged
   assert.equal(findPersonByEmail(slim, 'LEAH@x.com', PEOPLE_COLS).id, 'i-a');
+});
+
+test('friendlyName: member-safe display forms', () => {
+  assert.equal(friendlyName('Leah', 'Cohen', 'Leah Cohen'), 'Leah C.');
+  assert.equal(friendlyName('Leah', '', 'whatever'), 'Leah');                       // first only
+  assert.equal(friendlyName('', '', 'Sarah Beth Levy'), 'Sarah L.');                // split spaced full name
+  assert.equal(friendlyName('', '', 'leah@example.org'), 'Anonymous Neighbor');     // email in Full Name
+  assert.equal(friendlyName('', '', 'Cher'), 'Anonymous Neighbor');                 // single token
+  assert.equal(friendlyName('', '', ''), 'Anonymous Neighbor');                     // all blank
+  assert.equal(friendlyName(null, undefined, null), 'Anonymous Neighbor');
+});
+
+test('projectEventForMember applies nameOf to claimant names (raw name still drives mine)', () => {
+  const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'X' } };
+  const slots = [{ id: 'i-s1', values: { [SLOT_COLS.label]: 'Dessert', [SLOT_COLS.neededQty]: 2, [SLOT_COLS.sortOrder]: 1 } }];
+  const claimsBySlot = { 'i-s1': [{ id: 'i-c1', values: { [CLAIM_COLS.member]: { rowId: 'i-p9', name: 'Leah Cohen' }, [CLAIM_COLS.qty]: 1 } }] };
+  const nameOf = (pid, fallback) => (pid === 'i-p9' ? 'Leah C.' : fallback);
+  // name-fallback mine matching (no callerId) compares the RAW name, then displays the safe one
+  const proj = projectEventForMember(row, slots, claimsBySlot, 'Leah Cohen', { includeClaimants: true, nameOf });
+  assert.equal(proj.slots[0].claims[0].name, 'Leah C.');
+  assert.equal(proj.slots[0].claims[0].mine, true);
+});
+
+test('validateClaimInput passes member through for the lead path; claimUpdateCells clamps', () => {
+  assert.equal(validateClaimInput({ slot: 'i-1' }).member, '');
+  assert.equal(validateClaimInput({ slot: 'i-1', member: 'i-p7' }).member, 'i-p7');
+  assert.equal(validateClaimInput({ slot: 'i-1', member: 42 }).member, '');         // non-string ignored
+  const cells = claimUpdateCells({ qty: 100, contributionDetail: '  kugel ' }, CLAIM_COLS);
+  const byCol = Object.fromEntries(cells.map((c) => [c.column, c.value]));
+  assert.equal(byCol[CLAIM_COLS.qty], 20);
+  assert.equal(byCol[CLAIM_COLS.contributionDetail], 'kugel');
+  const cleared = Object.fromEntries(claimUpdateCells({}, CLAIM_COLS).map((c) => [c.column, c.value]));
+  assert.equal(cleared[CLAIM_COLS.qty], 1);
+  assert.equal(cleared[CLAIM_COLS.contributionDetail], '');                          // empty clears
 });
 
 test('personCreateCells builds a self-onboarded row (writable cols + Notes marker)', () => {
