@@ -386,15 +386,17 @@ export default {
           const venueRes = await ensureEbVenue(env, base, docId, auth, V, ev.addressVisibility, ebId, !ev.ebId);
           if (venueRes && venueRes.error) return fail('venue', venueRes.error);
 
-          // 3. ticket class (free v1). Updating an EXISTING class with no staged
-          // Capacity is skipped: there's nothing to change, Eventbrite rejects a
-          // class update without quantity_total, and skipping leaves EB-side
-          // ticketing (renames, quantity tweaks) alone.
-          if (!ev.tcId) {
+          // 3. ticket class. Only ever CREATE one for a brand-new event (it can't
+          // publish without one). On an UPDATE we touch ticketing only if we own
+          // the class (stored tcId) AND have a staged capacity to change —
+          // otherwise leave Eventbrite's ticket classes alone. This avoids both
+          // duplicating tickets on an event whose classes we don't track and the
+          // "require a quantity_total" error when updating with no capacity.
+          if (!ev.ebId) {
             const r = await ebCreateTicket(env, ebId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
             await setRow([{ column: 'Eventbrite Ticket Class ID', value: r.body.id }]);
-          } else if (ev.capacity) {
+          } else if (ev.tcId && ev.capacity) {
             const r = await ebUpdateTicket(env, ebId, ev.tcId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
           }
