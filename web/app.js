@@ -1130,11 +1130,16 @@ function comingSoonHTML(sec){
    app. Slots persist to EST Slots SRC / claims to EST Claims SRC via the
    lead-gated /slots + /claims routes. Grouped by kind, each group with its own
    ghost "next row" add form. Needs a Coda row id. */
+// Real loading state: spinner + message. Slot reads go straight to Coda (kept
+// fresh for claims, no KV) so they can be genuinely slow — after 5s of honest
+// waiting the message reassures rather than looking hung.
+const SLOTS_LOADING_HTML = `<div class="slots-loading"><span class="ndoc-spin"></span><span data-loadmsg>Loading sign-up slots…</span></div>`;
+const SLOTS_SLOW_MSG = 'Still on it — our database is answering slowly today. Hang tight, nothing is broken…';
 function renderSlots(ev, canEdit){
   if(!ev.id) return `<div class="slots-wrap"><div class="soon-teaser"><div class="soon-h">Volunteers & potluck</div><div class="hint">Save the event first, then add sign-up slots here.</div></div></div>`;
   return `<div class="slots-wrap" id="f_slots">
       <p class="hint">Add potluck dishes or volunteer roles, and manage who's signed up. These go live to members in <b>gather</b> once the event is published — once approved, leads &amp; council can already preview them there.</p>
-      <div class="slots-list" aria-live="polite"><div class="hint">Loading slots…</div></div>
+      <div class="slots-list" aria-live="polite">${SLOTS_LOADING_HTML}</div>
       ${canEdit ? `<datalist id="slotPeopleDL"></datalist>` : `<p class="hint">Only program leads can edit slots.</p>`}
     </div>`;
 }
@@ -1225,8 +1230,14 @@ async function wireSlots(panel, ev, canEdit){
   };
   const sortPaint=()=>{ slots.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); paint(); };
   const load=async(gentle)=>{
+    let slowT;
+    if(!gentle && !slots.length){                    // initial load: spinner now, friendly note if it drags past 5s
+      list.innerHTML=SLOTS_LOADING_HTML;
+      slowT=setTimeout(()=>{ const m=list.querySelector('[data-loadmsg]'); if(m) m.textContent=SLOTS_SLOW_MSG; }, 5000);
+    }
     try{ slots=merge(await DB.listSlots(ev.id)); }
-    catch(err){ if(!gentle && !slots.length) list.innerHTML=`<div class="hint err">Couldn't load slots: ${esc(err.message||'')}</div>`; return; }
+    catch(err){ clearTimeout(slowT); if(!gentle && !slots.length) list.innerHTML=`<div class="hint err">Couldn't load slots: ${esc(err.message||'')}</div>`; return; }
+    finally{ clearTimeout(slowT); }
     // a background reconcile must never clobber a form the lead is typing in
     if(gentle && list.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)){ reconcile(); return; }
     sortPaint();
