@@ -114,7 +114,7 @@ document.addEventListener('click', (e) => {
 
 /* ---------- sign-in (shared wiring for the header menu + inline CTAs) ---------- */
 const SUPPORT_EMAIL = 'eastsidetribenashville@gmail.com';
-const LINK_SENDER = 'noreply@est-planning-calendar.firebaseapp.com';
+const LINK_SENDER = 'eastsidetribenashville@gmail.com';
 const contactHTML = (label = 'Trouble signing in?') =>
   `<p class="contact-line">${label} <a href="mailto:${SUPPORT_EMAIL}">Email us</a></p>`;
 

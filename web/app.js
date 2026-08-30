@@ -1892,7 +1892,7 @@ function updateGate(){
   if(b) b.hidden = !busy;
 }
 const SUPPORT_EMAIL='eastsidetribenashville@gmail.com';
-const LINK_SENDER='noreply@est-planning-calendar.firebaseapp.com';
+const LINK_SENDER='eastsidetribenashville@gmail.com';
 function wireGate(){
   const gg=document.getElementById('gateGoogle');
   if(gg) gg.addEventListener('click', async ()=>{
