@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  slotRemaining, validateClaimInput, projectEventForMember,
+  slotRemaining, normNeededQty, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
   isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells, urlOf, memberEventbriteUrl,
@@ -12,6 +12,23 @@ test('slotRemaining subtracts filled qty, never negative', () => {
   assert.equal(slotRemaining(3, [{ qty: 1 }, { qty: 1 }]), 1);
   assert.equal(slotRemaining(2, []), 2);
   assert.equal(slotRemaining(1, [{ qty: 1 }, { qty: 1 }]), 0);   // oversubscribed clamps to 0
+});
+
+test('normNeededQty: blank / 0 / negative = no limit (null); positive int otherwise', () => {
+  assert.equal(normNeededQty(''), null);        // blank cell = no limit
+  assert.equal(normNeededQty(null), null);
+  assert.equal(normNeededQty(undefined), null);
+  assert.equal(normNeededQty(0), null);         // never a 0-cap slot
+  assert.equal(normNeededQty(-3), null);
+  assert.equal(normNeededQty('  '), null);      // whitespace-only rich cell
+  assert.equal(normNeededQty(5), 5);
+  assert.equal(normNeededQty('12'), 12);
+  assert.equal(normNeededQty(2.9), 2);          // floored
+});
+
+test('slotRemaining: a null (blank) cap is unlimited -> always open (null)', () => {
+  assert.equal(slotRemaining(null, [{ qty: 1 }, { qty: 1 }]), null);
+  assert.equal(slotRemaining(null, []), null);
 });
 
 test('validateClaimInput requires slot, defaults + clamps qty, trims strings', () => {
@@ -224,6 +241,26 @@ test('slotCells writes the Event relation only on create, only provided fields',
   const u = Object.fromEntries(update.map((x) => [x.column, x.value]));
   assert.equal(SLOT_COLS.event in u, false);
   assert.equal(u[SLOT_COLS.label], 'Setup');
+  assert.equal(SLOT_COLS.neededQty in u, false);   // neededQty omitted -> not written
+});
+
+test('slotCells: blank / null / 0 neededQty clears the cell (no-limit), never persists 0', () => {
+  for (const q of ['', null, 0, -1, 'abc']) {
+    const cells = slotCells({ neededQty: q }, SLOT_COLS);
+    const m = Object.fromEntries(cells.map((x) => [x.column, x.value]));
+    assert.equal(m[SLOT_COLS.neededQty], '', `neededQty ${JSON.stringify(q)} -> blank`);
+  }
+  const capped = Object.fromEntries(slotCells({ neededQty: 8 }, SLOT_COLS).map((x) => [x.column, x.value]));
+  assert.equal(capped[SLOT_COLS.neededQty], 8);
+});
+
+test('projectEventForMember: a blank-cap slot is unlimited (neededQty & remaining null)', () => {
+  const row = { id: 'i-ev', values: {} };
+  const slots = [{ id: 'i-s1', values: { [SLOT_COLS.label]: 'Bring anything', [SLOT_COLS.neededQty]: '', [SLOT_COLS.sortOrder]: 1 } }];
+  const claimsBySlot = { 'i-s1': [{ id: 'i-c1', values: { [CLAIM_COLS.member]: { rowId: 'i-p1', name: 'A' }, [CLAIM_COLS.qty]: 1 } }] };
+  const proj = projectEventForMember(row, slots, claimsBySlot, 'A', { includeClaimants: true });
+  assert.equal(proj.slots[0].neededQty, null);
+  assert.equal(proj.slots[0].remaining, null);   // no limit -> always open
 });
 
 test('urlOf reads a rich urlref (even with an empty name) and plain strings', () => {

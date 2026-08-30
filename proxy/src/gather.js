@@ -155,7 +155,13 @@ export function slotCells(input, cols, opts = {}) {
   if (opts.withEvent && b.event) cells.push({ column: cols.event, value: [b.event] });
   if (b.kind != null) cells.push({ column: cols.kind, value: b.kind });
   if (b.label != null) cells.push({ column: cols.label, value: String(b.label) });
-  if (b.neededQty != null) cells.push({ column: cols.neededQty, value: Number(b.neededQty) || 0 });
+  // Capacity: a positive int caps the slot; blank/0/negative clears the cell
+  // (writing '' to Coda) which means NO LIMIT. We never persist 0 — see normNeededQty.
+  if (b.neededQty !== undefined) {
+    const n = Math.floor(Number(b.neededQty));
+    const val = (b.neededQty === '' || b.neededQty == null || !Number.isFinite(n) || n <= 0) ? '' : n;
+    cells.push({ column: cols.neededQty, value: val });
+  }
   if (b.sortOrder != null) cells.push({ column: cols.sortOrder, value: Number(b.sortOrder) || 0 });
   return cells;
 }
@@ -193,8 +199,21 @@ function effectiveUpcoming(v, cols, todayISO) {
   return String(eff).slice(0, 10) >= String(todayISO).slice(0, 10);
 }
 
+// A slot's capacity. A positive integer means "cap it there"; a BLANK cell (or a
+// non-positive value) means NO LIMIT — returns null. We never treat blank as 0: a
+// 0-cap slot renders as permanently "full" that no one can sign up for, which is
+// exactly the bug this guards against. Callers must handle null = unlimited.
+export function normNeededQty(cell) {
+  const v = plain(cell);
+  if (v === '' || v == null) return null;
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n > 0 ? n : null;   // 0 / negative / NaN -> unlimited
+}
+
 // How many claims a slot still wants. Never negative; oversubscription clamps to 0.
+// A null cap (blank neededQty) means unlimited — always open — so remaining is null.
 export function slotRemaining(neededQty, claims) {
+  if (neededQty == null) return null;                        // no limit
   const filled = (claims || []).reduce((s, c) => s + (Number(c && c.qty) || 0), 0);
   return Math.max(0, (Number(neededQty) || 0) - filled);
 }
@@ -280,7 +299,7 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
         if (mine && c && c.id) o.claimId = c.id;   // only the caller's own claim id is ever exposed
         return o;
       });
-      const needed = Number(plain(sv[SLOT_COLS.neededQty])) || 0;
+      const needed = normNeededQty(sv[SLOT_COLS.neededQty]);   // number, or null = no limit
       const slotObj = {
         id: s.id,
         kind: plain(sv[SLOT_COLS.kind]) || null,

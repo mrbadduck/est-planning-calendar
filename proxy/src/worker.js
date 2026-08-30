@@ -34,7 +34,7 @@ import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-column
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
-  slimPeopleRows, friendlyName, claimUpdateCells, splitName,
+  slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
@@ -722,7 +722,7 @@ export default {
         let items = out.items.map((s) => ({
           id: s.id, event: relId(s.values[SLOT_COLS.event]),
           kind: plain(s.values[SLOT_COLS.kind]) || '', label: plain(s.values[SLOT_COLS.label]) || '',
-          neededQty: Number(plain(s.values[SLOT_COLS.neededQty])) || 0,
+          neededQty: normNeededQty(s.values[SLOT_COLS.neededQty]),   // number, or null = no limit
           sortOrder: Number(plain(s.values[SLOT_COLS.sortOrder])) || 0,
           claims: claimsBySlot[s.id] || [],
         }));

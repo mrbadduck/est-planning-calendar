@@ -198,13 +198,18 @@ function slotSummary(ev){
   const slots = ev.slots || [];
   if (!state.member) return ev.hasSlots ? `<span class="pill open">Sign in to volunteer &amp; potluck</span>` : `<span class="pill">RSVP on Eventbrite</span>`;
   if (!slots.length) return `<span class="pill">RSVP on Eventbrite</span>`;
-  const open = slots.reduce((n, s) => n + (s.remaining || 0), 0);
+  // remaining === null means a no-limit slot (always open); count finite spots,
+  // but if any unlimited slot is open we can't put a number on it.
+  const anyUnlimited = slots.some((s) => s.remaining == null);
+  const open = slots.reduce((n, s) => n + (s.remaining == null ? 0 : Math.max(0, s.remaining)), 0);
   const kinds = [...new Set(slots.map((s) => s.kind).filter(Boolean))];
   const kindTxt = kinds.length ? kinds.join(' & ') : 'Sign-ups';
   const mine = slots.some((s) => s.mineClaimed);
-  const spot = open > 0
-    ? `<span class="pill open">${open} ${open === 1 ? 'spot' : 'spots'} open</span>`
-    : `<span class="pill full">All spots filled</span>`;
+  const spot = anyUnlimited
+    ? `<span class="pill open">Spots open</span>`
+    : open > 0
+      ? `<span class="pill open">${open} ${open === 1 ? 'spot' : 'spots'} open</span>`
+      : `<span class="pill full">All spots filled</span>`;
   return `<span class="pill">${esc(kindTxt)}</span>${spot}${mine ? '<span class="pill open">You\'re in ✓</span>' : ''}`;
 }
 async function renderHome(){
@@ -326,7 +331,7 @@ async function reconcileDetail(){
       const s = (fresh.slots || []).find((x) => x.id === rec.added.slot);
       if (s && !(s.claims || []).some((c) => c.claimId === k)){
         (s.claims = s.claims || []).push(rec.added.claim);
-        s.remaining = Math.max(0, (s.remaining || 0) - (rec.added.claim.qty || 1));
+        if (s.remaining != null) s.remaining = Math.max(0, s.remaining - (rec.added.claim.qty || 1));   // null = no limit, stays open
         s.mineClaimed = true;
       }
     }
@@ -336,7 +341,7 @@ async function reconcileDetail(){
         const before = s.claims.length;
         s.claims = s.claims.filter((c) => c.claimId !== k);
         if (s.claims.length < before){
-          s.remaining = (s.remaining || 0) + 1;
+          if (s.remaining != null) s.remaining = s.remaining + 1;   // null = no limit, stays open
           s.mineClaimed = s.claims.some((c) => c.mine);
         }
       }
@@ -352,11 +357,12 @@ function slotHTML(s){
   const list = claims.length ? `<ul class="claimants">${claims.map((c) => `
     <li class="${c.mine ? 'mine' : ''}"><span class="who">${esc(c.name || 'Someone')}${c.mine ? ' (you)' : ''}</span>${c.contribution ? ` <span class="contrib">— ${esc(c.contribution)}</span>` : ''}</li>`).join('')}</ul>` : `<div class="muted" style="font-size:.85rem;margin-top:.4rem">No one yet — be the first.</div>`;
 
+  const open = s.remaining == null || s.remaining > 0;   // null cap = no limit = always open
   let action = '';
   if (s.mineClaimed){
     const mineClaim = claims.find((c) => c.mine);
     action = `<div class="slot-actions"><button class="btn danger sm" data-unclaim="${esc((mineClaim && mineClaim.claimId) || '')}" data-slot="${esc(s.id)}">Remove my sign-up</button></div>`;
-  } else if ((s.remaining || 0) > 0){
+  } else if (open){
     const ph = s.kind === 'Potluck' ? 'What are you bringing? (optional)' : 'Note (optional)';
     action = `<form class="claim-form" data-claim="${esc(s.id)}">
         <input type="text" name="contribution" placeholder="${esc(ph)}" maxlength="120">
@@ -366,7 +372,7 @@ function slotHTML(s){
     action = `<div class="slot-actions muted" style="font-size:.85rem">This one’s full — thanks!</div>`;
   }
   return `<div class="slot" data-slot-row="${esc(s.id)}">
-      <div class="slot-head"><span class="lbl">${esc(s.label || 'Slot')}</span><span class="cnt">${filled} of ${s.neededQty || filled} filled</span></div>
+      <div class="slot-head"><span class="lbl">${esc(s.label || 'Slot')}</span><span class="cnt">${s.neededQty == null ? `${filled} signed up` : `${filled} of ${s.neededQty} filled`}</span></div>
       ${list}
       ${action}
     </div>`;
@@ -385,7 +391,7 @@ function wireSheet(){
         if (s){                                          // show it NOW — the server read lags the write
           const c = { name: (state.member && state.member.name) || 'You', contribution, qty: 1, mine: true, claimId: (res && res.id) || `tmp-${Date.now()}` };
           (s.claims = s.claims || []).push(c);
-          s.remaining = Math.max(0, (s.remaining || 0) - 1);
+          if (s.remaining != null) s.remaining = Math.max(0, s.remaining - 1);   // null = no limit, stays open
           s.mineClaimed = true;
           rememberOp(c.claimId, { added: { slot: s.id, claim: c } });
         }
@@ -405,7 +411,7 @@ function wireSheet(){
         const s = _detail && _detail.ev.slots.find((x) => x.id === slotId);
         if (s && s.claims){
           s.claims = s.claims.filter((c) => c.claimId !== claimId);
-          s.remaining = (s.remaining || 0) + 1;
+          if (s.remaining != null) s.remaining = s.remaining + 1;   // null = no limit, stays open
           s.mineClaimed = s.claims.some((c) => c.mine);
           rememberOp(claimId, { removed: true });
         }
