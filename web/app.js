@@ -1332,7 +1332,7 @@ async function wireSlots(panel, ev, canEdit){
     return `<div class="slot-item" data-id="${esc(s.id)}">
         <div class="slot-head">
           <span class="slot-name">${esc(s.label||'')}</span>
-          <span class="slot-need">${filled} of ${s.neededQty||0}</span>
+          <span class="slot-need">${s.neededQty==null?`${filled} · no limit`:`${filled} of ${s.neededQty}`}</span>
           ${canEdit?`<span class="slot-ctl">
             <button type="button" class="iconbtn" data-move="-1" ${i===0?'disabled':''} title="Move up" aria-label="Move up">↑</button>
             <button type="button" class="iconbtn" data-move="1" ${i===groupLen-1?'disabled':''} title="Move down" aria-label="Move down">↓</button>
@@ -1350,7 +1350,7 @@ async function wireSlots(panel, ev, canEdit){
   const ghostHTML=(k)=>`
       <form class="slot-item slot-ghost" data-add="${esc(k)}" autocomplete="off">
         <input class="slot-label" type="text" placeholder="${k==='Volunteer'?'Add a role or shift…':'Add a dish or item…'}" maxlength="80" required>
-        <input class="slot-qty" type="number" min="1" max="99" value="1" title="How many needed" aria-label="How many needed">
+        <input class="slot-qty" type="number" min="1" max="99" placeholder="∞" title="How many needed — leave blank for no limit" aria-label="How many needed (blank = no limit)">
         <button class="btn sm primary" type="submit">Add</button>
       </form>`;
   const groupSlots=(k)=>slots.filter(s=>(s.kind||KINDS[0])===k);
@@ -1386,7 +1386,8 @@ async function wireSlots(panel, ev, canEdit){
     const kind=form.dataset.add;
     const labEl=form.querySelector('.slot-label'), qtyEl=form.querySelector('.slot-qty');
     const label=labEl.value.trim(); if(!label) return;
-    const neededQty=Math.max(1, Math.min(99, parseInt(qtyEl.value,10)||1));
+    const rawQty=(qtyEl.value||'').trim();                        // blank = no limit (unlimited)
+    const neededQty=rawQty===''?null:Math.max(1, Math.min(99, parseInt(rawQty,10)||1));
     const sortOrder=(slots.length?Math.max(...slots.map(s=>s.sortOrder||0)):0)+1;
     const btn=form.querySelector('button[type=submit]'); btn.disabled=true;
     try{
