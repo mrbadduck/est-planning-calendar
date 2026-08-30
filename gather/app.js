@@ -139,7 +139,12 @@ function wireSignIn(root){
       const again = root.querySelector('[data-signin-again]');
       if (again) again.addEventListener('click', () => { root.innerHTML = signInFormHTML(); wireSignIn(root); });
     }
-    catch (_) { toast('Could not send the link — check the address, or email us', 'err'); if (btn) btn.disabled = false; }
+    catch (err) {
+      // Firebase caps email-link sends per day — steer to Google, which has no such limit.
+      const quota = /quota/i.test(`${err && err.code || ''} ${err && err.message || ''}`);
+      toast(quota ? 'Email links are temporarily at capacity — please use “Continue with Google” instead.' : 'Could not send the link — check the address, or email us', 'err');
+      if (btn) btn.disabled = false;
+    }
   });
 }
 function signInFormHTML(){

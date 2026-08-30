@@ -1918,7 +1918,11 @@ function wireGate(){
       form.hidden=true; sent.hidden=false;
       document.getElementById('gateAgain').addEventListener('click', ()=>{ sent.hidden=true; form.hidden=false; if(btn) btn.disabled=false; });
     }
-    catch(err){ toast('Could not send the link — check the address, or email us','err'); if(btn) btn.disabled=false; }
+    catch(err){
+      const quota=/quota/i.test(`${err&&err.code||''} ${err&&err.message||''}`);
+      toast(quota?'Email links are temporarily at capacity — use “Continue with Google” instead.':'Could not send the link — check the address, or email us','err');
+      if(btn) btn.disabled=false;
+    }
   });
 }
 function acctMenu(open){
