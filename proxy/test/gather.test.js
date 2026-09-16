@@ -382,3 +382,15 @@ test('projectEventForMember constructs the EB url from the stored event id', () 
   assert.equal(proj.eventbriteUrl, 'https://www.eventbrite.com/e/987654321?aff=gather');
   assert.ok(!JSON.stringify(proj).includes('hand-pasted'));
 });
+
+test('PRIVACY: projectEventForMember never emits an email key anywhere in the projection', () => {
+  const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'Potluck', [PLANNING_COLS.published]: true } };
+  const slots = [{ id: 'i-s1', values: { [SLOT_COLS.label]: 'Dessert', [SLOT_COLS.kind]: 'Potluck' } }];
+  const claimsBySlot = { 'i-s1': [{ id: 'i-c1', values: { [CLAIM_COLS.member]: { rowId: 'i-p1', name: 'Dana Levy' }, [CLAIM_COLS.contributionDetail]: 'kugel', [CLAIM_COLS.qty]: 1 } }] };
+  const proj = projectEventForMember(row, slots, claimsBySlot, 'Dana Levy', { includeClaimants: true, callerId: 'i-p1' });
+  const walk = (o, path = '') => {
+    if (Array.isArray(o)) return o.forEach((x, i) => walk(x, `${path}[${i}]`));
+    if (o && typeof o === 'object') for (const k of Object.keys(o)) { assert.ok(!/email/i.test(k), `email-ish key at ${path}.${k}`); walk(o[k], `${path}.${k}`); }
+  };
+  walk(proj);
+});
