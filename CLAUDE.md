@@ -48,6 +48,9 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
   set, CORS locked to an allowlist (the app origin + `localhost:8080` for local
   dev). Serves `GET /rows`, `GET /ref/:name`, `GET /me`
   (verifies the Firebase ID token → matches email to `EST People SRC` → role),
+  `GET /roster/:rowId` (lead-only attendee roster: live Eventbrite orders + gather
+  claims, resolved to People by `All Emails`, Active Member? badge from
+  `c-yJfWc0GMsQ`),
   and role-gated writes that inject person attribution. Points at
   `EST Planning Events SRC` (`grid--gYIvdD-cE`).
 - **Mission Control doc identified:** doc id `DYAz_wCVfv`
@@ -133,10 +136,13 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   bucketed **weeknight Mon–Thu / weekend Fri–Sun**) and `renderMonths()`
   (detailed month grids with a left "Ideas" gutter). `applyView()` toggles them.
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
-  live sections **Planning** (`renderPlanning`/`wirePlanning`) + **Publish**
-  (`renderPublish`/`wirePublish`, gated on approved), plus a muted **Coming soon**
-  group (Budget/Comms/Volunteers/Attendance/Feedback) whose panels host the
-  feedback board. `openEditor(ev, section)` resets to Planning unless a section is
+  live sections **Details**, **Planning Notes**, **Potluck & Volunteers**, **Publish**
+  (`renderPublish`/`wirePublish`, gated on approved) and **Attendees**
+  (`renderAttendees`/`wireAttendees` — lead-only live roster of Eventbrite orders ∪
+  gather claimants via Worker `GET /roster/:rowId`, segment chips from
+  `web/roster-lib.js`, **Copy emails** / **Email** = `mailto:` BCC; leads send from
+  their own accounts, no Worker-side sending), plus a muted **Coming soon** group
+  (Budget/Comms/Feedback) whose panels host the feedback board. `openEditor(ev, section)` resets to Planning unless a section is
   passed; `readForm()` null-guards every field (only the active section's inputs
   exist in the DOM). **Internal** description lives in Planning; **Public
   summary/description** (sent to Eventbrite) live in Publish.
@@ -199,9 +205,13 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   caches evaporate on isolate recycle — so `swrGet` in `proxy/src/worker.js`
   persists snapshots in the `CACHE` KV namespace (free tier): the **slim People
   projection** (auth/sign-in — soft 5m/hard 30m, patched in place on member
-  create), **/rows** (soft 30s/hard 5m — busted on every planning write incl.
+  create; now also carries `Active Member?` — `PEOPLE_KV_KEY` is `people-slim-v3`,
+  bump it on any slim-shape change), **/rows** (soft 30s/hard 5m — busted on every planning write incl.
   publish/cancel/notes-doc; `?fresh=1` bypasses for the notes-doc fast-poll),
-  **/ref/*** and **/references**. When adding a Worker write path that mutates
+  **/ref/***, **/references**, and **/roster/:rowId** (soft 60s/hard 5m per event
+  — busted by the claim write routes via the slot's Event relation; `?fresh=1` for
+  the refresh button; the value holds raw registrant emails, server-side only).
+  When adding a Worker write path that mutates
   planning rows, bust `ROWS_KV_KEY`. Cache API is a no-op on workers.dev (no
   Cloudflare zone — DNS stays at Hover), which is why KV.
 - **Coda `valueFormat=rich` fences text values in triple backticks** (```` ```Main dish``` ````)
@@ -269,6 +279,10 @@ App live at `plan.eastsidetribe.org` (Netlify) → Worker
 
 **Later:**
 
+- **Registrant comms v1 — ✅ DONE (Sep 2026):** Attendees roster + copy/mailto.
+  Worker-side sending, a Comms Log, and the EST Memberships SRC-backed member rule
+  are the follow-ups. Design:
+  `docs/superpowers/specs/2026-09-16-attendees-roster-design.md`.
 8. **References live:** Hebcal JSON for Jewish holidays; shared Google Calendars
    synced into Superhuman Docs and read via the proxy.
 9. **Downstream automations** in Superhuman Docs (approved → Eventbrite/gCal/
