@@ -1310,9 +1310,11 @@ async function wireAttendees(panel, ev){
   const paintSegs=()=>{
     segsEl.innerHTML=segs.map(s=>{ const n=data.rows.filter(s.test).length; return `<button type="button" class="roster-seg${s.id===seg?' on':''}" data-seg="${esc(s.id)}" aria-pressed="${s.id===seg}">${esc(s.label)} <span class="n">${n}</span></button>`; }).join('');
   };
+  // Registered + matched is the default state and gets no badge (the segment
+  // chips carry the counts); only the exceptions are flagged inline by the name.
   const statusBadge=r=> r.kind==='order'
-    ? (r.matched ? `<span class="badge b-confirmed">Registered</span>` : `<span class="badge b-draft" title="No EST person matches this email yet">Not in People</span>`)
-    : `<span class="badge b-past" title="Signed up in gather but hasn't registered on Eventbrite">Not registered</span>`;
+    ? (r.matched ? '' : ` <span class="badge b-draft" title="No EST person matches this email yet">Not in People</span>`)
+    : ` <span class="badge b-past" title="Signed up in gather but hasn't registered on Eventbrite">Not registered</span>`;
   const paintRows=()=>{
     const rows=visible();
     if(!rows.length){
@@ -1320,13 +1322,12 @@ async function wireAttendees(panel, ev){
         : (data.ebLinked ? 'No registrations yet.' : 'Registrants appear here once the event is published to Eventbrite. Sign-ups from gather show as soon as they land.');
       body.innerHTML=`<div class="hint roster-empty">${msg}</div>`; paintFoot(); return;
     }
-    body.innerHTML=`<table class="roster"><thead><tr><th></th><th>Name</th><th>Tickets</th><th>Sign-ups</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`
+    body.innerHTML=`<table class="roster"><thead><tr><th></th><th>Name</th><th>Tickets</th><th>Sign-ups</th></tr></thead><tbody>${rows.map(r=>`
       <tr data-key="${esc(r.key)}">
         <td><input type="checkbox" data-sel ${selected.has(r.key)?'checked':''} aria-label="Select ${esc(r.name||r.email||'row')}"></td>
-        <td><div class="roster-name">${esc(r.name||'(no name)')}${r.member?` <span class="badge b-member" title="Active member">Member</span>`:''}</div><div class="roster-email">${r.email?esc(r.email):'<span class="hint">no email</span>'}</div></td>
-        <td class="roster-tix">${r.tickets.length?r.tickets.map(t=>`${t.qty} × ${esc(t.class)}`).join('<br>'):'<span class="hint">—</span>'}</td>
+        <td class="roster-who"><div class="roster-name">${esc(r.name||'(no name)')}${r.member?` <span class="badge b-member" title="Active member">Member</span>`:''}${statusBadge(r)}</div><div class="roster-email">${r.email?esc(r.email):'<span class="hint">no email</span>'}</div></td>
+        <td class="roster-tix">${r.tickets.length?r.tickets.map(t=>`<span class="roster-tik">${t.qty} × ${esc(t.class)}</span>`).join(''):'<span class="hint">—</span>'}</td>
         <td class="roster-claims">${r.claims.length?r.claims.map(c=>`<span class="roster-claim">${esc(c.label)}${c.contribution?` <span class="hint">· ${esc(c.contribution)}</span>`:''}</span>`).join(''):'<span class="hint">—</span>'}</td>
-        <td>${statusBadge(r)}</td>
       </tr>`).join('')}</tbody></table>`;
     paintFoot();
   };
@@ -1351,8 +1352,13 @@ async function wireAttendees(panel, ev){
     if(act==='roster-refresh'||act==='roster-retry'){ body.innerHTML=SLOTS_LOADING_HTML; await load(true); return; }
     if(act==='roster-copy'){
       const emails=L.emailsOf(chosen()); const text=emails.join(', ');
-      try{ await navigator.clipboard.writeText(text); toast(`Copied ${plural(emails.length,'email')}`); }
-      catch(_){ window.prompt('Copy these addresses:', text); }   // clipboard API blocked (http, permissions) — still hand them over
+      if(await copyText(text)){ toast(`Copied ${plural(emails.length,'email')}`); wrap.querySelector('.roster-copybox')?.remove(); return; }
+      // Clipboard blocked (plain http, permissions, embedded browsers): hand the
+      // list over inline so it can still be selected + copied by hand.
+      let box=wrap.querySelector('.roster-copybox');
+      if(!box){ box=document.createElement('div'); box.className='roster-copybox'; wrap.insertBefore(box, wrap.querySelector('.roster-foot')); }
+      box.innerHTML=`<div class="hint">Couldn't reach the clipboard — select and copy:</div><textarea readonly rows="3"></textarea>`;
+      const ta=box.querySelector('textarea'); ta.value=text; ta.focus(); ta.select();
       return;
     }
     if(act==='roster-mail' && a.classList.contains('disabled')){ e.preventDefault(); }
@@ -1361,7 +1367,28 @@ async function wireAttendees(panel, ev){
     if(e.target.matches('[data-selall]')){ const vis=visible(); vis.forEach(r=> e.target.checked ? selected.add(r.key) : selected.delete(r.key)); paintRows(); return; }
     if(e.target.matches('[data-sel]')){ const key=e.target.closest('tr').dataset.key; if(e.target.checked) selected.add(key); else selected.delete(key); paintFoot(); }
   });
+  // A deep-linked open can land BEFORE Firebase has yielded the token (page
+  // load): don't fire a doomed unauthenticated request — wait for identity to
+  // resolve, then load. Signed-out for real -> the notice, no request.
+  const authBusy=()=>!state.authResolved || state.authPending;
+  if(authBusy()){
+    body.innerHTML=SLOTS_LOADING_HTML; sum.textContent='Signing in…';
+    const onId=()=>{ document.removeEventListener('est:identity', onId); if(document.body.contains(wrap)) load(false); };
+    document.addEventListener('est:identity', onId);
+    return;
+  }
+  if(!state.idToken){ sum.textContent=''; body.innerHTML=`<div class="hint roster-empty">Sign in as a program lead or council member to see attendees.</div>`; return; }
   await load(false);
+}
+// Clipboard write with a legacy fallback (execCommand on a temp textarea) for
+// contexts where navigator.clipboard is unavailable or denied. Returns success.
+async function copyText(text){
+  try{ if(navigator.clipboard && window.isSecureContext){ await navigator.clipboard.writeText(text); return true; } }catch(_){}
+  try{
+    const ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly',''); ta.style.cssText='position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+    const ok=document.execCommand('copy'); ta.remove(); return !!ok;
+  }catch(_){ return false; }
 }
 function fmtAgo(iso){
   const s=Math.max(0,(Date.now()-Date.parse(iso))/1000);
@@ -2074,6 +2101,7 @@ async function fetchMe(){
   }catch(_){ state.identity=null; }               // transient network error: keep the token, try again later
   state.authPending=false;
   renderAuth(); applyView();
+  document.dispatchEvent(new CustomEvent('est:identity'));   // panels opened before sign-in resolved (deep links) re-fetch on this
 }
 // Called by estAuth whenever Firebase yields a (refreshed) ID token.
 async function onFirebaseToken(token){ state.idToken = token || null; state.authResolved = true; state.authPending = !!token; renderAuth(); await fetchMe(); }
