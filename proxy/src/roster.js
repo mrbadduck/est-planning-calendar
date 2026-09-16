@@ -82,3 +82,53 @@ export function claimantRows(slots, claimsBySlot, peopleRows, cols) {
   }
   return [...byPerson.values()];
 }
+
+// Resolve each order to a person (email <-> All Emails) and fold matching
+// claimants INTO the order row (match by personId, else by email). Claimants
+// with no order are appended as their own rows. Orders keep the Eventbrite
+// name — it's what the registrant typed for this event. Sorted by name.
+export function mergeRoster(orders, claimants, peopleRows, cols) {
+  const byPid = new Map(), byEmail = new Map();
+  for (const c of (claimants || [])) {
+    if (c.personId) byPid.set(c.personId, c);
+    if (c.email) byEmail.set(c.email, c);
+  }
+  const used = new Set();
+  const rows = (orders || []).map((o) => {
+    const p = personFacts(o.email ? findPersonByEmail(peopleRows, o.email, cols) : null, cols);
+    const row = { ...o, personId: p.personId, matched: !!p.personId, member: p.member };
+    const c = (p.personId && byPid.get(p.personId)) || (o.email && byEmail.get(o.email)) || null;
+    if (c) { row.claims = c.claims; used.add(c.key); }
+    return row;
+  });
+  for (const c of (claimants || [])) if (!used.has(c.key)) rows.push(c);
+  rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  return rows;
+}
+
+export function rosterSummary(rows) {
+  const s = { rows: 0, orders: 0, tickets: 0, claimants: 0, unregisteredClaimants: 0, members: 0, unmatched: 0, noEmail: 0 };
+  for (const r of (rows || [])) {
+    s.rows++;
+    if (r.kind === 'order') {
+      s.orders++;
+      s.tickets += (r.tickets || []).reduce((n, t) => n + (Number(t.qty) || 0), 0);
+      if (!r.matched) s.unmatched++;
+    } else {
+      s.unregisteredClaimants++;
+    }
+    if ((r.claims || []).length) s.claimants++;
+    if (r.member) s.members++;
+    if (!r.email) s.noEmail++;
+  }
+  return s;
+}
+
+// The whole pipeline: raw Eventbrite orders + this event's rich slot/claim rows +
+// the slim People projection -> { rows, summary }.
+export function buildRoster({ orders, slots, claimsBySlot, people, cols }) {
+  const o = orderRows(orders);
+  const c = claimantRows(slots, claimsBySlot, people, cols);
+  const rows = mergeRoster(o, c, people, cols);
+  return { rows, summary: rosterSummary(rows) };
+}
