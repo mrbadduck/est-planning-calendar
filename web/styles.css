@@ -574,6 +574,32 @@
      program hue against --mixbase/--mixink, so flipping the tokens re-tints
      the calendar. The pastel badge/label tints are hardcoded per-status in
      light, so they get explicit dark counterparts here. */
+  /* ---- Attendees roster (plan, lead-only) ---------------------------------- */
+  .roster-wrap{display:flex;flex-direction:column;gap:10px;min-height:0}
+  .roster-foot .push{flex:1}
+  .roster-head{display:flex;align-items:center;gap:8px}
+  .roster-sum{flex:1;min-width:0}
+  .roster-segs{display:flex;flex-wrap:wrap;gap:6px}
+  .roster-seg{font:inherit;font-size:11.5px;padding:4px 9px;border-radius:20px;border:1px solid var(--hair-strong);background:var(--surface);color:var(--muted);cursor:pointer}
+  .roster-seg:hover{color:var(--accent);border-color:var(--accent)}
+  .roster-seg .n{opacity:.7;margin-left:3px;font-variant-numeric:tabular-nums}
+  .roster-seg.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .roster-seg.on .n{opacity:.9}
+  table.roster{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.roster th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--hair)}
+  table.roster td{padding:6px;border-bottom:1px solid var(--hair);vertical-align:top}
+  table.roster .badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;white-space:nowrap}
+  .roster-name{font-weight:600;color:var(--ink)}
+  .roster-email{color:var(--muted);font-size:11.5px;word-break:break-all}
+  .roster-tix{white-space:nowrap;font-variant-numeric:tabular-nums}
+  .roster-claim{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+  .badge.b-member{background:#E7F4E9;color:#2F7D3B;font-size:9.5px;padding:1px 6px;border-radius:20px;margin-left:5px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;vertical-align:middle}
+  .roster-foot{display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--hair);position:sticky;bottom:0;background:var(--surface)}
+  .roster-selall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer}
+  .roster-foot .btn.disabled{opacity:.5;pointer-events:none}
+  .roster-empty{padding:14px 4px}
+  .roster-err{padding:10px 12px;border:1px solid #E5B4B4;background:#FBEDED;border-radius:8px;color:#8A2E2E;font-size:12.5px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+  @media (max-width:640px){ table.roster th:nth-child(3),table.roster td:nth-child(3){display:none} .roster-claim{max-width:140px} }
   @media (prefers-color-scheme:dark){
     :root{
       color-scheme:dark;
@@ -610,4 +636,6 @@
     .ndoc-warn{color:#D9B96C}
     .weekhead .wd.we{color:#C9938A}
     .toast{color:var(--paper)}
+    .badge.b-member{background:#23352B;color:#82C89D}
+    .roster-err{background:#3C2626;border-color:#7A4040;color:#E9A0A0}
   }

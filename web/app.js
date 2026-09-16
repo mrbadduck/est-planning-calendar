@@ -374,6 +374,8 @@ const CodaSource = {
   async createSlot(body){ const r=await fetch(`${this.base}/slots`,{method:'POST',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return (await r.json().catch(()=>({}))); },
   async updateSlot(id, body){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return true; },
   async removeSlot(id){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); return true; },
+  // lead-facing attendee roster (Eventbrite orders ∪ gather claimants); fresh=true bypasses the Worker's KV snapshot
+  async roster(rowId, fresh){ const r=await fetch(`${this.base}/roster/${encodeURIComponent(rowId)}${fresh?'?fresh=1':''}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`roster failed (${r.status})`); e.status=r.status; throw e; } return j; },
 };
 
 // The live proxy is the only data source. Reads are unauthenticated (CORS-gated,
@@ -656,13 +658,14 @@ const SECTIONS = [
   { id:'notes',     label:'Planning Notes',       live:true },
   { id:'volunteers',label:'Potluck & Volunteers', live:true },
   { id:'publish',   label:'Publish',              live:true },
+  { id:'attendees', label:'Attendees',            live:true },
   { id:'budget',    label:'Budget & expenses',    live:false },
   { id:'comms',     label:'Comms',                live:false },
-  { id:'attendance',label:'Attendance',           live:false },
   { id:'feedback',  label:'Feedback',             live:false },
 ];
-// Back-compat: the Details section was formerly 'planning'; map old deep links.
-const sectionId = id => (id==='planning' ? 'details' : id);
+// Back-compat: Details was formerly 'planning', Attendees was the 'attendance'
+// coming-soon stub; map old deep links.
+const sectionId = id => ({ planning:'details', attendance:'attendees' }[id] || id);
 let activeSection = 'details';
 
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
@@ -1115,6 +1118,7 @@ function renderSection(id, ev, canEdit, locked, canApprove){
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='publish'){ panel.innerHTML=renderPublish(ev, canEdit, locked); wirePublish(panel, ev, canEdit, locked); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
+  if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
   panel.innerHTML=renderPlanning(ev, canEdit, locked, canApprove); wirePlanning(panel, ev, canEdit, locked, canApprove);
 }
@@ -1259,6 +1263,112 @@ function wirePublish(panel, ev, canEdit, locked){
 
 function comingSoonHTML(sec){
   return `<div class="soon-teaser"><div class="soon-h">${esc(sec.label)} — coming soon</div><div class="hint">On our roadmap. Tell us what you'd want here, or +1 an idea below.</div>${typeof feedbackBoardHTML==='function'?feedbackBoardHTML(sec.id):''}</div>`;
+}
+
+/* ---- Attendees: live roster (Eventbrite orders ∪ gather claimants) --------
+   Read-only for leads. Emails ARE shown here — plan is lead-only; gather's
+   member projection never carries an address. Segments are a client-side filter
+   (RosterLib); Copy / Email act on the checked rows of the current segment.
+   Selection is by row key, and emails are resolved from the loaded rows. */
+function renderAttendees(ev){
+  if(!ev.id) return `<div class="roster-wrap"><div class="soon-teaser"><div class="soon-h">Attendees</div><div class="hint">Save the event first.</div></div></div>`;
+  return `<div class="roster-wrap" id="f_roster">
+      <div class="roster-head"><div class="roster-sum hint" data-sum>Loading…</div><button type="button" class="btn sm ghost" data-act="roster-refresh" title="Pull the latest from Eventbrite">↻ Refresh</button></div>
+      <div class="roster-segs" data-segs></div>
+      <div class="roster-body" data-body>${SLOTS_LOADING_HTML}</div>
+      <div class="roster-foot">
+        <label class="roster-selall"><input type="checkbox" data-selall> <span data-selcount>0 selected</span></label>
+        <span class="push"></span>
+        <button type="button" class="btn sm" data-act="roster-copy" disabled>Copy emails</button>
+        <a class="btn sm primary disabled" data-act="roster-mail" href="#" aria-disabled="true">Email</a>
+      </div>
+    </div>`;
+}
+async function wireAttendees(panel, ev){
+  const wrap=panel.querySelector('#f_roster'); if(!wrap) return;
+  const body=wrap.querySelector('[data-body]'); if(!body) return;   // save-first teaser
+  const segsEl=wrap.querySelector('[data-segs]'), sum=wrap.querySelector('[data-sum]');
+  const copyBtn=wrap.querySelector('[data-act="roster-copy"]'), mailBtn=wrap.querySelector('[data-act="roster-mail"]');
+  const selAll=wrap.querySelector('[data-selall]'), selCount=wrap.querySelector('[data-selcount]');
+  const L=window.RosterLib;
+  let data=null, segs=[], seg='all', selected=new Set();
+  const visible=()=>data?L.applySegment(data.rows, segs, seg):[];
+  const chosen=()=>visible().filter(r=>selected.has(r.key));
+  const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
+  const paintFoot=()=>{
+    const rows=chosen(), emails=L.emailsOf(rows), missing=rows.length-emails.length;
+    selCount.textContent=`${rows.length} selected${missing>0?` · ${missing} without email`:''}`;
+    copyBtn.disabled=!emails.length;
+    const href=emails.length?L.mailtoHref(emails, ev.title||''):null;
+    mailBtn.classList.toggle('disabled', !href); mailBtn.setAttribute('aria-disabled', String(!href));
+    mailBtn.href=href||'#';
+    mailBtn.title=(emails.length && !href)?'Too many addresses for a mail link — use Copy emails instead':'';
+    const vis=visible();
+    selAll.checked=vis.length>0 && vis.every(r=>selected.has(r.key));
+    selAll.indeterminate=!selAll.checked && vis.some(r=>selected.has(r.key));
+  };
+  const paintSegs=()=>{
+    segsEl.innerHTML=segs.map(s=>{ const n=data.rows.filter(s.test).length; return `<button type="button" class="roster-seg${s.id===seg?' on':''}" data-seg="${esc(s.id)}" aria-pressed="${s.id===seg}">${esc(s.label)} <span class="n">${n}</span></button>`; }).join('');
+  };
+  const statusBadge=r=> r.kind==='order'
+    ? (r.matched ? `<span class="badge b-confirmed">Registered</span>` : `<span class="badge b-draft" title="No EST person matches this email yet">Not in People</span>`)
+    : `<span class="badge b-past" title="Signed up in gather but hasn't registered on Eventbrite">Not registered</span>`;
+  const paintRows=()=>{
+    const rows=visible();
+    if(!rows.length){
+      const msg = data.rows.length ? 'No one in this segment.'
+        : (data.ebLinked ? 'No registrations yet.' : 'Registrants appear here once the event is published to Eventbrite. Sign-ups from gather show as soon as they land.');
+      body.innerHTML=`<div class="hint roster-empty">${msg}</div>`; paintFoot(); return;
+    }
+    body.innerHTML=`<table class="roster"><thead><tr><th></th><th>Name</th><th>Tickets</th><th>Sign-ups</th><th>Status</th></tr></thead><tbody>${rows.map(r=>`
+      <tr data-key="${esc(r.key)}">
+        <td><input type="checkbox" data-sel ${selected.has(r.key)?'checked':''} aria-label="Select ${esc(r.name||r.email||'row')}"></td>
+        <td><div class="roster-name">${esc(r.name||'(no name)')}${r.member?` <span class="badge b-member" title="Active member">Member</span>`:''}</div><div class="roster-email">${r.email?esc(r.email):'<span class="hint">no email</span>'}</div></td>
+        <td class="roster-tix">${r.tickets.length?r.tickets.map(t=>`${t.qty} × ${esc(t.class)}`).join('<br>'):'<span class="hint">—</span>'}</td>
+        <td class="roster-claims">${r.claims.length?r.claims.map(c=>`<span class="roster-claim">${esc(c.label)}${c.contribution?` <span class="hint">· ${esc(c.contribution)}</span>`:''}</span>`).join(''):'<span class="hint">—</span>'}</td>
+        <td>${statusBadge(r)}</td>
+      </tr>`).join('')}</tbody></table>`;
+    paintFoot();
+  };
+  const paintSum=()=>{ const s=data.summary; sum.textContent=`${plural(s.orders,'order')} · ${plural(s.tickets,'ticket')} · ${s.claimants} signed up · ${plural(s.members,'member')}${data.fetchedAt?` · updated ${fmtAgo(data.fetchedAt)}`:''}`; };
+  const load=async(fresh)=>{
+    try{
+      data=await DB.roster(ev.id, fresh);
+      if(data.configured===false){ body.innerHTML=`<div class="hint roster-empty">Eventbrite isn't configured on the proxy, so registrations can't be shown.</div>`; sum.textContent=''; return; }
+      segs=L.segmentsFor(data.rows); if(!segs.some(s=>s.id===seg)) seg='all';
+      selected=new Set([...selected].filter(k=>data.rows.some(r=>r.key===k)));   // drop selections that vanished
+      paintSum(); paintSegs(); paintRows();
+    }catch(e){
+      sum.textContent='';
+      if(e.status===403){ body.innerHTML=`<div class="hint roster-empty">Sign in as a program lead or council member to see attendees.</div>`; return; }
+      body.innerHTML=`<div class="roster-err"><span>${esc(e.message||'Could not load attendees')}</span><button type="button" class="btn xs" data-act="roster-retry">Retry</button></div>`;
+    }
+  };
+  wrap.addEventListener('click', async e=>{
+    const sb=e.target.closest('[data-seg]'); if(sb){ seg=sb.dataset.seg; selected.clear(); paintSegs(); paintRows(); return; }
+    const a=e.target.closest('[data-act]'); if(!a) return;
+    const act=a.dataset.act;
+    if(act==='roster-refresh'||act==='roster-retry'){ body.innerHTML=SLOTS_LOADING_HTML; await load(true); return; }
+    if(act==='roster-copy'){
+      const emails=L.emailsOf(chosen()); const text=emails.join(', ');
+      try{ await navigator.clipboard.writeText(text); toast(`Copied ${plural(emails.length,'email')}`); }
+      catch(_){ window.prompt('Copy these addresses:', text); }   // clipboard API blocked (http, permissions) — still hand them over
+      return;
+    }
+    if(act==='roster-mail' && a.classList.contains('disabled')){ e.preventDefault(); }
+  });
+  wrap.addEventListener('change', e=>{
+    if(e.target.matches('[data-selall]')){ const vis=visible(); vis.forEach(r=> e.target.checked ? selected.add(r.key) : selected.delete(r.key)); paintRows(); return; }
+    if(e.target.matches('[data-sel]')){ const key=e.target.closest('tr').dataset.key; if(e.target.checked) selected.add(key); else selected.delete(key); paintFoot(); }
+  });
+  await load(false);
+}
+function fmtAgo(iso){
+  const s=Math.max(0,(Date.now()-Date.parse(iso))/1000);
+  if(!Number.isFinite(s)) return '';
+  if(s<60) return 'just now';
+  const m=Math.round(s/60); if(m<60) return `${m}m ago`;
+  return `${Math.round(m/60)}h ago`;
 }
 
 /* ---- Volunteers & potluck: the gather slot builder ------------------------
