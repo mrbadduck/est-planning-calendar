@@ -122,8 +122,9 @@ stays ~100KB; nothing else about People leaves the Worker.
   `pagination.continuation`), the event's slot rows + claim rows (reuse the
   gather read path), the People slim projection.
 - **Cache:** KV key `roster:<rowId>` — soft 60s / hard 5m via `swrGet`. Busted by
-  the claim write routes (`POST /claims`, `PUT|DELETE /claims/:id` — they know the
-  slot → event) and honoring `?fresh=1` for the refresh button. Eventbrite's rate
+  the claim write routes (`POST /claims`, `PUT|DELETE /claims/:id`): they already
+  read the slot row, whose `Event` relation gives the planning row id for the key.
+  Also honors `?fresh=1` for the refresh button. Eventbrite's rate
   limit (1000/hr) is comfortably covered.
 - **Errors:** an Eventbrite non-2xx returns `502 { error, status, message }` with
   the verbatim Eventbrite message; the app shows it inline with Retry. An empty
@@ -166,14 +167,16 @@ stays ~100KB; nothing else about People leaves the Worker.
   claimant's claims (match on `personId`, else on email); claimants with no match
   appended as `kind:"claimant"` rows.
 - `rosterSummary(rows)` → the counts above.
-- `segmentPredicates` — the same predicate set the app uses (kept in one place;
-  mirrored into `web/` like `shared/`): `all`, `registered`, `unregisteredClaimants`,
-  `registeredNoClaim`, `members`, `nonMembers`, `slot:<id>`.
+- Segments are a **client-side** filter over `rows` and live only in the app
+  (`SEGMENTS` in `web/app.js`): `all`, `registered`, `unregisteredClaimants`,
+  `registeredNoClaim`, `members`, `nonMembers`, `slot:<id>`. The Worker returns
+  the full roster once; no per-segment requests.
 
 ## 7. App — the Attendees section
 
-- `SECTIONS`: `attendance` → `{ id:'attendees', label:'Attendees', live:true }`
-  (keep `attendance` as an alias for existing deep links, or migrate the id).
+- `SECTIONS`: the `attendance` entry becomes `{ id:'attendees', label:'Attendees',
+  live:true }`. `openFromUrl` maps a legacy `section=attendance` deep link to
+  `attendees`.
   `renderAttendees` / `wireAttendees` follow the Planning/Publish pattern; the
   panel is read-only, so no autosave hooks.
 - **Header:** summary line ("23 orders · 31 tickets · 9 signed up · 11 members"),
