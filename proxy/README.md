@@ -3,7 +3,10 @@
 A Cloudflare Worker that holds the Superhuman Docs (Coda) API token server-side
 and exposes planning rows to the calendar app. The token never reaches the browser.
 Reads (`GET /rows`, `GET /ref/*`) are unauthenticated; writes are gated by Google
-Sign-In + role (verified server-side). CORS is an allowlist in `ALLOWED_ORIGIN`
+Sign-In + role (verified server-side). `GET /roster/:rowId` (lead-only) returns an
+event's live attendee roster — Eventbrite orders plus gather claimants, with
+emails — and is the one read that carries registrant PII; it never serves member
+routes. CORS is an allowlist in `ALLOWED_ORIGIN`
 (comma-separated) — the deploy origin `plan.eastsidetribe.org` plus
 `http://localhost:8080` / `http://127.0.0.1:8080` for local dev. The Worker reflects
 the request's Origin when it's on the list. See `../docs/architecture.md`.

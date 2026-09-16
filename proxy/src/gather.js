@@ -42,20 +42,24 @@ export function plain(cell) {
 
 // --- People slim projection --------------------------------------------------
 // The People table is 1128 rows x ~50 cols — the auth/member/picker paths read
-// only three columns. Project rows down to those (same id-keyed row shape, so
+// only a handful of columns. Project rows down to those (same id-keyed row shape, so
 // findPersonByEmail/resolvePerson work unchanged) before caching: the snapshot
 // stays ~100KB instead of multi-MB.
 export function slimPeopleRows(rows, cols) {
-  return (rows || []).map((r) => ({
-    id: r.id,
-    values: {
-      [cols.fullName]: (r.values && r.values[cols.fullName]) || '',
-      [cols.firstName]: (r.values && r.values[cols.firstName]) || '',
-      [cols.lastName]: (r.values && r.values[cols.lastName]) || '',
-      [cols.allEmails]: (r.values && r.values[cols.allEmails]) || [],
-      [cols.leadershipStatus]: (r.values && r.values[cols.leadershipStatus]) || [],
-    },
-  }));
+  return (rows || []).map((r) => {
+    const am = r.values && r.values[cols.activeMember];
+    return {
+      id: r.id,
+      values: {
+        [cols.fullName]: (r.values && r.values[cols.fullName]) || '',
+        [cols.firstName]: (r.values && r.values[cols.firstName]) || '',
+        [cols.lastName]: (r.values && r.values[cols.lastName]) || '',
+        [cols.allEmails]: (r.values && r.values[cols.allEmails]) || [],
+        [cols.leadershipStatus]: (r.values && r.values[cols.leadershipStatus]) || [],
+        [cols.activeMember]: am === true || am === 'true',   // roster badge; Coda formula column
+      },
+    };
+  });
 }
 
 // Member-facing Eventbrite URL: constructed from the stored Eventbrite Event

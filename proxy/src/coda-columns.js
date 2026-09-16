@@ -50,4 +50,5 @@ export const PEOPLE_COLS = {
   allEmails:        'c-6HV3jKCecV', // All Emails (read-only formula)
   leadershipStatus: 'c-STedpK20lj', // Leadership Status
   notes:            'c-5arbru61lv', // Notes
+  activeMember:     'c-yJfWc0GMsQ', // Active Member? (formula: any active Givebutter plan — Coda owns the rule)
 };

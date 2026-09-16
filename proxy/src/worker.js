@@ -13,6 +13,7 @@
  *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
  *   GET    /me          verify Firebase token -> { signedIn, name, canWrite, canApprove }
  *   POST   /notes-doc   push the row's notes-doc button by id (body: { rowId }) — role-gated
+ *   GET    /roster/:rowId  lead-facing attendee roster (Eventbrite orders ∪ gather claimants) — role-gated; ?fresh=1 bypasses KV
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -36,6 +37,7 @@ import {
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
+import { buildRoster } from './roster.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -569,6 +571,48 @@ export default {
       // leadership role needed). Reads are member-projected (public fields only).
       const gatherTablesOk = env.CODA_SLOTS_TABLE && env.CODA_CLAIMS_TABLE;
 
+      if (parts[0] === 'roster' && parts[1] && parts.length === 2 && request.method === 'GET') {
+        // Lead-facing attendee roster: Eventbrite orders ∪ gather claimants for one
+        // planning row, each resolved to an EST person (email <-> People `All Emails`,
+        // the same rule Coda's Orders sync uses) + the Active Member? flag.
+        // Emails ARE returned — this is plan-only (canWrite), never a member route;
+        // gather's projection stays email-free. Live from Eventbrite, KV-cached per
+        // event (soft 60s / hard 5m; busted on claim writes); ?fresh=1 bypasses.
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        if (!env.EVENTBRITE_TOKEN) return json({ configured: false }, 200, cors);
+        const rowId = decodeURIComponent(parts[1]);
+        const build = async () => {
+          const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+          if (!one.ok) throw new Error(`event not found (${one.status})`);
+          const ebId = plain(((await one.json()).values || {})[PLANNING_COLS.eventbriteId]) || '';
+          const [orders, sl, cl, people] = await Promise.all([
+            ebId ? ebAllOrders(env, ebId) : [],
+            gatherTablesOk ? readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }) : { ok: true, items: [] },
+            gatherTablesOk ? readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }) : { ok: true, items: [] },
+            peopleRows(base, docId, auth, env, ctx),
+          ]);
+          if (!sl.ok) throw new Error(`slots read failed (${sl.resp.status})`);
+          const slots = sl.items.filter((s) => relId(s.values[SLOT_COLS.event]) === rowId);
+          const claimsBySlot = {};
+          for (const c of (cl.ok ? cl.items : [])) {
+            const sid = relId(c.values[CLAIM_COLS.slot]);
+            if (sid) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
+          }
+          const { rows, summary } = buildRoster({ orders, slots, claimsBySlot, people, cols: PEOPLE_COLS });
+          return { configured: true, ebLinked: !!ebId, fetchedAt: new Date().toISOString(), summary, rows };
+        };
+        const key = rosterKvKey(rowId);
+        let data;
+        if (url.searchParams.get('fresh') === '1') {
+          data = await build();                                   // refresh button: bypass + rewrite the snapshot
+          if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify({ at: Date.now(), data })); } catch (_) {} }
+        } else {
+          data = await swrGet(env, ctx, key, 60_000, 300_000, build);
+        }
+        return json(data, 200, cors);
+      }
+
       if (parts[0] === 'member' && parts[1] === 'me' && parts.length === 2 && request.method === 'GET') {
         // Verify token; find-or-create the member's People row; return { id, name }.
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
@@ -667,6 +711,7 @@ export default {
         const cells = claimCreateCells(input, memberId, CLAIM_COLS);
         const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
         if (!r.ok) return pass(r, cors);
+        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, input.slot));   // roster (plan Attendees) must see the new claim
         const j = await r.json();
         return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
       }
@@ -686,8 +731,10 @@ export default {
         const claimsUrl = `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`;
         const one = await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
         if (!one.ok) return json({ error: 'not found' }, 404, cors);
-        const owner = claimOwnerId(await one.json(), CLAIM_COLS);
+        const claimRow = await one.json();
+        const owner = claimOwnerId(claimRow, CLAIM_COLS);
         if (!(owner && owner === m.personId) && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
+        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])));   // roster must see the change
         if (request.method === 'DELETE')
           return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth }), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
@@ -879,7 +926,7 @@ const APPROVE_STATUSES = ['Tribal Council'];
 // (L2, cross-isolate SWR) — the 1128-row x 6-page Coda read was the dominant
 // cost on sign-in and every authed request.
 let _people = null, _peopleExp = 0;
-const PEOPLE_KV_KEY = 'people-slim-v2';   // v2: + first/last name (bump on any slim-shape change)
+const PEOPLE_KV_KEY = 'people-slim-v3';   // v3: + Active Member? (bump on any slim-shape change)
 async function peopleRows(base, docId, auth, env, ctx, opts = {}) {
   if (!opts.force && _people && Date.now() < _peopleExp) return _people;
   const fetchSlim = async () => {
@@ -990,6 +1037,35 @@ async function ebAttendeeEmailHashes(env, ctx, ebId) {
     } while (cont && ++pages < 10);
     return Promise.all(emails.map(sha256Hex));
   });
+}
+// KV key for one event's lead-facing roster snapshot. Raw registrant emails live
+// in this value — KV is server-side only, the same trust boundary as the Coda +
+// Eventbrite tokens; it never feeds a member route.
+const rosterKvKey = (rowId) => `roster-v1:${rowId}`;
+// Every ACTIVE order for an event, attendees expanded (one attendee = one
+// ticket), all pages. Quiet logging: order bodies carry registrant PII.
+async function ebAllOrders(env, ebId) {
+  const orders = [];
+  let cont = null, pages = 0;
+  do {
+    const r = await ebFetch(env, `/events/${ebId}/orders/?status=active&expand=attendees${cont ? `&continuation=${encodeURIComponent(cont)}` : ''}`, 'GET', undefined, { quiet: true });
+    if (!r.ok) throw new Error(`eventbrite orders read failed (${r.status})${r.body && r.body.error_description ? ': ' + r.body.error_description : ''}`);
+    orders.push(...((r.body && r.body.orders) || []));
+    const pg = r.body && r.body.pagination;
+    cont = (pg && pg.has_more_items && pg.continuation) || null;
+  } while (cont && ++pages < 20);
+  return orders;
+}
+// A claim changed under `slotId`: drop that slot's EVENT roster snapshot so the
+// next lead read sees it. Best-effort and off the response path (ctx.waitUntil).
+async function bustRosterForSlot(env, base, docId, auth, slotId) {
+  if (!env.CACHE || !slotId || !env.CODA_SLOTS_TABLE) return;
+  try {
+    const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows/${encodeURIComponent(slotId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+    if (!r.ok) return;
+    const eid = relId(((await r.json()).values || {})[SLOT_COLS.event]);
+    if (eid) await swrBust(env, rosterKvKey(eid));
+  } catch (_) {}
 }
 // Open signup: match the verified email, else create a self-onboarded People row.
 // Patches the new row into both cache layers so it's matchable immediately after.
