@@ -52,3 +52,33 @@ export function orderRows(orders) {
   }
   return out;
 }
+
+// One row per distinct CLAIMANT person across the event's slots. Slots + claims
+// are rich Coda rows (relations as { rowId, name }), the shape the /slots route
+// already reads. Person facts (canonical name, first email, member) come from the
+// slim People projection; a claim whose person row is missing still shows, with
+// the relation's display name and no email.
+export function claimantRows(slots, claimsBySlot, peopleRows, cols) {
+  const byPerson = new Map();
+  for (const s of (slots || [])) {
+    const sv = (s && s.values) || {};
+    const slotInfo = { slotId: s.id, kind: plain(sv[SLOT_COLS.kind]) || '', label: plain(sv[SLOT_COLS.label]) || '' };
+    for (const c of ((claimsBySlot && claimsBySlot[s.id]) || [])) {
+      const cv = (c && c.values) || {};
+      const pid = relId(cv[CLAIM_COLS.member]);
+      if (!pid) continue;                                   // name-only cell: can't resolve, can't email
+      let row = byPerson.get(pid);
+      if (!row) {
+        const p = personFacts((peopleRows || []).find((r) => r.id === pid) || null, cols);
+        row = {
+          key: `person:${pid}`, kind: 'claimant', orderId: null,
+          name: p.name || relName(cv[CLAIM_COLS.member]) || '', email: p.email, orderStatus: null,
+          tickets: [], claims: [], personId: pid, matched: !!p.personId, member: p.member,
+        };
+        byPerson.set(pid, row);
+      }
+      row.claims.push({ ...slotInfo, contribution: plain(cv[CLAIM_COLS.contributionDetail]) || '', qty: Number(plain(cv[CLAIM_COLS.qty])) || 1 });
+    }
+  }
+  return [...byPerson.values()];
+}
