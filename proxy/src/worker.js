@@ -879,7 +879,7 @@ const APPROVE_STATUSES = ['Tribal Council'];
 // (L2, cross-isolate SWR) — the 1128-row x 6-page Coda read was the dominant
 // cost on sign-in and every authed request.
 let _people = null, _peopleExp = 0;
-const PEOPLE_KV_KEY = 'people-slim-v2';   // v2: + first/last name (bump on any slim-shape change)
+const PEOPLE_KV_KEY = 'people-slim-v3';   // v3: + Active Member? (bump on any slim-shape change)
 async function peopleRows(base, docId, auth, env, ctx, opts = {}) {
   if (!opts.force && _people && Date.now() < _peopleExp) return _people;
   const fetchSlim = async () => {

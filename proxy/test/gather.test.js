@@ -141,7 +141,7 @@ test('findPersonByEmail matches against All Emails, case-insensitively', () => {
   assert.equal(findPersonByEmail(rows, 'nobody@x.com', PEOPLE_COLS), null);
 });
 
-test('slimPeopleRows keeps only the auth/picker columns, same row shape', () => {
+test('slimPeopleRows keeps only the auth/picker/roster columns, same row shape', () => {
   const rows = [
     { id: 'i-a', values: {
       [PEOPLE_COLS.fullName]: 'Leah Cohen',
@@ -149,6 +149,7 @@ test('slimPeopleRows keeps only the auth/picker columns, same row shape', () => 
       [PEOPLE_COLS.lastName]: 'Cohen',
       [PEOPLE_COLS.allEmails]: ['leah@x.com'],
       [PEOPLE_COLS.leadershipStatus]: ['Tribal Council'],
+      [PEOPLE_COLS.activeMember]: true,
       'c-something-huge': 'FIFTY OTHER COLUMNS OF PAYLOAD',
     } },
     { id: 'i-b', values: {} },   // sparse row -> safe defaults
@@ -160,11 +161,17 @@ test('slimPeopleRows keeps only the auth/picker columns, same row shape', () => 
     [PEOPLE_COLS.lastName]: 'Cohen',
     [PEOPLE_COLS.allEmails]: ['leah@x.com'],
     [PEOPLE_COLS.leadershipStatus]: ['Tribal Council'],
+    [PEOPLE_COLS.activeMember]: true,
   } });
-  assert.deepEqual(slim[1], { id: 'i-b', values: { [PEOPLE_COLS.fullName]: '', [PEOPLE_COLS.firstName]: '', [PEOPLE_COLS.lastName]: '', [PEOPLE_COLS.allEmails]: [], [PEOPLE_COLS.leadershipStatus]: [] } });
+  assert.deepEqual(slim[1], { id: 'i-b', values: { [PEOPLE_COLS.fullName]: '', [PEOPLE_COLS.firstName]: '', [PEOPLE_COLS.lastName]: '', [PEOPLE_COLS.allEmails]: [], [PEOPLE_COLS.leadershipStatus]: [], [PEOPLE_COLS.activeMember]: false } });
   assert.ok(!JSON.stringify(slim).includes('FIFTY OTHER'));
   // the slim shape still feeds the existing matcher unchanged
   assert.equal(findPersonByEmail(slim, 'LEAH@x.com', PEOPLE_COLS).id, 'i-a');
+});
+
+test('slimPeopleRows coerces a string "true" Active Member? cell to a boolean', () => {
+  const slim = slimPeopleRows([{ id: 'i-c', values: { [PEOPLE_COLS.activeMember]: 'true' } }], PEOPLE_COLS);
+  assert.equal(slim[0].values[PEOPLE_COLS.activeMember], true);
 });
 
 test('friendlyName: member-safe display forms', () => {
