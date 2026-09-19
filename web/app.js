@@ -1122,8 +1122,8 @@ function renderSection(id, ev, canEdit, locked, canApprove){
 }
 
 /* Planning section — every planning field EXCEPT capacity / address-visibility /
-   the publish panel (those live in Publish now). `#whenFields` is filled by
-   wirePlanning after render. */
+   the publish panel (those live in the Details tab's listing subsection now).
+   `#whenFields` is filled by wirePlanning after render. */
 function renderPlanning(ev, canEdit, locked, canApprove){
   const dis = (!canEdit || locked) ? 'disabled' : '';
   const sched = ev.scheduling || 'exact';
@@ -1217,8 +1217,9 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
   }
 }
 
-/* Publish section — public listing copy + capacity + address visibility + the
-   Eventbrite publish panel. Only meaningful once the event is approved. */
+/* Listing subsection (bottom of Details) — public listing copy + capacity +
+   address visibility + the Eventbrite publish panel. Only meaningful once the
+   event is approved. */
 /* Two modes:
    - UNLINKED (no Eventbrite event yet): the fields are STAGING for the first
      push, with the Create-draft flow below them.
