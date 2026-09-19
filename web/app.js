@@ -1021,6 +1021,7 @@ function openEditor(ev, section){
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
   document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
   body.innerHTML = `<div class="wsplit"><nav class="wrail" id="wrail">${railHTML()}</nav><div class="wpanel" id="wpanel"></div></div>`;
+  wireScrollFade(document.getElementById('wrail'));   // edge-fade hint when tabs overflow (mobile horizontal rail)
   renderSection(activeSection, ev, canEdit, locked, canApprove);
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
@@ -1283,6 +1284,27 @@ function comingSoonHTML(sec){
   return `<div class="soon-teaser"><div class="soon-h">${esc(sec.label)} — coming soon</div><div class="hint">On our roadmap. Tell us what you'd want here, or +1 an idea below.</div>${typeof feedbackBoardHTML==='function'?feedbackBoardHTML(sec.id):''}</div>`;
 }
 
+/* Horizontal-scroll edge fade: masks the overflowing edge(s) of a scroller so
+   there's a visual "more →" hint (used by the mobile rail + roster segment
+   chips). Recomputes on scroll/resize; returns an update fn the caller can call
+   after changing the scroller's contents. Safe on non-overflowing / desktop
+   (clears the mask when nothing overflows). */
+function wireScrollFade(el){
+  if(!el) return ()=>{};
+  const upd=()=>{
+    if(!el.isConnected){ window.removeEventListener('resize', upd); return; }   // self-clean once the modal is gone
+    const max=el.scrollWidth-el.clientWidth;
+    if(max<=1){ el.style.webkitMaskImage=el.style.maskImage=''; return; }
+    const l=el.scrollLeft>1 ? 'transparent, #000 22px' : '#000';
+    const r=el.scrollLeft<max-1 ? '#000 calc(100% - 22px), transparent' : '#000';
+    el.style.webkitMaskImage=el.style.maskImage=`linear-gradient(90deg, ${l}, ${r})`;
+  };
+  el.addEventListener('scroll', upd, {passive:true});
+  window.addEventListener('resize', upd);
+  requestAnimationFrame(upd);
+  return upd;
+}
+
 /* ---- Attendees: live roster (Eventbrite orders ∪ gather claimants) --------
    Read-only for leads. Emails ARE shown here — plan is lead-only; gather's
    member projection never carries an address. Segments are a client-side filter
@@ -1306,6 +1328,7 @@ async function wireAttendees(panel, ev){
   const wrap=panel.querySelector('#f_roster'); if(!wrap) return;
   const body=wrap.querySelector('[data-body]'); if(!body) return;   // save-first teaser
   const segsEl=wrap.querySelector('[data-segs]'), sum=wrap.querySelector('[data-sum]');
+  const segFade=wireScrollFade(segsEl);   // edge-fade hint when the chips overflow horizontally
   const copyBtn=wrap.querySelector('[data-act="roster-copy"]'), mailBtn=wrap.querySelector('[data-act="roster-mail"]');
   const foot=wrap.querySelector('.roster-foot'), selCount=wrap.querySelector('[data-selcount]');
   // select-all now lives in the (re-rendered) table header — re-query it per paint.
@@ -1331,6 +1354,7 @@ async function wireAttendees(panel, ev){
   };
   const paintSegs=()=>{
     segsEl.innerHTML=segs.map(s=>{ const n=data.rows.filter(s.test).length; return `<button type="button" class="roster-seg${s.id===seg?' on':''}" data-seg="${esc(s.id)}" aria-pressed="${s.id===seg}">${esc(s.label)} <span class="n">${n}</span></button>`; }).join('');
+    segFade();   // chip widths changed → recompute the edge fade
   };
   // Registered + matched is the default state and gets no badge (the segment
   // chips carry the counts); only the exceptions are flagged inline by the name.
@@ -1369,6 +1393,15 @@ async function wireAttendees(panel, ev){
   };
   wrap.addEventListener('click', async e=>{
     const sb=e.target.closest('[data-seg]'); if(sb){ seg=sb.dataset.seg; selected.clear(); paintSegs(); paintRows(); return; }
+    // A click anywhere in a body row toggles its checkbox (except on the checkbox
+    // itself — native — or a link). Dispatch change so the existing handler runs.
+    const row=e.target.closest('tbody tr[data-key]');
+    if(row){
+      if(e.target.closest('[data-sel]') || e.target.closest('a')) return;
+      const cb=row.querySelector('[data-sel]');
+      if(cb){ cb.checked=!cb.checked; cb.dispatchEvent(new Event('change',{bubbles:true})); }
+      return;
+    }
     const a=e.target.closest('[data-act]'); if(!a) return;
     const act=a.dataset.act;
     if(act==='roster-refresh'||act==='roster-retry'){ body.innerHTML=SLOTS_LOADING_HTML; await load(true); return; }
