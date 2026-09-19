@@ -657,15 +657,14 @@ const SECTIONS = [
   { id:'details',   label:'Details',              live:true },
   { id:'notes',     label:'Planning Notes',       live:true },
   { id:'volunteers',label:'Potluck & Volunteers', live:true },
-  { id:'publish',   label:'Publish',              live:true },
   { id:'attendees', label:'Attendees',            live:true },
   { id:'budget',    label:'Budget & expenses',    live:false },
   { id:'comms',     label:'Comms',                live:false },
   { id:'feedback',  label:'Feedback',             live:false },
 ];
-// Back-compat: Details was formerly 'planning', Attendees was the 'attendance'
-// coming-soon stub; map old deep links.
-const sectionId = id => ({ planning:'details', attendance:'attendees' }[id] || id);
+// Back-compat: Details was formerly 'planning'; Attendees was the 'attendance'
+// stub; the Publish tab folded into Details (2026-09) → 'publish' opens Details.
+const sectionId = id => ({ planning:'details', attendance:'attendees', publish:'details' }[id] || id);
 let activeSection = 'details';
 
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
@@ -1116,7 +1115,6 @@ function renderSection(id, ev, canEdit, locked, canApprove){
   const panel=document.getElementById('wpanel'); if(!panel) return;
   const sec=SECTIONS.find(s=>s.id===id);
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
-  if(id==='publish'){ panel.innerHTML=renderPublish(ev, canEdit, locked); wirePublish(panel, ev, canEdit, locked); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
