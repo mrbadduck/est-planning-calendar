@@ -497,6 +497,12 @@
   /* the panel scrolls independently and lays its fields out with real spacing */
   .wpanel{flex:1;min-width:0;overflow-y:auto;padding:14px 18px 16px;display:flex;flex-direction:column;gap:12px}
   .wpanel > .fld.full,.wpanel > .fld{width:100%}
+  /* Details tab = two stacked subsections: "Event" (always) + the stage-aware
+     public/published listing. Each behaves like the panel's own child context. */
+  .wsub{display:flex;flex-direction:column;gap:12px}
+  .wsub > .fld.full,.wsub > .fld{width:100%}
+  .wsub-h{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);border-bottom:.5px solid var(--hair);padding-bottom:6px;margin-bottom:2px}
+  .wsub.muted{opacity:.55}
   .soon-h{font-weight:500;margin-bottom:4px}
   .soon-teaser{display:flex;flex-direction:column;gap:8px}
   .btn.xs{font-size:11px;padding:1px 7px;font-weight:500}
