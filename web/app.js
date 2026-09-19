@@ -1294,8 +1294,8 @@ function renderAttendees(ev){
       <div class="roster-head"><div class="roster-sum hint" data-sum>Loading…</div><button type="button" class="btn sm ghost" data-act="roster-refresh" title="Pull the latest from Eventbrite">↻ Refresh</button></div>
       <div class="roster-segs" data-segs></div>
       <div class="roster-body" data-body>${SLOTS_LOADING_HTML}</div>
-      <div class="roster-foot">
-        <label class="roster-selall"><input type="checkbox" data-selall> <span data-selcount>0 selected</span></label>
+      <div class="roster-foot" hidden>
+        <span class="roster-selcount" data-selcount>0 selected</span>
         <span class="push"></span>
         <button type="button" class="btn sm" data-act="roster-copy" disabled>Copy emails</button>
         <a class="btn sm primary disabled" data-act="roster-mail" href="#" aria-disabled="true">Email</a>
@@ -1307,7 +1307,8 @@ async function wireAttendees(panel, ev){
   const body=wrap.querySelector('[data-body]'); if(!body) return;   // save-first teaser
   const segsEl=wrap.querySelector('[data-segs]'), sum=wrap.querySelector('[data-sum]');
   const copyBtn=wrap.querySelector('[data-act="roster-copy"]'), mailBtn=wrap.querySelector('[data-act="roster-mail"]');
-  const selAll=wrap.querySelector('[data-selall]'), selCount=wrap.querySelector('[data-selcount]');
+  const foot=wrap.querySelector('.roster-foot'), selCount=wrap.querySelector('[data-selcount]');
+  // select-all now lives in the (re-rendered) table header — re-query it per paint.
   const L=window.RosterLib;
   let data=null, segs=[], seg='all', selected=new Set();
   const visible=()=>data?L.applySegment(data.rows, segs, seg):[];
@@ -1315,15 +1316,18 @@ async function wireAttendees(panel, ev){
   const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
   const paintFoot=()=>{
     const rows=chosen(), emails=L.emailsOf(rows), missing=rows.length-emails.length;
+    foot.hidden = rows.length===0;                 // footer only appears once something is selected
     selCount.textContent=`${rows.length} selected${missing>0?` · ${missing} without email`:''}`;
     copyBtn.disabled=!emails.length;
     const href=emails.length?L.mailtoHref(emails, ev.title||''):null;
     mailBtn.classList.toggle('disabled', !href); mailBtn.setAttribute('aria-disabled', String(!href));
     mailBtn.href=href||'#';
     mailBtn.title=(emails.length && !href)?'Too many addresses for a mail link — use Copy emails instead':'';
-    const vis=visible();
-    selAll.checked=vis.length>0 && vis.every(r=>selected.has(r.key));
-    selAll.indeterminate=!selAll.checked && vis.some(r=>selected.has(r.key));
+    const vis=visible(), selAll=wrap.querySelector('[data-selall]');   // header checkbox is re-created each paintRows
+    if(selAll){
+      selAll.checked=vis.length>0 && vis.every(r=>selected.has(r.key));
+      selAll.indeterminate=!selAll.checked && vis.some(r=>selected.has(r.key));
+    }
   };
   const paintSegs=()=>{
     segsEl.innerHTML=segs.map(s=>{ const n=data.rows.filter(s.test).length; return `<button type="button" class="roster-seg${s.id===seg?' on':''}" data-seg="${esc(s.id)}" aria-pressed="${s.id===seg}">${esc(s.label)} <span class="n">${n}</span></button>`; }).join('');
@@ -1340,7 +1344,7 @@ async function wireAttendees(panel, ev){
         : (data.ebLinked ? 'No registrations yet.' : 'Registrants appear here once the event is published to Eventbrite. Sign-ups from gather show as soon as they land.');
       body.innerHTML=`<div class="hint roster-empty">${msg}</div>`; paintFoot(); return;
     }
-    body.innerHTML=`<table class="roster"><thead><tr><th></th><th>Name</th><th>Tickets</th><th>Sign-ups</th></tr></thead><tbody>${rows.map(r=>`
+    body.innerHTML=`<table class="roster"><thead><tr><th class="roster-selall-cell"><input type="checkbox" data-selall aria-label="Select all in this segment"></th><th>Name</th><th>Tickets</th><th>Sign-ups</th></tr></thead><tbody>${rows.map(r=>`
       <tr data-key="${esc(r.key)}">
         <td><input type="checkbox" data-sel ${selected.has(r.key)?'checked':''} aria-label="Select ${esc(r.name||r.email||'row')}"></td>
         <td class="roster-who"><div class="roster-name">${esc(r.name||'(no name)')}${r.member?` <span class="badge b-member" title="Active member">Member</span>`:''}${statusBadge(r)}</div><div class="roster-email">${r.email?esc(r.email):'<span class="hint">no email</span>'}</div></td>
