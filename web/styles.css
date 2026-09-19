@@ -486,6 +486,9 @@
   .modal.ws{height:min(760px, calc(100dvh - 96px));max-width:740px}
   /* create modal: same fixed shell as the workspace so Create→workspace doesn't jump */
   .modal.create{height:min(760px, calc(100dvh - 96px));max-width:740px}
+  /* phone: these shells fill the screen (declared AFTER the desktop caps above so
+     the equal-specificity mobile rule wins on source order, not just in @media). */
+  @media (max-width:600px){ .modal.ws,.modal.create{height:100dvh;max-height:100dvh;max-width:none} }
   .mbody.ws{display:flex;flex:1 1 auto;padding:0;gap:0;min-height:0;overflow:hidden}
   .wsplit{display:flex;flex:1;min-height:0;width:100%}
   .wrail{flex:0 0 176px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding:14px 12px 14px 18px;border-right:.5px solid var(--hair)}
@@ -521,7 +524,7 @@
   .fbst-planned{background:#FAEEDA;color:#8A5A0B}
   .fbst-shipped{background:#E7F4E9;color:#2F7D3B}
   .fbst-declined{background:var(--soft);color:var(--muted)}
-  @media(max-width:600px){ .wsplit{flex-direction:column} .wrail{flex:none;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:.5px solid var(--hair);padding:0 0 8px} .wrail-soon{display:none} }
+  @media(max-width:600px){ .wsplit{flex-direction:column} .wrail{flex:none;flex-direction:row;overflow-x:auto;scrollbar-width:none;border-right:0;border-bottom:.5px solid var(--hair);padding:12px 16px 8px} .wrail::-webkit-scrollbar{display:none} .wrail-item{flex:0 0 auto} .wrail-soon{display:none} }
 
   /* ---- Volunteers & potluck: gather slot builder (editor section) ---- */
   .slots-wrap{display:flex;flex-direction:column;gap:12px}
@@ -581,7 +584,7 @@
      the calendar. The pastel badge/label tints are hardcoded per-status in
      light, so they get explicit dark counterparts here. */
   /* ---- Attendees roster (plan, lead-only) ---------------------------------- */
-  .roster-wrap{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;container-type:inline-size}
+  .roster-wrap{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0}
   .roster-body{flex:1;min-height:0;overflow:auto}
   .roster-foot .push{flex:1}
   .roster-head{display:flex;align-items:center;gap:8px}
@@ -593,7 +596,9 @@
   .roster-seg.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .roster-seg.on .n{opacity:.9}
   table.roster{width:100%;border-collapse:collapse;font-size:12.5px}
-  table.roster th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--hair)}
+  table.roster th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--hair);position:sticky;top:0;background:var(--surface);z-index:2}
+  table.roster tbody tr{cursor:pointer}
+  table.roster tbody tr:hover{background:var(--soft2)}
   table.roster td{padding:6px;border-bottom:1px solid var(--hair);vertical-align:top}
   table.roster td:first-child{width:22px;padding-right:0}
   table.roster td.roster-who{min-width:160px}
@@ -606,13 +611,27 @@
   .roster-claim{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
   .badge.b-member{background:#E7F4E9;color:#2F7D3B;font-size:9.5px;padding:1px 6px;border-radius:20px;margin-left:5px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;vertical-align:middle}
   .roster-foot{display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--hair);flex:0 0 auto}
+  .roster-foot[hidden]{display:none}            /* footer appears only once rows are selected */
   .roster-copybox{display:flex;flex-direction:column;gap:4px}
   .roster-copybox textarea{font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--hair-strong);border-radius:6px;background:var(--surface);color:var(--ink);resize:vertical}
-  .roster-selall{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer}
+  .roster-selcount{font-size:12px;color:var(--muted)}
+  table.roster th:first-child{width:22px;padding-right:0}
+  .roster-selall-cell input{cursor:pointer}
   .roster-foot .btn.disabled{opacity:.5;pointer-events:none}
   .roster-empty{padding:14px 4px}
   .roster-err{padding:10px 12px;border:1px solid #E5B4B4;background:#FBEDED;border-radius:8px;color:#8A2E2E;font-size:12.5px;display:flex;gap:10px;align-items:center;justify-content:space-between}
-  @container (max-width:400px){ table.roster th:nth-child(3),table.roster td:nth-child(3){display:none} .roster-claim{max-width:140px} }
+  /* Mobile mode — single viewport breakpoint (matches the modal/rail below):
+     drop the Tickets column and turn the segment chips into one swipeable row. */
+  @media (max-width:600px){
+    /* keep all four columns — tighten cell padding + drop the min-widths to fit */
+    table.roster th,table.roster td{padding:6px 3px}
+    table.roster td.roster-who{min-width:0}
+    .roster-tix{min-width:0}
+    .roster-claim{max-width:120px}
+    .roster-segs{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+    .roster-segs::-webkit-scrollbar{display:none}
+    .roster-seg{flex:0 0 auto}
+  }
   @media (prefers-color-scheme:dark){
     :root{
       color-scheme:dark;

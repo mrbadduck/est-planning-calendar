@@ -1021,6 +1021,7 @@ function openEditor(ev, section){
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
   document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
   body.innerHTML = `<div class="wsplit"><nav class="wrail" id="wrail">${railHTML()}</nav><div class="wpanel" id="wpanel"></div></div>`;
+  wireScrollFade(document.getElementById('wrail'));   // edge-fade hint when tabs overflow (mobile horizontal rail)
   renderSection(activeSection, ev, canEdit, locked, canApprove);
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
@@ -1283,6 +1284,27 @@ function comingSoonHTML(sec){
   return `<div class="soon-teaser"><div class="soon-h">${esc(sec.label)} — coming soon</div><div class="hint">On our roadmap. Tell us what you'd want here, or +1 an idea below.</div>${typeof feedbackBoardHTML==='function'?feedbackBoardHTML(sec.id):''}</div>`;
 }
 
+/* Horizontal-scroll edge fade: masks the overflowing edge(s) of a scroller so
+   there's a visual "more →" hint (used by the mobile rail + roster segment
+   chips). Recomputes on scroll/resize; returns an update fn the caller can call
+   after changing the scroller's contents. Safe on non-overflowing / desktop
+   (clears the mask when nothing overflows). */
+function wireScrollFade(el){
+  if(!el) return ()=>{};
+  const upd=()=>{
+    if(!el.isConnected){ window.removeEventListener('resize', upd); return; }   // self-clean once the modal is gone
+    const max=el.scrollWidth-el.clientWidth;
+    if(max<=1){ el.style.webkitMaskImage=el.style.maskImage=''; return; }
+    const l=el.scrollLeft>1 ? 'transparent, #000 22px' : '#000';
+    const r=el.scrollLeft<max-1 ? '#000 calc(100% - 22px), transparent' : '#000';
+    el.style.webkitMaskImage=el.style.maskImage=`linear-gradient(90deg, ${l}, ${r})`;
+  };
+  el.addEventListener('scroll', upd, {passive:true});
+  window.addEventListener('resize', upd);
+  requestAnimationFrame(upd);
+  return upd;
+}
+
 /* ---- Attendees: live roster (Eventbrite orders ∪ gather claimants) --------
    Read-only for leads. Emails ARE shown here — plan is lead-only; gather's
    member projection never carries an address. Segments are a client-side filter
@@ -1294,8 +1316,8 @@ function renderAttendees(ev){
       <div class="roster-head"><div class="roster-sum hint" data-sum>Loading…</div><button type="button" class="btn sm ghost" data-act="roster-refresh" title="Pull the latest from Eventbrite">↻ Refresh</button></div>
       <div class="roster-segs" data-segs></div>
       <div class="roster-body" data-body>${SLOTS_LOADING_HTML}</div>
-      <div class="roster-foot">
-        <label class="roster-selall"><input type="checkbox" data-selall> <span data-selcount>0 selected</span></label>
+      <div class="roster-foot" hidden>
+        <span class="roster-selcount" data-selcount>0 selected</span>
         <span class="push"></span>
         <button type="button" class="btn sm" data-act="roster-copy" disabled>Copy emails</button>
         <a class="btn sm primary disabled" data-act="roster-mail" href="#" aria-disabled="true">Email</a>
@@ -1306,8 +1328,10 @@ async function wireAttendees(panel, ev){
   const wrap=panel.querySelector('#f_roster'); if(!wrap) return;
   const body=wrap.querySelector('[data-body]'); if(!body) return;   // save-first teaser
   const segsEl=wrap.querySelector('[data-segs]'), sum=wrap.querySelector('[data-sum]');
+  const segFade=wireScrollFade(segsEl);   // edge-fade hint when the chips overflow horizontally
   const copyBtn=wrap.querySelector('[data-act="roster-copy"]'), mailBtn=wrap.querySelector('[data-act="roster-mail"]');
-  const selAll=wrap.querySelector('[data-selall]'), selCount=wrap.querySelector('[data-selcount]');
+  const foot=wrap.querySelector('.roster-foot'), selCount=wrap.querySelector('[data-selcount]');
+  // select-all now lives in the (re-rendered) table header — re-query it per paint.
   const L=window.RosterLib;
   let data=null, segs=[], seg='all', selected=new Set();
   const visible=()=>data?L.applySegment(data.rows, segs, seg):[];
@@ -1315,18 +1339,22 @@ async function wireAttendees(panel, ev){
   const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
   const paintFoot=()=>{
     const rows=chosen(), emails=L.emailsOf(rows), missing=rows.length-emails.length;
+    foot.hidden = rows.length===0;                 // footer only appears once something is selected
     selCount.textContent=`${rows.length} selected${missing>0?` · ${missing} without email`:''}`;
     copyBtn.disabled=!emails.length;
     const href=emails.length?L.mailtoHref(emails, ev.title||''):null;
     mailBtn.classList.toggle('disabled', !href); mailBtn.setAttribute('aria-disabled', String(!href));
     mailBtn.href=href||'#';
     mailBtn.title=(emails.length && !href)?'Too many addresses for a mail link — use Copy emails instead':'';
-    const vis=visible();
-    selAll.checked=vis.length>0 && vis.every(r=>selected.has(r.key));
-    selAll.indeterminate=!selAll.checked && vis.some(r=>selected.has(r.key));
+    const vis=visible(), selAll=wrap.querySelector('[data-selall]');   // header checkbox is re-created each paintRows
+    if(selAll){
+      selAll.checked=vis.length>0 && vis.every(r=>selected.has(r.key));
+      selAll.indeterminate=!selAll.checked && vis.some(r=>selected.has(r.key));
+    }
   };
   const paintSegs=()=>{
     segsEl.innerHTML=segs.map(s=>{ const n=data.rows.filter(s.test).length; return `<button type="button" class="roster-seg${s.id===seg?' on':''}" data-seg="${esc(s.id)}" aria-pressed="${s.id===seg}">${esc(s.label)} <span class="n">${n}</span></button>`; }).join('');
+    segFade();   // chip widths changed → recompute the edge fade
   };
   // Registered + matched is the default state and gets no badge (the segment
   // chips carry the counts); only the exceptions are flagged inline by the name.
@@ -1340,7 +1368,7 @@ async function wireAttendees(panel, ev){
         : (data.ebLinked ? 'No registrations yet.' : 'Registrants appear here once the event is published to Eventbrite. Sign-ups from gather show as soon as they land.');
       body.innerHTML=`<div class="hint roster-empty">${msg}</div>`; paintFoot(); return;
     }
-    body.innerHTML=`<table class="roster"><thead><tr><th></th><th>Name</th><th>Tickets</th><th>Sign-ups</th></tr></thead><tbody>${rows.map(r=>`
+    body.innerHTML=`<table class="roster"><thead><tr><th class="roster-selall-cell"><input type="checkbox" data-selall aria-label="Select all in this segment"></th><th>Name</th><th>Tickets</th><th>Sign-ups</th></tr></thead><tbody>${rows.map(r=>`
       <tr data-key="${esc(r.key)}">
         <td><input type="checkbox" data-sel ${selected.has(r.key)?'checked':''} aria-label="Select ${esc(r.name||r.email||'row')}"></td>
         <td class="roster-who"><div class="roster-name">${esc(r.name||'(no name)')}${r.member?` <span class="badge b-member" title="Active member">Member</span>`:''}${statusBadge(r)}</div><div class="roster-email">${r.email?esc(r.email):'<span class="hint">no email</span>'}</div></td>
@@ -1365,6 +1393,15 @@ async function wireAttendees(panel, ev){
   };
   wrap.addEventListener('click', async e=>{
     const sb=e.target.closest('[data-seg]'); if(sb){ seg=sb.dataset.seg; selected.clear(); paintSegs(); paintRows(); return; }
+    // A click anywhere in a body row toggles its checkbox (except on the checkbox
+    // itself — native — or a link). Dispatch change so the existing handler runs.
+    const row=e.target.closest('tbody tr[data-key]');
+    if(row){
+      if(e.target.closest('[data-sel]') || e.target.closest('a')) return;
+      const cb=row.querySelector('[data-sel]');
+      if(cb){ cb.checked=!cb.checked; cb.dispatchEvent(new Event('change',{bubbles:true})); }
+      return;
+    }
     const a=e.target.closest('[data-act]'); if(!a) return;
     const act=a.dataset.act;
     if(act==='roster-refresh'||act==='roster-retry'){ body.innerHTML=SLOTS_LOADING_HTML; await load(true); return; }
