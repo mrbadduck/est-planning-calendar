@@ -1120,7 +1120,7 @@ function renderSection(id, ev, canEdit, locked, canApprove){
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
-  panel.innerHTML=renderPlanning(ev, canEdit, locked, canApprove); wirePlanning(panel, ev, canEdit, locked, canApprove);
+  panel.innerHTML=renderDetails(ev, canEdit, locked, canApprove); wireDetails(panel, ev, canEdit, locked, canApprove);
 }
 
 /* Planning section — every planning field EXCEPT capacity / address-visibility /
@@ -1242,23 +1242,42 @@ function publishFieldsHTML(vals, dis, livewait){
     <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${lw} placeholder="e.g. 40"></div>
     <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(vals.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${vals.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>`;
 }
-function renderPublish(ev, canEdit, locked){
-  if(ev.status!=='approved') return `<div class="fld full"><div class="locknote">Approve this event under Planning to publish it to Eventbrite.</div></div>`;
+// Bottom subsection of the Details tab. Heading tracks the stage: "Public
+// listing" while staging, "Published listing" once the event is live on
+// Eventbrite. Muted-but-visible before approval so the flow stays teachable.
+function listingHeading(ev){
+  return (ev.eventbriteId && ev.publishStatus==='Published') ? 'Published listing' : 'Public listing';
+}
+function renderListingSection(ev, canEdit, locked){
+  const h=`<div class="wsub-h">${listingHeading(ev)}</div>`;
+  if(ev.status!=='approved')
+    return `<div class="wsub muted">${h}<div class="locknote">Available once approved — public summary, description, capacity, and the Eventbrite publish action live here. Approve the event below to unlock it.</div></div>`;
   const dis=(!canEdit||locked)?'disabled':'';
   const staged={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
-  if(!ev.eventbriteId)
-    return `${publishFieldsHTML(staged, dis, false)}${publishPanelHTML(ev, canEdit && !locked)}`;
-  // linked: live card first; fields wait for the live values (staged shown
-  // dimmed meanwhile) unless the viewer can't edit at all.
-  return `${publishPanelHTML(ev, canEdit && !locked)}
-    ${publishFieldsHTML(staged, dis, dis==='')}`;
+  const body = !ev.eventbriteId
+    ? `${publishFieldsHTML(staged, dis, false)}${publishPanelHTML(ev, canEdit && !locked)}`
+    // linked: live card first; fields wait for the live values (staged shown
+    // dimmed meanwhile) unless the viewer can't edit at all.
+    : `${publishPanelHTML(ev, canEdit && !locked)}${publishFieldsHTML(staged, dis, dis==='')}`;
+  return `<div class="wsub">${h}${body}</div>`;
 }
-function wirePublish(panel, ev, canEdit, locked){
+function wireListingSection(panel, ev, canEdit, locked){
+  if(ev.status!=='approved') return;                 // muted state has no controls
   const ci=panel.querySelector('[data-act="copy-internal"]');
   if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; t.dispatchEvent(new Event('input',{bubbles:true})); scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
   if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); scheduleAutosave(); });
   wirePublishPanel(panel.querySelector('#f_publish'));
+}
+
+// The Details tab: stable "Event" subsection (draft/internal fields) on top,
+// stage-aware listing subsection below. One surface that transforms by stage.
+function renderDetails(ev, canEdit, locked, canApprove){
+  return `<div class="wsub"><div class="wsub-h">Event</div>${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked)}`;
+}
+function wireDetails(panel, ev, canEdit, locked, canApprove){
+  wirePlanning(panel, ev, canEdit, locked, canApprove);
+  wireListingSection(panel, ev, canEdit, locked);
 }
 
 function comingSoonHTML(sec){
