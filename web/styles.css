@@ -623,8 +623,11 @@
   /* Mobile mode — single viewport breakpoint (matches the modal/rail below):
      drop the Tickets column and turn the segment chips into one swipeable row. */
   @media (max-width:600px){
-    table.roster th:nth-child(3),table.roster td:nth-child(3){display:none}
-    .roster-claim{max-width:140px}
+    /* keep all four columns — tighten cell padding + drop the min-widths to fit */
+    table.roster th,table.roster td{padding:6px 3px}
+    table.roster td.roster-who{min-width:0}
+    .roster-tix{min-width:0}
+    .roster-claim{max-width:120px}
     .roster-segs{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
     .roster-segs::-webkit-scrollbar{display:none}
     .roster-seg{flex:0 0 auto}
