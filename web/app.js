@@ -1694,7 +1694,7 @@ function readForm(){
     ? [...document.querySelectorAll('#f_progs .msel-opt input:checked')].map(b=>b.value)
     : ((editing&&editing.programs&&editing.programs.length) ? editing.programs.slice() : ((editing&&editing.program)?[editing.program]:[]));
   const leads=g('f_leads') ? chipIds('#f_leads .ta-chip') : ((editing&&editing.leads)||[]);
-  const volunteers=g('f_vols') ? chipIds('#f_vols .ta-chip') : ((editing&&editing.volunteers)||[]);
+  const volunteers=(editing&&editing.volunteers)||[];   // no editor field — slots/claims supersede it; value round-trips untouched
   const venBox=g('f_venue_box'), venOther=venBox && venBox.querySelector('.venue-other-wrap');
   const venue=venBox ? (venBox.dataset.venueId||'') : ((editing&&editing.venue)||'');
   const venueOther=venBox ? ((venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '') : ((editing&&editing.venueOther)||'');
