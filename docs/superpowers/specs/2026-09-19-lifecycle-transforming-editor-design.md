@@ -38,8 +38,8 @@ Normalized event fields split into three buckets:
 
 | Bucket | Fields | Lifecycle behavior |
 |--------|--------|--------------------|
-| **Shared core** | Title, Program(s), When (scheduling/date/time/all-day/window/month), Where (venue type/venue/other) | Editable at every stage. When + Where also map to Eventbrite. Never hidden. |
-| **Internal-only** | Internal (event) description, Leads | Editable forever; never sent to Eventbrite. |
+| **Shared core (Eventbrite-mapped)** | Title, When (scheduling/date/time/all-day/window/month), Where (venue type/venue/other) | Editable at every stage; also map to the Eventbrite listing. Never hidden. |
+| **Internal-only** | Program(s), Leads, Internal (event) description | Editable forever; never sent to Eventbrite. |
 | **Public listing** | Public summary, Public description, Capacity, Address visibility (ticketing/banner later) | Eventbrite-mapped. Staged pre-publish, mirrored post-publish. |
 
 Key insight: **Title, When, and Where are shared** — they live on the draft *and*
@@ -47,6 +47,9 @@ become the core of the Eventbrite listing. They are exactly the fields that must
 feel *continuous* across the transform, not "replaced." That's why the surface
 can't literally "become the Eventbrite listing" — the shared core and the
 internal-only fields persist through publish.
+
+Note: Program(s) and Leads are **internal-only** — they are *not* sent to
+Eventbrite, so they never participate in publish/drift.
 
 ### Source-of-truth stance (decided: Model Y)
 
@@ -118,8 +121,9 @@ publish) → **"Published listing"** once live. Same section, label matches real
 ### 4. Sync / drift behavior (the handoff)
 
 Generalize the existing `_ebDirty` mechanic from *only* the public-listing fields
-to **all Eventbrite-mapped fields** — i.e. add the shared core's **When** and
-**Where** to the set that marks the listing dirty.
+to **all Eventbrite-mapped fields** — i.e. add the shared core (**Title, When,
+Where**) to the set that marks the listing dirty. Program(s), Leads, and the
+internal description are internal-only and never flag drift.
 
 - Draft fields (top + bottom) remain the editable truth; autosave to Coda
   unchanged.
