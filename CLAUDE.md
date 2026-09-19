@@ -136,8 +136,13 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   bucketed **weeknight Mon–Thu / weekend Fri–Sun**) and `renderMonths()`
   (detailed month grids with a left "Ideas" gutter). `applyView()` toggles them.
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
-  live sections **Details**, **Planning Notes**, **Potluck & Volunteers**, **Publish**
-  (`renderPublish`/`wirePublish`, gated on approved) and **Attendees**
+  live sections **Details** (a transforming surface — a stable **Event**
+  subsection of draft/internal fields on top, and a stage-aware
+  **Public listing → Published listing** subsection below via
+  `renderListingSection`/`wireListingSection`, muted-but-visible until approved,
+  that holds the public fields + Eventbrite publish action — the old standalone
+  Publish tab folded in here 2026-09), **Planning Notes**, **Potluck & Volunteers**
+  and **Attendees**
   (`renderAttendees`/`wireAttendees` — lead-only live roster of Eventbrite orders ∪
   gather claimants via Worker `GET /roster/:rowId`, segment chips from
   `web/roster-lib.js`, **Copy emails** / **Email** = `mailto:` BCC; leads send from
