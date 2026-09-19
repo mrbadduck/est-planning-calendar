@@ -657,15 +657,14 @@ const SECTIONS = [
   { id:'details',   label:'Details',              live:true },
   { id:'notes',     label:'Planning Notes',       live:true },
   { id:'volunteers',label:'Potluck & Volunteers', live:true },
-  { id:'publish',   label:'Publish',              live:true },
   { id:'attendees', label:'Attendees',            live:true },
   { id:'budget',    label:'Budget & expenses',    live:false },
   { id:'comms',     label:'Comms',                live:false },
   { id:'feedback',  label:'Feedback',             live:false },
 ];
-// Back-compat: Details was formerly 'planning', Attendees was the 'attendance'
-// coming-soon stub; map old deep links.
-const sectionId = id => ({ planning:'details', attendance:'attendees' }[id] || id);
+// Back-compat: Details was formerly 'planning'; Attendees was the 'attendance'
+// stub; the Publish tab folded into Details (2026-09) → 'publish' opens Details.
+const sectionId = id => ({ planning:'details', attendance:'attendees', publish:'details' }[id] || id);
 let activeSection = 'details';
 
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
@@ -1116,16 +1115,15 @@ function renderSection(id, ev, canEdit, locked, canApprove){
   const panel=document.getElementById('wpanel'); if(!panel) return;
   const sec=SECTIONS.find(s=>s.id===id);
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
-  if(id==='publish'){ panel.innerHTML=renderPublish(ev, canEdit, locked); wirePublish(panel, ev, canEdit, locked); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
-  panel.innerHTML=renderPlanning(ev, canEdit, locked, canApprove); wirePlanning(panel, ev, canEdit, locked, canApprove);
+  panel.innerHTML=renderDetails(ev, canEdit, locked, canApprove); wireDetails(panel, ev, canEdit, locked, canApprove);
 }
 
 /* Planning section — every planning field EXCEPT capacity / address-visibility /
-   the publish panel (those live in Publish now). `#whenFields` is filled by
-   wirePlanning after render. */
+   the publish panel (those live in the Details tab's listing subsection now).
+   `#whenFields` is filled by wirePlanning after render. */
 function renderPlanning(ev, canEdit, locked, canApprove){
   const dis = (!canEdit || locked) ? 'disabled' : '';
   const sched = ev.scheduling || 'exact';
@@ -1219,8 +1217,9 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
   }
 }
 
-/* Publish section — public listing copy + capacity + address visibility + the
-   Eventbrite publish panel. Only meaningful once the event is approved. */
+/* Listing subsection (bottom of Details) — public listing copy + capacity +
+   address visibility + the Eventbrite publish panel. Only meaningful once the
+   event is approved. */
 /* Two modes:
    - UNLINKED (no Eventbrite event yet): the fields are STAGING for the first
      push, with the Create-draft flow below them.
@@ -1242,23 +1241,42 @@ function publishFieldsHTML(vals, dis, livewait){
     <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${lw} placeholder="e.g. 40"></div>
     <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(vals.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${vals.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>`;
 }
-function renderPublish(ev, canEdit, locked){
-  if(ev.status!=='approved') return `<div class="fld full"><div class="locknote">Approve this event under Planning to publish it to Eventbrite.</div></div>`;
+// Bottom subsection of the Details tab. Heading tracks the stage: "Public
+// listing" while staging, "Published listing" once the event is live on
+// Eventbrite. Muted-but-visible before approval so the flow stays teachable.
+function listingHeading(ev){
+  return (ev.eventbriteId && ev.publishStatus==='Published') ? 'Published listing' : 'Public listing';
+}
+function renderListingSection(ev, canEdit, locked){
+  const h=`<div class="wsub-h">${listingHeading(ev)}</div>`;
+  if(ev.status!=='approved')
+    return `<div class="wsub muted">${h}<div class="locknote">Available once approved — public summary, description, capacity, and the Eventbrite publish action live here. Approve the event below to unlock it.</div></div>`;
   const dis=(!canEdit||locked)?'disabled':'';
   const staged={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
-  if(!ev.eventbriteId)
-    return `${publishFieldsHTML(staged, dis, false)}${publishPanelHTML(ev, canEdit && !locked)}`;
-  // linked: live card first; fields wait for the live values (staged shown
-  // dimmed meanwhile) unless the viewer can't edit at all.
-  return `${publishPanelHTML(ev, canEdit && !locked)}
-    ${publishFieldsHTML(staged, dis, dis==='')}`;
+  const body = !ev.eventbriteId
+    ? `${publishFieldsHTML(staged, dis, false)}${publishPanelHTML(ev, canEdit && !locked)}`
+    // linked: live card first; fields wait for the live values (staged shown
+    // dimmed meanwhile) unless the viewer can't edit at all.
+    : `${publishPanelHTML(ev, canEdit && !locked)}${publishFieldsHTML(staged, dis, dis==='')}`;
+  return `<div class="wsub">${h}${body}</div>`;
 }
-function wirePublish(panel, ev, canEdit, locked){
+function wireListingSection(panel, ev, canEdit, locked){
+  if(ev.status!=='approved') return;                 // muted state has no controls
   const ci=panel.querySelector('[data-act="copy-internal"]');
   if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; t.dispatchEvent(new Event('input',{bubbles:true})); scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
   if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); scheduleAutosave(); });
   wirePublishPanel(panel.querySelector('#f_publish'));
+}
+
+// The Details tab: stable "Event" subsection (draft/internal fields) on top,
+// stage-aware listing subsection below. One surface that transforms by stage.
+function renderDetails(ev, canEdit, locked, canApprove){
+  return `<div class="wsub"><div class="wsub-h">Event</div>${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked)}`;
+}
+function wireDetails(panel, ev, canEdit, locked, canApprove){
+  wirePlanning(panel, ev, canEdit, locked, canApprove);
+  wireListingSection(panel, ev, canEdit, locked);
 }
 
 function comingSoonHTML(sec){
@@ -1677,7 +1695,7 @@ function readForm(){
     ? [...document.querySelectorAll('#f_progs .msel-opt input:checked')].map(b=>b.value)
     : ((editing&&editing.programs&&editing.programs.length) ? editing.programs.slice() : ((editing&&editing.program)?[editing.program]:[]));
   const leads=g('f_leads') ? chipIds('#f_leads .ta-chip') : ((editing&&editing.leads)||[]);
-  const volunteers=g('f_vols') ? chipIds('#f_vols .ta-chip') : ((editing&&editing.volunteers)||[]);
+  const volunteers=(editing&&editing.volunteers)||[];   // no editor field — slots/claims supersede it; value round-trips untouched
   const venBox=g('f_venue_box'), venOther=venBox && venBox.querySelector('.venue-other-wrap');
   const venue=venBox ? (venBox.dataset.venueId||'') : ((editing&&editing.venue)||'');
   const venueOther=venBox ? ((venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '') : ((editing&&editing.venueOther)||'');
