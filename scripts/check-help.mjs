@@ -148,15 +148,21 @@ export function refProblems(guideMd, newsMd, sources) {
 }
 
 const CMD = String.raw`(?:^|&&|\|\||;|\||\(|\n)\s*`;                   // a command position in a shell line
-const ENV = String.raw`(?:\w+=(?:"[^"]*"|'[^']*'|[^\s;&|]*)\s+)*`;     // VAR=value prefixes
+// One shell word. Its alternatives start with different characters (" or ' or
+// neither), so any text matches exactly one way — no catastrophic backtracking
+// on the hook's fast path, which sees every Bash call.
+const WORD = String.raw`(?:"[^"]*"|'[^']*'|[^\s;&|"'])+`;
+const ENV = String.raw`(?:\w+=(?:${WORD})?[ \t]+)*`;     // VAR=value prefixes, on the command's own line
 // `git` plus its global options (-C dir, -c k=v, --no-pager, …); group 1 = those options.
-const GIT = String.raw`git((?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)|--?[A-Za-z][\w-]*(?:=[^\s;&|]*)?))*)\s+`;
+const GIT = String.raw`git((?:[ \t]+(?:-[Cc][ \t]+${WORD}|--?[A-Za-z][\w-]*(?:=${WORD})?))*)[ \t]+`;
 const MERGE_RE = new RegExp(CMD + ENV + GIT + String.raw`merge(?![\w-])`);   // not merge-base / merge-tree / merge-file
 const TO_MAIN_RE = new RegExp(CMD + ENV + GIT + String.raw`(?:checkout|switch)(?:\s+-[\w-]+)*\s+main(?![\w./-])`);
 const PR_RE = new RegExp(CMD + ENV + String.raw`gh\s+pr\s+create(?![\w-])`);
 const CD_RE = new RegExp(CMD + String.raw`cd\s+("[^"]*"|'[^']*'|[^\s;&|()]+)`, 'g');
 const SEPARATORS = new Set(['&&', '||', ';', '|']);
 const VALUE_OPTS = new Set(['-m', '--message', '-F', '--file', '-s', '--strategy', '-X', '--strategy-option', '--cleanup', '--into-name']);
+// gh flags that take a value — skipped so a title like "-Refactor…" isn't read as -R/-B.
+const GH_VALUE_OPTS = new Set(['-t', '--title', '-b', '--body', '-F', '--body-file', '-H', '--head', '-a', '--assignee', '-l', '--label', '-m', '--milestone', '-p', '--project', '-r', '--reviewer', '-T', '--template']);
 
 // Quote-aware shell words ("…" may span lines, e.g. a heredoc commit message).
 function shellWords(s) {
@@ -194,6 +200,7 @@ export function prCreateBase(command) {
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
     if (SEPARATORS.has(w)) break;
+    if (GH_VALUE_OPTS.has(w)) { i++; continue; }
     if (w === '-R' || w === '--repo' || /^-R./.test(w) || w.startsWith('--repo=')) return null;
     if (w === '--base' || w === '-B') { base = words[i + 1] || ''; i++; }
     else if (w.startsWith('--base=')) base = w.slice(7);
@@ -257,6 +264,13 @@ function branchProblems(base, ref) {
   const verdict = branchVerdict(files, git(['log', '--format=%B', EOO, `${b}..${ref}`]));
   return verdict ? [`${verdict} (${ref} vs ${b})`] : [];
 }
+// The tree the merge would produce — git ≥ 2.38 builds it in the object store
+// without touching any branch or worktree — so a branch cut before the latest
+// help is judged with main's help, as the GitHub check (a PR's merge commit) is.
+// On a conflict or an older git: the ref's own tree.
+function mergedTree(base, ref) {
+  try { return git(['merge-tree', '--write-tree', '--no-messages', EOO, existingRef(base), ref]).split('\n')[0].trim(); } catch { return ref; }
+}
 
 const FIX = 'Fix: update web/help/guide.md (and add a dated line to web/help/whats-new.md). If a program lead would notice nothing, add a commit whose message has a line "Help: none — <reason>" instead. Rules: CLAUDE.md → Conventions → "Help ships with the change".';
 const USAGE = 'usage: node scripts/check-help.mjs [--branch <ref> [--base <ref>]] | --hook';
@@ -266,12 +280,13 @@ function cli(args) {
   const opts = {};
   for (let i = 0; i < args.length; i += 2) {
     const flag = args[i], value = args[i + 1];
-    if (!['--branch', '--base'].includes(flag) || !value || value.startsWith('-')) { console.error(`check-help: unexpected argument "${flag}" — ${USAGE}`); return 1; }
+    if (!['--branch', '--base'].includes(flag)) { console.error(`check-help: unexpected argument "${flag}" — ${USAGE}`); return 1; }
+    if (!value || value.startsWith('-')) { console.error(`check-help: ${flag} needs a value — ${USAGE}`); return 1; }
     opts[flag] = value;
   }
   const ref = opts['--branch'], base = opts['--base'] || 'main';
   try {
-    const problems = [...contentProblems(ref), ...(ref ? branchProblems(base, ref) : [])];
+    const problems = [...contentProblems(ref ? mergedTree(base, ref) : undefined), ...(ref ? branchProblems(base, ref) : [])];
     if (!problems.length) { console.log(`check-help: OK${ref ? ` (${ref} vs ${base})` : ''}`); return 0; }
     console.error(`check-help: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${listOf(problems)}\n${FIX}`);
     return 1;
@@ -299,7 +314,7 @@ async function hook() {
     const prBase = mergeRef ? null : prCreateBase(command);
     if (!mergeRef && !prBase) return 0;
     const [ref, base] = mergeRef ? [mergeRef, 'main'] : ['HEAD', prBase];
-    const problems = [...contentProblems(ref), ...branchProblems(base, ref)];
+    const problems = [...contentProblems(mergedTree(base, ref)), ...branchProblems(base, ref)];
     if (!problems.length) return 0;
     process.stderr.write(`Help guard blocked this ${mergeRef ? `merge of ${ref} into main` : 'pull request'} — the in-app help is out of step with the app:\n${listOf(problems)}\n${FIX}\nThen run the command again.\n`);
     return 2;

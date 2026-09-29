@@ -139,6 +139,8 @@ test('prCreateBase: never an option-like base; attached -B; another repo (-R/--r
   assert.equal(prCreateBase('gh pr create -Bdevelop'), 'develop');
   assert.equal(prCreateBase('gh pr create -R other/repo --fill'), null);
   assert.equal(prCreateBase('gh pr create --repo=other/repo'), null);
+  assert.equal(prCreateBase('gh pr create --title "-Refactor the legend" --fill'), 'main');
+  assert.equal(prCreateBase('gh pr create -t "-Bump deps" -B develop'), 'develop');
 });
 
 test('commandDirOf: git -C, else the last cd before the command; null by default; $VAR → undefined', () => {
@@ -146,4 +148,12 @@ test('commandDirOf: git -C, else the last cd before the command; null by default
   assert.equal(commandDirOf('git -C /a/b merge x'), '/a/b');
   assert.equal(commandDirOf('cd /a && cd /b && gh pr create'), '/b');
   assert.equal(commandDirOf('cd "$REPO" && git merge x'), undefined);
+});
+
+test('command regexes stay linear on many VAR="v" lines', () => {
+  const cmd = `cat > .env <<'EOF'\n${Array.from({ length: 24 }, (_, i) => `K${i}="v${i}"`).join('\n')}\nEOF`;
+  const t = Date.now();
+  assert.equal(mergeIntoMainTarget(cmd, 'main'), null);
+  assert.equal(prCreateBase(cmd), null);
+  assert.ok(Date.now() - t < 1000, `took ${Date.now() - t} ms`);
 });
