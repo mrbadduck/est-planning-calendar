@@ -2159,6 +2159,7 @@ async function refresh(){
 }
 async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
+  { const hp=new URL(location.href).searchParams.get('help'); if(hp!==null) openHelp(hp); }   // ?help=<id> opens that guide (works signed out)
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
   headerMQ.addEventListener('change', applyHeaderMode);
   applyHeaderMode();
@@ -2180,12 +2181,176 @@ async function init(){
   // Fresh events (renders as soon as /rows returns).
   await refresh();
   openFromUrl();                 // deep-link: ?event=<id>&section=<id> opens that event
+  loadNews().then(paintHelpDot, ()=>{});   // What's new dot on the header ? (after the first paint)
   setTimeout(()=>{
     const t=new Date();
     if(state.view==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
     else { const el=document.querySelector('.cell.today'); if(el) el.scrollIntoView({block:'center'}); }
   },60);
 }
+
+/* =========================================================================
+   HELP — the Help drawer. Guides live in web/help/guide.md and What's new in
+   web/help/whats-new.md; HelpLib (web/help/help-lib.js) parses + renders them.
+   Entry points: the header ?, the editor/create-form ?, the status badge, the
+   sign-in gate link, ?help=<id>, and a once-per-device Welcome. App code names
+   a guide ONLY via openHelp('<id>'), help:'<id>' or data-help="<id>" — the
+   forms scripts/check-help.mjs verifies. Design:
+   docs/superpowers/specs/2026-09-29-in-app-help-design.md
+   ========================================================================= */
+const HELP_WELCOMED_KEY='est-help-welcomed';   // set once the Welcome has auto-opened on this device
+const HELP_SEEN_KEY='est-help-seen';           // newest What's-new date this device has seen
+const HELP_RETURNING=!!cacheGet('rows-raw');   // used the app before? (read before init() refreshes the row cache)
+const help={ guides:null, news:null, view:'index', id:'', query:'', opener:null };
+let _helpP=null, _newsP=null;
+
+// localStorage for help state: undefined = storage unavailable (so never nag), null = unset.
+function helpGet(k){ try{ return localStorage.getItem(k); }catch(_){ return undefined; } }
+function helpSet(k,v){ try{ localStorage.setItem(k,v); return true; }catch(_){ return false; } }
+
+async function fetchHelpFile(name){
+  const r=await fetch(`help/${name}`, { cache:'no-cache' });   // revalidate: a deploy shows up on the next open
+  if(!r.ok) throw new Error(`help/${name}: ${r.status}`);
+  return r.text();
+}
+function loadNews(){
+  if(!_newsP) _newsP=fetchHelpFile('whats-new.md')
+    .then(md=>{ help.news=HelpLib.parseWhatsNew(md).entries; return help.news; })
+    .catch(err=>{ _newsP=null; throw err; });
+  return _newsP;
+}
+function loadHelp(){
+  if(!_helpP) _helpP=Promise.all([fetchHelpFile('guide.md'), loadNews().catch(()=>null)])
+    .then(([md])=>{ help.guides=HelpLib.parseGuide(md).guides; })
+    .catch(err=>{ _helpP=null; throw err; });
+  return _helpP;
+}
+
+function latestNews(){ return (help.news && help.news[0] && help.news[0].date) || ''; }
+function newsUnseen(){ const latest=latestNews(), seen=helpGet(HELP_SEEN_KEY); return !!latest && seen!==undefined && (!seen || latest>seen); }
+function markNewsSeen(){ const latest=latestNews(); if(latest) helpSet(HELP_SEEN_KEY, latest); paintHelpDot(); }
+function paintHelpDot(){ const b=document.getElementById('helpBtn'); if(b) b.classList.toggle('has-news', newsUnseen()); }
+
+function setHelpUrl(id){
+  const u=new URL(location.href);
+  if(id) u.searchParams.set('help', id);
+  else if(u.searchParams.has('help')) u.searchParams.delete('help');
+  else return;
+  history.replaceState(null,'',u);
+}
+
+// {{legend}} in guide.md: the calendar key, drawn with the calendar's own chip
+// classes and the live program list — so it can't drift from what's on screen.
+function legendEmbedHTML(){
+  const progs=PROGRAMS.filter(p=>p.id!=='oth');
+  const hue=(progs[0] && progs[0].color) || 'var(--accent)';
+  const row=(cls,label,note)=>`<div class="help-legend-row"><div class="chip ${cls}" style="--c:${esc(hue)}"><span class="t">${label}</span>${cls==='approved'?'<span class="lock">🔒</span>':''}</div><span>${note}</span></div>`;
+  const ref=REF_LAYERS[0];
+  return `<div class="help-legend">
+      ${row('draft','Draft','Being planned')}
+      ${row('proposed','Proposed','Waiting for Tribal Council')}
+      ${row('approved','Approved','Confirmed and locked')}
+      ${row('cancelled','Cancelled','Not happening')}
+      <div class="help-legend-row"><div class="chip ref" style="--c:${esc(ref?ref.color:'var(--faint)')}"><span class="t">${esc(ref?ref.name:'Holiday')}</span></div><span>Reference calendar (read-only)</span></div>
+    </div>
+    <div class="help-swatches">${progs.map(p=>`<span><span class="help-swatch" style="background:${esc(p.color)}"></span>${esc(p.name)}</span>`).join('')}</div>`;
+}
+function helpEmbed(name){ return name==='legend' ? legendEmbedHTML() : ''; }
+
+function helpResultsHTML(){
+  const q=help.query.trim();
+  const item=g=>`<li><a href="#" data-help-link="${esc(g.id)}">${esc(g.title)}</a>${q?` <span class="help-grp">${esc(g.group)}</span>`:''}</li>`;
+  if(q){
+    const hits=HelpLib.searchGuides(help.guides, q);
+    return hits.length ? `<ul class="help-list">${hits.map(item).join('')}</ul>`
+      : `<p class="help-empty">No guides match — try other words, or <a href="mailto:${SUPPORT_EMAIL}">email us</a>.</p>`;
+  }
+  const groups=[...new Set(help.guides.map(g=>g.group))];
+  return groups.map(gr=>`<div class="help-grouph">${esc(gr)}</div><ul class="help-list">${help.guides.filter(g=>g.group===gr).map(item).join('')}</ul>`).join('')
+    + `<ul class="help-list help-news"><li><a href="#" data-help-link="whats-new">What's new</a>${newsUnseen()?'<span class="help-dot" title="New since your last look"></span>':''}</li></ul>`;
+}
+
+async function renderHelp(){
+  const body=document.getElementById('helpBody'), title=document.getElementById('helpTitle'), back=document.getElementById('helpBack');
+  if(!help.guides){
+    title.textContent='Help'; back.hidden=true;
+    body.innerHTML=`<p class="help-empty"><span class="ndoc-spin"></span> Loading help…</p>`;
+    try{ await loadHelp(); }
+    catch(_){
+      body.innerHTML=`<p class="help-empty">Help couldn't load. Check your connection and try again.</p><button type="button" class="btn sm" data-help-retry>Retry</button>`;
+      return;
+    }
+  }
+  const guide=(help.view==='guide' && help.id!=='whats-new') ? help.guides.find(g=>g.id===help.id) : null;
+  if(help.view==='guide' && help.id==='whats-new'){
+    title.textContent="What's new";
+    body.innerHTML=`<article class="help-article">${HelpLib.renderWhatsNew(help.news)}</article>`;
+    markNewsSeen();
+  } else if(guide){
+    title.textContent=guide.title;
+    body.innerHTML=`<article class="help-article">${HelpLib.renderGuide(guide.body, { embed:helpEmbed })}</article>`;
+  } else {                                       // the index — also the fallback for an unknown id
+    help.view='index'; help.id='';
+    title.textContent='Help';
+    body.innerHTML=`<input class="help-search" id="helpSearch" type="search" placeholder="Search help" aria-label="Search help" value="${esc(help.query)}"><div id="helpResults">${helpResultsHTML()}</div>`;
+  }
+  back.hidden = help.view==='index';
+  setHelpUrl(help.view==='index' ? '' : help.id);
+  body.scrollTop=0;
+}
+function openHelp(id, opener){
+  const d=document.getElementById('helpDrawer'); if(!d) return;
+  if(d.hidden) help.opener=opener||document.activeElement;
+  help.view=id?'guide':'index'; help.id=id||'';
+  d.hidden=false; document.body.classList.add('help-open');
+  renderHelp();
+  d.focus({ preventScroll:true });
+}
+function closeHelp(){
+  const d=document.getElementById('helpDrawer'); if(!d || d.hidden) return;
+  d.hidden=true; document.body.classList.remove('help-open'); setHelpUrl('');
+  const o=help.opener; help.opener=null;
+  if(o && o.isConnected && typeof o.focus==='function') o.focus({ preventScroll:true });
+}
+
+document.getElementById('helpClose').addEventListener('click', closeHelp);
+document.getElementById('helpBack').addEventListener('click', ()=>{ help.view='index'; help.id=''; renderHelp(); });
+document.getElementById('helpDrawer').addEventListener('click', e=>{
+  const l=e.target.closest('[data-help-link]');
+  if(l){ e.preventDefault(); help.view='guide'; help.id=l.dataset.helpLink; renderHelp(); return; }
+  if(e.target.closest('[data-help-retry]')) renderHelp();
+});
+document.getElementById('helpBody').addEventListener('input', e=>{
+  if(e.target.id!=='helpSearch') return;
+  help.query=e.target.value;
+  const r=document.getElementById('helpResults'); if(r) r.innerHTML=helpResultsHTML();
+});
+// Any [data-help="<id>"] opens that guide ("" = the index); the header ? toggles.
+document.addEventListener('click', e=>{
+  const t=e.target.closest('[data-help]'); if(!t) return;
+  e.preventDefault();
+  const d=document.getElementById('helpDrawer');
+  if(t.id==='helpBtn' && d && !d.hidden){ closeHelp(); return; }
+  openHelp(t.dataset.help, t);
+});
+// Esc peels the drawer first: the capture phase runs before the modal's Esc-to-close.
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape') return;
+  const d=document.getElementById('helpDrawer');
+  if(d && !d.hidden){ e.preventDefault(); e.stopImmediatePropagation(); closeHelp(); }
+}, true);
+// Welcome: auto-opens once per device, the first time a signed-in identity resolves.
+function maybeWelcome(){
+  if(!(state.identity && state.identity.signedIn)) return;
+  const p=new URL(location.href).searchParams;
+  if(p.has('event') || p.has('help')) return;                               // arrived via a shared link — don't cover it
+  if(document.getElementById('scrim').classList.contains('open')) return;   // something is already open
+  if(helpGet(HELP_WELCOMED_KEY)!==null) return;                             // welcomed before, or storage unavailable
+  if(!helpSet(HELP_WELCOMED_KEY,'1')) return;
+  if(!HELP_RETURNING) loadNews().then(markNewsSeen, ()=>{});                // brand-new here: nothing is "new" to them
+  openHelp('welcome');
+}
+document.addEventListener('est:identity', maybeWelcome);
 
 /* utils */
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
