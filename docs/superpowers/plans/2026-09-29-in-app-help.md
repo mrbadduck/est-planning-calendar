@@ -442,6 +442,8 @@ git add web/help/help-lib.js proxy/test/help-lib.test.js
 git commit -m "feat(help): HelpLib labels/links/embeds, What's new parse+render, search" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+> **Review follow-up (landed as commit `2b7e075`, after Tasks 1–3):** the code review's fixes changed HelpLib beyond the code above. `parseGuide` also reports an unclosed `[[` on a line, a heading with no space after `#`, a guide before the first `# Group`, an empty title and an unterminated `<!--`; `{{ legend }}` may have inner spaces; an `<ol>` keeps its first number (`start="N"`); `###` subheads and What's-new dates render as `<h3>`; `mailto:` links get no `target`. `proxy/test/help-lib.test.js` has 17 tests. The code in the repo is the source of truth.
+
 ---
 
 ### Task 4: Guard — pure helpers
@@ -900,6 +902,9 @@ Create `web/help/guide.md` with exactly this content:
     and the guard checks that the exact text still appears in the app. Only bracket
     text that is visibly on screen (not tooltips, not counts or names).
   - Refer to things by name, not by position or color.
+  - Keep each paragraph, list item and [[Label]] on one line (don't hard-wrap),
+    don't start a line with # unless it's a heading, and don't nest **bold**
+    and *italic*.
   - No internal names: Coda, Superhuman Docs, Worker, proxy, row, sync, API.
   - Say who can do role-limited things ("Tribal Council only").
   - About 150 words per guide. Link instead of repeating: [text](#guide-id).
@@ -1293,8 +1298,8 @@ Insert immediately before the line `  @media (prefers-color-scheme:dark){`:
   .help-empty{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .help-article{font-size:13.5px;line-height:1.55;color:var(--ink)}
   .help-article p{margin:0 0 10px}
-  .help-article h4{margin:16px 0 6px;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
-  .help-article h4:first-child{margin-top:0}
+  .help-article h3{margin:16px 0 6px;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+  .help-article h3:first-child{margin-top:0}
   .help-article ol,.help-article ul{margin:0 0 10px;padding-left:20px}
   .help-article li{margin:4px 0}
   .help-tip{margin:0 0 10px;padding:9px 11px;border-radius:8px;background:var(--accent-tint);font-size:13px}
