@@ -16,7 +16,7 @@ const GUIDE = [
   'Hello [[+ New event]].',
   '',
   '## Get around {#getting-around}',
-  'Use [[Overview]].',
+  'Use [[Overview]] or [[Calendar]].',
   '# Help',
   '## Common problems {#troubleshooting}',
   'See [the welcome](#welcome).',
@@ -120,6 +120,7 @@ test('renderInline: escaping holds at the innerHTML boundary (attribute breakout
   assert.equal(H.renderInline('[x](https://a.example/"onmouseover="alert(1))'), '<a href="https://a.example/&quot;onmouseover=&quot;alert(1" target="_blank" rel="noopener">x</a>)');
   assert.equal(H.renderInline('[x](#"onclick="alert(1))'), '<a href="#" data-help-link="&quot;onclick=&quot;alert(1">x</a>)');
   assert.equal(H.renderInline('[x](javascript:alert`https:`)'), 'x');
+  assert.equal(H.renderInline('[x](javascript:alert`mailto:`)'), 'x');
   assert.equal(H.renderInline('[x](JavaScript:alert(1))'), 'x)');
   assert.equal(H.renderInline('[x](data:text/html,hi)'), 'x');
 });
