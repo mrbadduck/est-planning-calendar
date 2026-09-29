@@ -2297,13 +2297,15 @@ async function renderHelp(){
     if(d.hidden) return;   // closed while loading: don't re-add ?help= or mark What's new seen
   }
   if(help.view==='guide' && help.id==='whats-new' && !help.news){   // What's new failed earlier: try again now
+    title.textContent="What's new"; back.hidden=false;
+    body.innerHTML=`<p class="help-empty"><span class="ndoc-spin"></span> Loading…</p>`;
     try{ await loadNews(); }
     catch(_){
-      title.textContent="What's new"; back.hidden=false;
+      if(d.hidden || help.id!=='whats-new') return;   // closed, or the user moved on while it retried
       body.innerHTML=`<p class="help-empty">What's new couldn't load. Check your connection and try again.</p><button type="button" class="btn sm" data-help-retry>Retry</button>`;
       return;
     }
-    if(d.hidden) return;
+    if(d.hidden || help.id!=='whats-new') return;
   }
   const guide=(help.view==='guide' && help.id!=='whats-new') ? help.guides.find(g=>g.id===help.id) : null;
   if(help.view==='guide' && help.id==='whats-new'){
@@ -2375,7 +2377,7 @@ function maybeWelcome(){
   if(_welcomeChecked || !(state.identity && state.identity.signedIn)) return;
   _welcomeChecked=true;   // first signed-in identity of this page load only — est:identity re-fires on every token refresh
   const p=new URL(location.href).searchParams;
-  if(p.has('event') || p.has('help')) return;                               // arrived via a shared link — don't cover it
+  if(p.has('event') || p.has('help')){ if(!document.getElementById('helpDrawer').hidden) helpSet(HELP_WELCOMED_KEY,'1'); return; }   // arrived via a shared link — don't cover it (reading a guide already counts as welcomed)
   if(!document.getElementById('helpDrawer').hidden){ helpSet(HELP_WELCOMED_KEY,'1'); return; }   // already reading help (e.g. from the sign-in screen)
   if(document.getElementById('scrim').classList.contains('open')) return;   // something is already open
   if(helpGet(HELP_WELCOMED_KEY)!==null) return;                             // welcomed before, or storage unavailable
