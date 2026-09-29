@@ -1681,7 +1681,7 @@ with:
 // the lifecycle guide through data-help; transitions are in the footer.
 document.getElementById('mActions').addEventListener('click',e=>{
   const btn=e.target.closest('[data-act]'); const act=btn?.dataset.act; if(!act) return;
-  if(act==='copylink'){ navigator.clipboard.writeText(location.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }
+  if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it
   else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', btn); }
 });
 ```
@@ -1947,6 +1947,22 @@ with:
 ```
   - `git merge <ref>` into `main` (the current branch, or one the same command
     switches to first, e.g. `git checkout main && git merge <ref>`) — the ref is the first
+```
+
+- [ ] **Step 6a: Spec sync — the drawer beside an open editor only on wide screens**
+
+In the same file, replace:
+```
+widths (≤600px). No scrim — whatever is behind stays usable: on desktop an open
+editor shifts left to sit beside the drawer (the modal's scrim is inset by the drawer
+width while it's open) and the calendar is simply overlapped; on phones the drawer
+```
+with:
+```
+widths (≤600px). No scrim — whatever is behind stays usable: on wide screens (1000px
+and up) an open editor shifts left to sit beside the drawer (the modal's scrim is inset
+by the drawer width while it's open); narrower, the drawer overlays it; the calendar is
+simply overlapped; on phones the drawer
 ```
 
 - [ ] **Step 6b: Spec sync — what counts as "changed the help", and the hook's scope**
