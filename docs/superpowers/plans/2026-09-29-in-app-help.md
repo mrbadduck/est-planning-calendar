@@ -31,6 +31,7 @@
 | `proxy/test/help-lib.test.js` | create | Unit tests for help-lib |
 | `scripts/check-help.mjs` | create | The guard: exported pure helpers + CLI + hook mode |
 | `proxy/test/check-help.test.js` | create | Unit tests for the guard's pure helpers |
+| `proxy/test/check-help-hook.test.js` | create | End-to-end tests of the hook/CLI on throwaway git repos (added by the Task 4–5 review) |
 | `web/index.html` | modify | `?` button (replaces `i`), tagline, sign-in "New here?" link, drawer markup, help-lib script tag |
 | `web/app.js` | modify | HELP block; `SECTIONS[].help`; editor/create-form `?`; status-badge button; `?help=` + dot in `init`; remove `legendHTML`/`openInfo` |
 | `web/styles.css` | modify | `.help-btn` (replaces `.info-btn`), drawer, chips, legend; drop dead legend CSS |
@@ -877,6 +878,8 @@ Expected: `# pass 10`, `# fail 0`.
 git add scripts/check-help.mjs
 git commit -m "feat(help): guard CLI + PreToolUse hook mode (content + branch checks)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+> **Review follow-up (landed after Tasks 4–5):** the code review's fixes changed the guard beyond the code above — a one-pass `jsStrings` scanner feeds `screenTexts` (the regex alone hid a third of `web/app.js`'s strings); the hook acts only when the command runs in this repository (git common dir; `git -C`, `cd`, `-R/--repo` understood) and ignores `git merge-base/-tree/-file`; env/`git -C`/`--no-pager` prefixes are recognised; every ref-taking git call uses `--end-of-options` and option-like `--base` values are refused; the entry-point check compares real paths (a symlinked path no longer skips the guard silently); only `web/help/*.md` counts as "changed the help"; the CLI rejects unknown arguments. New end-to-end tests: `proxy/test/check-help-hook.test.js`. The code in the repo is the source of truth.
 
 ---
 
@@ -1769,7 +1772,7 @@ Run this exact command through the Bash tool (if the hook were NOT active it wou
 ```bash
 gh pr create --base feat/help-guide --help
 ```
-Expected: the tool call is **blocked** and the result shows the "Help guard blocked this pull request" message. If gh's help text prints instead, the hook is not active: check that `.claude/settings.json` is valid JSON (`node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`), then ask the user to open `/hooks` in an interactive `claude` terminal to confirm it's registered.
+Expected: the tool call is **blocked** and the result shows the "Help guard blocked this pull request" message. If gh's help text prints instead, the hook is not active: first run the script directly (`node scripts/check-help.mjs --branch tmp/help-guard-demo --base feat/help-guide`) and confirm it prints a problem; then check that `.claude/settings.json` is valid JSON (`node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`); then ask the user to open `/hooks` in an interactive `claude` terminal to confirm it's registered.
 
 - [ ] **Step 7: The escape hatch lets it through**
 
@@ -1813,9 +1816,9 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - name: Unit tests (help-lib + guard)
-        run: node --test proxy/test/help-lib.test.js proxy/test/check-help.test.js
+          node-version: 22
+      - name: Unit + end-to-end tests (help-lib + guard)
+        run: node --test proxy/test/help-lib.test.js proxy/test/check-help.test.js proxy/test/check-help-hook.test.js
       - name: Content check (labels, links, ids, What's new)
         run: node scripts/check-help.mjs
       - name: Branch check (screens changed → help changed, or "Help: none — <reason>")
@@ -1830,7 +1833,7 @@ Expected: `yaml ok`. (If `ruby` isn't installed, skip this step — GitHub valid
 
 - [ ] **Step 3: Run the same commands locally**
 
-Run: `node --test proxy/test/help-lib.test.js proxy/test/check-help.test.js && node scripts/check-help.mjs && node scripts/check-help.mjs --branch HEAD --base main`
+Run: `node --test proxy/test/help-lib.test.js proxy/test/check-help.test.js proxy/test/check-help-hook.test.js && node scripts/check-help.mjs && node scripts/check-help.mjs --branch HEAD --base main`
 Expected: `# fail 0`, then `check-help: OK`, then `check-help: OK (HEAD vs main)`.
 
 - [ ] **Step 4: Commit**
@@ -1944,6 +1947,29 @@ with:
 ```
   - `git merge <ref>` into `main` (the current branch, or one the same command
     switches to first, e.g. `git checkout main && git merge <ref>`) — the ref is the first
+```
+
+- [ ] **Step 6b: Spec sync — what counts as "changed the help", and the hook's scope**
+
+In the same file, replace:
+```
+screens file but nothing under `web/help/`, it fails — unless a commit message in
+```
+with:
+```
+screens file but none of the help text (`web/help/*.md` — not its renderer), it fails — unless a commit message in
+```
+
+and replace:
+```
+  Every other command exits 0 immediately. On findings it exits 2: the command is
+```
+with:
+```
+  It also stands aside unless the command runs in this repository (compared by git
+  common dir, so worktrees count; `git -C`, a leading `cd` and `gh -R/--repo` are
+  understood) and ignores `git merge-base/-tree/-file`. Every other command exits 0
+  immediately. On findings it exits 2: the command is
 ```
 
 - [ ] **Step 7: Commit**
