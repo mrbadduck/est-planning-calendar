@@ -2178,10 +2178,10 @@ async function init(){
   const cachedRefs = cacheGet('references');
   if(cachedRefs && cachedRefs.layers){ rebuildRefs(cachedRefs.layers); renderLayers(); }
   if(cachedRows && cachedRows.length){ state.events = [...cachedRows.map(planningRowToEvent), ...((cachedRefs&&cachedRefs.events)||[])]; applyView(); layoutSticky(); }
+  loadNews().then(paintHelpDot, ()=>{});   // What's new dot on the header ? — doesn't wait on the (slower) rows load
   // Fresh events (renders as soon as /rows returns).
   await refresh();
   openFromUrl();                 // deep-link: ?event=<id>&section=<id> opens that event
-  loadNews().then(paintHelpDot, ()=>{});   // What's new dot on the header ? (after the first paint)
   setTimeout(()=>{
     const t=new Date();
     if(state.view==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
@@ -2200,7 +2200,8 @@ async function init(){
    ========================================================================= */
 const HELP_WELCOMED_KEY='est-help-welcomed';   // set once the Welcome has auto-opened on this device
 const HELP_SEEN_KEY='est-help-seen';           // newest What's-new date this device has seen
-const HELP_RETURNING=!!cacheGet('rows-raw');   // used the app before? (read before init() refreshes the row cache)
+const HELP_RETURNING=!!cacheGet('rows-raw');   // used the app before? (read before init() refreshes the row cache).
+                                               // A first visit that signs in by emailed link counts as returning — /rows is cached while signed out — so that user just keeps the What's new dot.
 const help={ guides:null, news:null, view:'index', id:'', query:'', opener:null };
 let _helpP=null, _newsP=null;
 
@@ -2209,7 +2210,7 @@ function helpGet(k){ try{ return localStorage.getItem(k); }catch(_){ return unde
 function helpSet(k,v){ try{ localStorage.setItem(k,v); return true; }catch(_){ return false; } }
 
 async function fetchHelpFile(name){
-  const r=await fetch(`help/${name}`, { cache:'no-cache' });   // revalidate: a deploy shows up on the next open
+  const r=await fetch(`help/${name}`, { cache:'no-cache' });   // revalidate: a deploy shows up on the next page load
   if(!r.ok) throw new Error(`help/${name}: ${r.status}`);
   return r.text();
 }
@@ -2229,7 +2230,12 @@ function loadHelp(){
 function latestNews(){ return (help.news && help.news[0] && help.news[0].date) || ''; }
 function newsUnseen(){ const latest=latestNews(), seen=helpGet(HELP_SEEN_KEY); return !!latest && seen!==undefined && (!seen || latest>seen); }
 function markNewsSeen(){ const latest=latestNews(); if(latest) helpSet(HELP_SEEN_KEY, latest); paintHelpDot(); }
-function paintHelpDot(){ const b=document.getElementById('helpBtn'); if(b) b.classList.toggle('has-news', newsUnseen()); }
+function paintHelpDot(){
+  const b=document.getElementById('helpBtn'); if(!b) return;
+  const unseen=newsUnseen();
+  b.classList.toggle('has-news', unseen);
+  b.setAttribute('aria-label', unseen ? 'Help (new updates)' : 'Help');
+}
 
 function setHelpUrl(id){
   const u=new URL(location.href);
@@ -2238,22 +2244,30 @@ function setHelpUrl(id){
   else return;
   history.replaceState(null,'',u);
 }
+// A CSS color from data (e.g. a reference calendar's Color) — only real color
+// values, so a value can't add declarations to a style="" attribute.
+function cssColor(c, fallback){ const s=String(c||'').trim(); return /^(#[0-9a-f]{3,8}|(?:rgb|hsl)a?\([\d\s.,%\/+-]+\)|var\(--[\w-]+\)|[a-z]+)$/i.test(s) ? s : fallback; }
+// The header ? and the editor's aria-modal track the drawer (the editor stays usable beside it).
+function setHelpExpanded(open){
+  const b=document.getElementById('helpBtn'); if(b) b.setAttribute('aria-expanded', String(open));
+  const m=document.getElementById('modal'); if(m) m.setAttribute('aria-modal', open ? 'false' : 'true');
+}
 
 // {{legend}} in guide.md: the calendar key, drawn with the calendar's own chip
 // classes and the live program list — so it can't drift from what's on screen.
 function legendEmbedHTML(){
-  const progs=PROGRAMS.filter(p=>p.id!=='oth');
-  const hue=(progs[0] && progs[0].color) || 'var(--accent)';
-  const row=(cls,label,note)=>`<div class="help-legend-row"><div class="chip ${cls}" style="--c:${esc(hue)}"><span class="t">${label}</span>${cls==='approved'?'<span class="lock">🔒</span>':''}</div><span>${note}</span></div>`;
+  const progs=PROGRAMS.filter(p=>p.id!=='oth' && p.active!==false);
+  const hue=cssColor(progs[0] && progs[0].color, 'var(--accent)');
+  const row=(cls,label,note)=>`<div class="help-legend-row"><div class="chip ${cls}" style="--c:${hue}"><span class="t">${label}</span>${cls==='approved'?'<span class="lock">🔒</span>':''}</div><span>${note}</span></div>`;
   const ref=REF_LAYERS[0];
   return `<div class="help-legend">
       ${row('draft','Draft','Being planned')}
       ${row('proposed','Proposed','Waiting for Tribal Council')}
       ${row('approved','Approved','Confirmed and locked')}
       ${row('cancelled','Cancelled','Not happening')}
-      <div class="help-legend-row"><div class="chip ref" style="--c:${esc(ref?ref.color:'var(--faint)')}"><span class="t">${esc(ref?ref.name:'Holiday')}</span></div><span>Reference calendar (read-only)</span></div>
+      <div class="help-legend-row"><div class="chip ref" style="--c:${cssColor(ref && ref.color, 'var(--faint)')}"><span class="t">${esc(ref?ref.name:'Holiday')}</span></div><span>Reference calendar (read-only)</span></div>
     </div>
-    <div class="help-swatches">${progs.map(p=>`<span><span class="help-swatch" style="background:${esc(p.color)}"></span>${esc(p.name)}</span>`).join('')}</div>`;
+    <div class="help-swatches">${progs.map(p=>`<span><span class="help-swatch" style="background:${cssColor(p.color, 'var(--faint)')}"></span>${esc(p.name)}</span>`).join('')}</div>`;
 }
 function helpEmbed(name){ return name==='legend' ? legendEmbedHTML() : ''; }
 
@@ -2271,7 +2285,7 @@ function helpResultsHTML(){
 }
 
 async function renderHelp(){
-  const body=document.getElementById('helpBody'), title=document.getElementById('helpTitle'), back=document.getElementById('helpBack');
+  const d=document.getElementById('helpDrawer'), body=document.getElementById('helpBody'), title=document.getElementById('helpTitle'), back=document.getElementById('helpBack');
   if(!help.guides){
     title.textContent='Help'; back.hidden=true;
     body.innerHTML=`<p class="help-empty"><span class="ndoc-spin"></span> Loading help…</p>`;
@@ -2280,6 +2294,16 @@ async function renderHelp(){
       body.innerHTML=`<p class="help-empty">Help couldn't load. Check your connection and try again.</p><button type="button" class="btn sm" data-help-retry>Retry</button>`;
       return;
     }
+    if(d.hidden) return;   // closed while loading: don't re-add ?help= or mark What's new seen
+  }
+  if(help.view==='guide' && help.id==='whats-new' && !help.news){   // What's new failed earlier: try again now
+    try{ await loadNews(); }
+    catch(_){
+      title.textContent="What's new"; back.hidden=false;
+      body.innerHTML=`<p class="help-empty">What's new couldn't load. Check your connection and try again.</p><button type="button" class="btn sm" data-help-retry>Retry</button>`;
+      return;
+    }
+    if(d.hidden) return;
   }
   const guide=(help.view==='guide' && help.id!=='whats-new') ? help.guides.find(g=>g.id===help.id) : null;
   if(help.view==='guide' && help.id==='whats-new'){
@@ -2300,25 +2324,31 @@ async function renderHelp(){
 }
 function openHelp(id, opener){
   const d=document.getElementById('helpDrawer'); if(!d) return;
-  if(d.hidden) help.opener=opener||document.activeElement;
+  if(d.hidden || opener) help.opener=opener||document.activeElement;   // an explicit opener (editor ?, status badge) takes over even when already open
   help.view=id?'guide':'index'; help.id=id||'';
-  d.hidden=false; document.body.classList.add('help-open');
+  d.hidden=false; document.body.classList.add('help-open'); setHelpExpanded(true);
   renderHelp();
   d.focus({ preventScroll:true });
 }
 function closeHelp(){
   const d=document.getElementById('helpDrawer'); if(!d || d.hidden) return;
-  d.hidden=true; document.body.classList.remove('help-open'); setHelpUrl('');
-  const o=help.opener; help.opener=null;
-  if(o && o.isConnected && typeof o.focus==='function') o.focus({ preventScroll:true });
+  const ae=document.activeElement, hadFocus=!ae || ae===document.body || d.contains(ae);
+  d.hidden=true; document.body.classList.remove('help-open'); setHelpExpanded(false); setHelpUrl('');
+  let o=help.opener; help.opener=null;
+  if(!hadFocus) return;                                                     // the user moved on (e.g. into the editor)
+  const scrim=document.getElementById('scrim');
+  if(scrim.classList.contains('open') && !(o && scrim.contains(o))) o=document.getElementById('mClose');   // the opener is behind the modal
+  if(o && o.isConnected && o.getClientRects().length) o.focus({ preventScroll:true });                    // skip hidden openers
 }
+// Navigate inside the drawer and keep keyboard focus in it (the clicked link is re-rendered away).
+function showHelp(view, id){ help.view=view; help.id=id; renderHelp(); document.getElementById('helpDrawer').focus({ preventScroll:true }); }
 
 document.getElementById('helpClose').addEventListener('click', closeHelp);
-document.getElementById('helpBack').addEventListener('click', ()=>{ help.view='index'; help.id=''; renderHelp(); });
+document.getElementById('helpBack').addEventListener('click', ()=>showHelp('index',''));
 document.getElementById('helpDrawer').addEventListener('click', e=>{
   const l=e.target.closest('[data-help-link]');
-  if(l){ e.preventDefault(); help.view='guide'; help.id=l.dataset.helpLink; renderHelp(); return; }
-  if(e.target.closest('[data-help-retry]')) renderHelp();
+  if(l){ e.preventDefault(); showHelp('guide', l.dataset.helpLink); return; }
+  if(e.target.closest('[data-help-retry]')) showHelp(help.view, help.id);
 });
 document.getElementById('helpBody').addEventListener('input', e=>{
   if(e.target.id!=='helpSearch') return;
@@ -2340,10 +2370,13 @@ document.addEventListener('keydown', e=>{
   if(d && !d.hidden){ e.preventDefault(); e.stopImmediatePropagation(); closeHelp(); }
 }, true);
 // Welcome: auto-opens once per device, the first time a signed-in identity resolves.
+let _welcomeChecked=false;
 function maybeWelcome(){
-  if(!(state.identity && state.identity.signedIn)) return;
+  if(_welcomeChecked || !(state.identity && state.identity.signedIn)) return;
+  _welcomeChecked=true;   // first signed-in identity of this page load only — est:identity re-fires on every token refresh
   const p=new URL(location.href).searchParams;
   if(p.has('event') || p.has('help')) return;                               // arrived via a shared link — don't cover it
+  if(!document.getElementById('helpDrawer').hidden){ helpSet(HELP_WELCOMED_KEY,'1'); return; }   // already reading help (e.g. from the sign-in screen)
   if(document.getElementById('scrim').classList.contains('open')) return;   // something is already open
   if(helpGet(HELP_WELCOMED_KEY)!==null) return;                             // welcomed before, or storage unavailable
   if(!helpSet(HELP_WELCOMED_KEY,'1')) return;

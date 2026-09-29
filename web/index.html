@@ -22,7 +22,7 @@
     </div>
     <span class="grow-sp"></span>
     <button class="btn ghost" id="feedbackBtn">Feedback / Ideas</button>
-    <button class="help-btn" id="helpBtn" type="button" data-help="" aria-label="Help" title="Help">?</button>
+    <button class="help-btn" id="helpBtn" type="button" data-help="" aria-label="Help" aria-expanded="false" aria-controls="helpDrawer" title="Help">?</button>
     <span id="authSlot" class="authslot"></span>
   </div>
   <div class="bar-inner row2">
@@ -102,7 +102,7 @@
 </div>
 
 <!-- ---- help drawer: guides from help/guide.md, rendered by help/help-lib.js ---- -->
-<aside class="help-drawer" id="helpDrawer" role="dialog" aria-modal="false" aria-labelledby="helpTitle" tabindex="-1" hidden>
+<div class="help-drawer" id="helpDrawer" role="dialog" aria-modal="false" aria-labelledby="helpTitle" tabindex="-1" hidden>
   <div class="help-head">
     <button class="help-back" id="helpBack" type="button" hidden>← All guides</button>
     <h2 class="help-title" id="helpTitle">Help</h2>
@@ -110,7 +110,7 @@
   </div>
   <div class="help-body" id="helpBody"></div>
   <div class="help-foot">Still stuck? <a href="mailto:eastsidetribenashville@gmail.com">Email us</a></div>
-</aside>
+</div>
 
 <script type="module" src="auth-firebase.js"></script>
 <script src="roster-lib.js"></script>
