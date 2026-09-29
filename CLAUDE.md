@@ -22,6 +22,8 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 |------|------|-----------|
 | `web/index.html` | The calendar app — self-contained, vanilla JS, **no build step** | Netlify (`plan.eastsidetribe.org`) |
 | `web/embed-test/index.html` | "Did JS run in the embed?" validator — **deferred** (standalone is the current path) | Netlify (`plan.eastsidetribe.org`) |
+| `web/help/` | In-app help — `guide.md` (lead-facing guides), `whats-new.md`, `help-lib.js` (parser/renderer shared by the app, the tests and the guard) | Netlify (with `web/`) |
+| `scripts/check-help.mjs` | Help guard — keeps `web/help/` in step with the app (run by a Claude Code hook + a GitHub check) | — |
 | `gather/` | Member sign-up app (potluck/volunteer slots) — buildless, mobile-first — **code-complete, all 5 slices** (Aug 2026) | Netlify (`gather.eastsidetribe.org`, site not created yet — see `docs/gather-deploy-runbook.md`) |
 | `shared/` | Canonical browser code both apps use (`auth-firebase.js`); committed mirrors in `web/`+`gather/`, drift guard `scripts/sync-shared.sh --check` | (mirrored into each site) |
 | `proxy/` | Cloudflare Worker holding the Superhuman Docs token server-side | Cloudflare Workers |
@@ -177,7 +179,8 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   chip/segment mutations schedule a save. **Approve** stays deliberate
   (`saveEditor(true)`, header). Publish push (`Create draft`/`Publish`) calls
   `flushAutosave()` first (Worker reads the freshest Coda copy); a session-local
-  `_ebDirty` flag shows an "Eventbrite is behind your latest edits" hint. Design/
+  `_ebDirty` flag is set on public-field edits but not yet shown (the push button is
+  gated only on the listing fields — title/date/time/venue edits don't reveal it). Design/
   plan: `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*`.
 - **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
   `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
@@ -187,7 +190,16 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   (`grid-pP5rwauO2j`) via Worker `GET/POST /feedback` + `POST /feedback/:id/vote`
   (new var `CODA_FEEDBACK_TABLE`). Design/plan:
   `docs/superpowers/specs|plans/2026-08-22-event-workspace*`.
-- **`openInfo()`**: the legend/key modal (the round "i" button).
+- **Help drawer** (`openHelp(id)` / `closeHelp` / `renderHelp` — the HELP block near
+  the end of `app.js`): a right-side drawer that renders `web/help/guide.md` +
+  `whats-new.md` through `HelpLib` (`web/help/help-lib.js`). Entry points: the header
+  **?** (`#helpBtn`), the editor header's **?** (`data-act="help"` → the active
+  section's `SECTIONS[].help`), the create form's **?**, the status badge
+  (`data-help="lifecycle"`), the sign-in "New here?" link, `?help=<id>`, and a
+  once-per-device Welcome on first sign-in (`est-help-welcomed`); a What's-new dot
+  (`est-help-seen`). The calendar key is the guide's live `{{legend}}` embed
+  (`legendEmbedHTML`). App code names a guide ONLY via `openHelp('<id>')`,
+  `help:'<id>'` or `data-help="<id>"` — the forms the guard checks.
 - **`layoutSticky()`**: measures header heights into `--bar-h`/`--wh-h` so the
   sticky weekday row + month headers stack correctly; self-corrects on load,
   resize, and view switch.
@@ -315,6 +327,17 @@ field on `EST Events SRC`) — the app originates events, inverting the flow.
 ## Conventions
 
 - `main` is always deployable. Work on branches, PR into `main`.
+- **Help ships with the change.** Any change a program lead could notice — a new,
+  renamed, moved or removed button, tab, field, step or rule — updates
+  `web/help/guide.md` and adds a dated line to `web/help/whats-new.md` **in the same
+  branch**; implementation plans for user-facing work include an "Update help" task.
+  Write for a non-technical lead (writing guide at the top of `guide.md`) and put exact
+  on-screen text in `[[ ]]` — the guard checks it still exists. A branch that touches
+  the screens (top-level `web/*.js|html`) with nothing lead-visible records
+  `Help: none — <reason>` in a commit message. `scripts/check-help.mjs` enforces this:
+  a PreToolUse hook (`.claude/settings.json`) blocks `git merge <branch>` into `main`
+  and `gh pr create` on findings, and `.github/workflows/check-help.yml` runs it on PRs
+  and pushes to `main`. By hand: `node scripts/check-help.mjs [--branch <ref>]`.
 - **Never commit secrets.** Tokens live in Worker secrets / `.dev.vars`
   (gitignored). `proxy/.dev.vars.example` is the template. Secrets in use:
   `CODA_API_TOKEN`, and `EVENTBRITE_TOKEN` (EST-org private token for publish-out —

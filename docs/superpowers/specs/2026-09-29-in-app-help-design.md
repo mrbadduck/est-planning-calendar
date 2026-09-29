@@ -51,7 +51,7 @@ as the backstop.
    GitHub check runs the same script on PRs and pushes to `main`.
 4. **No screenshots.** On-screen names render as button-shaped chips (`[[Propose]]`)
    and the calendar key is drawn live with the app's own CSS — visuals that can't go
-   stale. Guides refer to things by name, never by position or color.
+   stale. Guides refer to things by name; a coarse, stable place ("at the top of the page") is fine, but never left/right, corners or color.
 5. **One audience, role notes inline.** Guides are written for a program lead;
    Member / Tribal Council differences are called out inline ("Tribal Council
    only"). No role-filtered content.
@@ -105,17 +105,19 @@ contact address already shown on the sign-in screen is fine.
 ### Writing guide (kept as a comment at the top of `guide.md`)
 Write for a program lead who isn't technical: "you", short sentences, task-first
 titles ("Add an event or idea"). Numbered steps for anything with more than one
-action. Exact on-screen names in `[[ ]]`. Refer to things by name, not position or
-color. No internal names (Coda, Superhuman Docs, Worker, proxy, row, sync, API). Say
-who can do role-limited things. About 150 words max per guide — link to another
-guide rather than repeat it.
+action. Things people click, pick or fill in go in `[[ ]]`; things they only read
+(statuses, badges) in **bold**. Refer to things by name (a coarse place like "at the
+top of the page" is fine; never left/right or color). No internal names (Coda,
+Superhuman Docs, Worker, proxy, row, sync, API). Say who can do role-limited things,
+and warn before anything with no undo. About 150 words per guide (~250 for one with
+warnings, or the FAQ) — link to another guide rather than repeat it.
 
 ### Initial guides
 | Group | Guide ids — what each covers |
 |---|---|
 | Getting started | `welcome` — what the app is for; the Idea → Propose → Approve → Publish path; who can do what (Member / Program Lead / Tribal Council) · `getting-around` — Overview vs. Calendar, the Sep–Aug program year, holiday & partner layers, refresh · `reading-the-calendar` — color = program, chip style = status, undated ideas, the Past / Live badges; contains `{{legend}}` |
 | Planning an event | `add-event` — New event; exact day / date range / month · `edit-details` — the tabs, automatic saving, the save pill · `lifecycle` — Propose, Approve (Council), Cancel, Reopen (Council), Delete (Council); why fields lock · `planning-notes` — the event's Google Doc · `signups` — potluck & volunteer slots; how members sign up in gather |
-| After approval | `publish` — the Public listing fields, Eventbrite draft vs. publish, the "Eventbrite is behind your latest edits" hint, what cancelling does to the listing · `attendees` — the roster, segments, Copy emails, Email from your own account · `share-link` — copying a link and what it opens |
+| After approval | `publish` — the Public listing fields, Eventbrite draft vs. publish, the Update draft / Update published event buttons that appear after an edit, what cancelling does to the listing · `attendees` — the roster, segments, Copy emails, Email from your own account · `share-link` — copying a link and what it opens |
 | Help | `troubleshooting` — can't sign in (link in spam; use Google), can't edit (role — ask Tribal Council), can't find an event (refresh, program year, layers), changes not showing · `feedback` — the Feedback / Ideas board |
 
 **What's new** appears in the drawer as its own entry (reserved id `whats-new`,
@@ -132,9 +134,10 @@ history legitimately names UI that no longer exists.
 ## 5. The Help drawer (app)
 
 **Shape.** A panel docked on the right (~400px) on desktop; full screen at phone
-widths (≤600px). No scrim — whatever is behind stays usable: on desktop an open
-editor shifts left to sit beside the drawer (the modal's scrim is inset by the drawer
-width while it's open) and the calendar is simply overlapped; on phones the drawer
+widths (≤600px). No scrim — whatever is behind stays usable: on wide screens (1000px
+and up) an open editor shifts left to sit beside the drawer (the modal's scrim is inset
+by the drawer width while it's open); narrower, the drawer overlays it; the calendar is
+simply overlapped; on phones the drawer
 covers the screen and closing it returns to whatever was open. Layered above the editor modal and the
 sign-in gate (both `z-index:60`) and below toasts (`100`). `role="dialog"`, labelled
 "Help"; focus moves in on open and returns to the opener on close. **Esc closes the
@@ -195,10 +198,13 @@ functions — no DOM, no I/O:
 
 - `parseGuide(md)` → `{ guides: [{ id, title, group, body, line }], errors: [...] }`
   (errors for a missing, malformed or duplicate id).
-- `renderGuide(body, { chip, embed })` → safe HTML. All text is escaped; only the §4
-  syntax becomes markup; `chip(label)` and `embed(name)` are supplied by the caller.
-- `uiLabels(md)` → `[{ label, line }]`, for the guard.
-- `parseWhatsNew(md)` → `[{ date, items }]`.
+- `renderGuide(body, { embed })` → safe HTML. All text is escaped; only the §4 syntax
+  becomes markup; `[[Label]]` always renders as `<span class="uichip">`; `embed(name)`
+  is supplied by the caller.
+- `uiLabels(md)`, `guideLinks(md)`, `embeds(md)` → `[{ …, line }]`, for the guard.
+- `parseWhatsNew(md)` → `{ entries: [{ date, line, items }], errors }`;
+  `renderWhatsNew(entries)` → safe HTML.
+- `searchGuides(guides, query)` → the guides containing every word.
 
 ## 7. The guard — `scripts/check-help.mjs`
 
@@ -218,7 +224,7 @@ excluded).
    least one bullet.
 
 **Branch check** (`--branch <ref> [--base main]`): if `<base>...<ref>` changes any
-screens file but nothing under `web/help/`, it fails — unless a commit message in
+screens file but none of the help text (`web/help/*.md` — not its renderer), it fails — unless a commit message in
 `<base>..<ref>` contains a line `Help: none — <reason>`. The guard accepts any dash,
 hyphen or colon after `none` (`Help: none - typo fix` is fine) but requires a
 non-empty reason. In
@@ -237,14 +243,18 @@ branch mode the content checks read files from `<ref>`'s committed tree (`git sh
 - **Claude Code hook** — a committed `.claude/settings.json` with a `PreToolUse` hook
   on `Bash` → `node scripts/check-help.mjs --hook` (reads the tool-call JSON on
   stdin). It acts only on:
-  - `git merge <ref>` while the current branch is `main` — the ref is the first
+  - `git merge <ref>` into `main` (the current branch, or one the same command
+    switches to first, e.g. `git checkout main && git merge <ref>`) — the ref is the first
     non-option argument (options that take a value, like `-m`, are skipped with it);
     `--abort` / `--continue` / `--quit` pass → content + branch check of `<ref>` vs
     `main`;
   - `gh pr create` → content + branch check of the current branch vs `--base` / `-B`
     (default `main`).
 
-  Every other command exits 0 immediately. On findings it exits 2: the command is
+  It also stands aside unless the command runs in this repository (compared by git
+  common dir, so worktrees count; `git -C`, a leading `cd` and `gh -R/--repo` are
+  understood) and ignores `git merge-base/-tree/-file`. Every other command exits 0
+  immediately. On findings it exits 2: the command is
   blocked, Claude sees the findings, fixes the guide (or records `Help: none — …`)
   and retries.
 - **GitHub workflow** `.github/workflows/check-help.yml` — on `pull_request`: content
