@@ -10,26 +10,31 @@
 // and embeds are valid; the app's openHelp('id') / help:'id' / data-help="id"
 // name real guides; whats-new.md is dated, newest first.
 // Branch: a branch that changes the screens (top-level web/*.js|html) must also
-// change web/help/ — or carry a commit-message line "Help: none — <reason>".
+// change the help text (web/help/*.md) — or carry a commit-message line
+// "Help: none — <reason>".
+// Hook: acts only on `git merge <ref>` into main and on `gh pr create`, and only
+// when the command runs in THIS repository (any worktree of it).
 // Exit codes — CLI: 0 ok, 1 problems/error. Hook: 0 allow, 2 block, 1 guard error (never blocks).
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import '../web/help/help-lib.js';
 
 const H = globalThis.HelpLib;
 
 /* ---- pure helpers (unit-tested in proxy/test/check-help.test.js) ---------- */
 export const isScreensFile = (p) => /^web\/[^/]+\.(?:js|html)$/.test(p);
-export const isHelpFile = (p) => p.startsWith('web/help/');
+export const isHelpFile = (p) => /^web\/help\/[^/]+\.md$/.test(p);   // the help text — not its renderer
 
-// On-screen text, normalized for comparison: decode the entities we use, drop
-// icons/arrows/ellipses/dashes, collapse whitespace.
+// On-screen text, normalized for comparison: decode the entities we use, fold
+// curly apostrophes, drop icons/arrows/ellipses/dashes, collapse whitespace.
 export function normText(s) {
   return String(s == null ? '' : s)
     .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#?\w+;/g, ' ')
-    .replace(/[^\p{L}\p{N} +&'’/.,?!:()-]/gu, ' ')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^\p{L}\p{N} +&'/.,?!:()-]/gu, ' ')
     .replace(/\s+/g, ' ').trim();
 }
 
@@ -44,8 +49,54 @@ export function stripCodeComments(src) {
     .replace(/(^|[\s;{}(),])\/\/[^\n]*/g, '$1');
 }
 
-// Candidate on-screen text in the screens code: text between tags (>Label<)
-// and whole string literals ('…', "…", and `…` without ${}).
+// Every JS string-literal body and template chunk (the static text between
+// ${…}), from one pass that tracks strings, nested templates, comments and regex
+// literals. A regex alone can't pair backticks once a template holds ${, and the
+// strings after it would be hidden (a third of web/app.js, measured).
+const KW_BEFORE_REGEX = /(?:^|[^\w$])(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+export function jsStrings(src) {
+  const s = String(src == null ? '' : src), n = s.length, out = [], opened = [];
+  let i = 0, depth = 0, regexOk = true;
+  const chunk = () => {   // i is just past a ` or the } that closes a ${
+    let t = '';
+    while (i < n) {
+      const c = s[i];
+      if (c === '\\') { t += s[i + 1] || ''; i += 2; continue; }
+      if (c === '`') { i++; out.push(t); regexOk = false; return; }
+      if (c === '$' && s[i + 1] === '{') { i += 2; out.push(t); opened.push(depth++); regexOk = true; return; }
+      t += c; i++;
+    }
+    out.push(t);
+  };
+  while (i < n) {
+    const c = s[i], d = s[i + 1];
+    if (c === '/' && d === '/') { while (i < n && s[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') { const e = s.indexOf('*/', i + 2); i = e < 0 ? n : e + 2; continue; }
+    if (c === "'" || c === '"') {
+      let t = ''; i++;
+      while (i < n && s[i] !== c && s[i] !== '\n') { if (s[i] === '\\') { t += s[i + 1] || ''; i += 2; } else t += s[i++]; }
+      i++; out.push(t); regexOk = false; continue;
+    }
+    if (c === '`') { i++; chunk(); continue; }
+    if (c === '/' && regexOk) {   // regex literal: skip it whole ([…] may hold / and quotes)
+      let k = i + 1, cls = false;
+      while (k < n && s[k] !== '\n') { if (s[k] === '\\') k++; else if (s[k] === '[') cls = true; else if (s[k] === ']') cls = false; else if (s[k] === '/' && !cls) break; k++; }
+      if (s[k] === '/') { i = k + 1; while (i < n && /[a-z]/i.test(s[i])) i++; regexOk = false; continue; }
+    }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      if (opened.length && opened[opened.length - 1] === depth - 1) { opened.pop(); depth--; i++; chunk(); continue; }
+      depth--;
+    }
+    if (/[\w$]/.test(c)) { let k = i; while (k < n && /[\w$]/.test(s[k])) k++; regexOk = KW_BEFORE_REGEX.test(s.slice(Math.max(0, i - 12), k)); i = k; continue; }
+    if (!/\s/.test(c)) regexOk = !/[)\]}]/.test(c);
+    i++;
+  }
+  return out;
+}
+
+// Candidate on-screen text in the screens code: text between tags (>Label<),
+// whole quoted strings, and every JS string/template chunk.
 export function screenTexts(sources) {
   const out = new Set();
   const add = (t) => { const n = normText(t); if (n) out.add(n); };
@@ -53,6 +104,7 @@ export function screenTexts(sources) {
     const s = stripCodeComments(src);
     for (const m of s.matchAll(/>([^<>]*)</g)) add(m[1]);
     for (const m of s.matchAll(/'([^'\\\n]*)'|"([^"\\\n]*)"|`([^`\\$]*)`/g)) add(m[1] ?? m[2] ?? m[3]);
+    for (const t of jsStrings(src)) add(t);
   }
   return out;
 }
@@ -95,10 +147,14 @@ export function refProblems(guideMd, newsMd, sources) {
   return out;
 }
 
-const CMD = String.raw`(?:^|&&|\|\||;|\||\(|\n)\s*`;   // a command position in a shell line
-const MERGE_RE = new RegExp(CMD + String.raw`git\s+merge\b`);
-const TO_MAIN_RE = new RegExp(CMD + String.raw`git\s+(?:checkout|switch)\s+main\b`);
-const PR_RE = new RegExp(CMD + String.raw`gh\s+pr\s+create\b`);
+const CMD = String.raw`(?:^|&&|\|\||;|\||\(|\n)\s*`;                   // a command position in a shell line
+const ENV = String.raw`(?:\w+=(?:"[^"]*"|'[^']*'|[^\s;&|]*)\s+)*`;     // VAR=value prefixes
+// `git` plus its global options (-C dir, -c k=v, --no-pager, …); group 1 = those options.
+const GIT = String.raw`git((?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)|--?[A-Za-z][\w-]*(?:=[^\s;&|]*)?))*)\s+`;
+const MERGE_RE = new RegExp(CMD + ENV + GIT + String.raw`merge(?![\w-])`);   // not merge-base / merge-tree / merge-file
+const TO_MAIN_RE = new RegExp(CMD + ENV + GIT + String.raw`(?:checkout|switch)(?:\s+-[\w-]+)*\s+main(?![\w./-])`);
+const PR_RE = new RegExp(CMD + ENV + String.raw`gh\s+pr\s+create(?![\w-])`);
+const CD_RE = new RegExp(CMD + String.raw`cd\s+("[^"]*"|'[^']*'|[^\s;&|()]+)`, 'g');
 const SEPARATORS = new Set(['&&', '||', ';', '|']);
 const VALUE_OPTS = new Set(['-m', '--message', '-F', '--file', '-s', '--strategy', '-X', '--strategy-option', '--cleanup', '--into-name']);
 
@@ -127,19 +183,37 @@ export function mergeIntoMainTarget(command, currentBranch) {
   return null;
 }
 
-// The base of a `gh pr create` (default main), or null when the command doesn't create a PR.
+// The base of a `gh pr create` (default main; never an option-like value), or
+// null when the command doesn't create a PR here (-R/--repo names another repo).
 export function prCreateBase(command) {
   const cmd = String(command || '');
   const m = PR_RE.exec(cmd);
   if (!m) return null;
   const words = shellWords(cmd.slice(m.index + m[0].length));
+  let base = '';
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
     if (SEPARATORS.has(w)) break;
-    if (w === '--base' || w === '-B') return words[i + 1] || 'main';
-    if (w.startsWith('--base=')) return w.slice(7) || 'main';
+    if (w === '-R' || w === '--repo' || /^-R./.test(w) || w.startsWith('--repo=')) return null;
+    if (w === '--base' || w === '-B') { base = words[i + 1] || ''; i++; }
+    else if (w.startsWith('--base=')) base = w.slice(7);
+    else if (/^-B./.test(w)) base = w.slice(2);
   }
-  return 'main';
+  return base && !base.startsWith('-') ? base : 'main';
+}
+
+// Where a merge/PR command's git runs: `git -C <dir>`, else the last `cd <dir>`
+// before it. null = the session's cwd; undefined = can't tell ($VAR) → stand aside.
+export function commandDirOf(command) {
+  const cmd = String(command || '');
+  const m = MERGE_RE.exec(cmd) || PR_RE.exec(cmd);
+  if (!m) return null;
+  const opts = shellWords(m[1] || ''), c = opts.lastIndexOf('-C');   // m[1] = git's global options (MERGE_RE only)
+  let dir = c >= 0 ? opts[c + 1] : null;
+  if (!dir) for (const cd of cmd.slice(0, m.index).matchAll(CD_RE)) dir = shellWords(cd[1])[0];
+  if (!dir) return null;
+  if (/[$`]/.test(dir)) return undefined;
+  return dir === '~' || dir.startsWith('~/') ? join(homedir(), dir.slice(1)) : dir;
 }
 
 export const hasHelpNone = (messages) => /^[ \t]*help:[ \t]*none[ \t]*[—–:-]+[ \t]*\S/im.test(String(messages || ''));
@@ -152,14 +226,17 @@ export function branchVerdict(files, messages) {
 
 /* ---- git plumbing + entry points ------------------------------------------ */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-let CWD = ROOT;   // repo toplevel the git commands run in (hook mode: the session's cwd)
-const git = (args) => execFileSync('git', args, { cwd: CWD, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+let CWD = ROOT;   // repo toplevel the git commands run in (hook mode: where the command runs)
+const EOO = '--end-of-options';   // after this, a ref can't be read as a git option (e.g. a --base of "--output=…")
+const git = (args) => execFileSync('git', ['-c', 'core.quotePath=false', '-c', 'color.ui=false', ...args], { cwd: CWD, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+// The shared .git directory — the same for every worktree of one repository.
+const commonDir = (dir) => realpathSync(resolve(dir, execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()));
 
 function readAt(ref, path) {   // a file from <ref>'s commit, or from the working tree when ref is empty
-  try { return ref ? git(['show', `${ref}:${path}`]) : readFileSync(join(CWD, path), 'utf8'); } catch { return null; }
+  try { return ref ? git(['show', EOO, `${ref}:${path}`]) : readFileSync(join(CWD, path), 'utf8'); } catch { return null; }
 }
 function screensSourcesAt(ref) {
-  const names = ref ? git(['ls-tree', '--name-only', ref, 'web/']).split('\n') : readdirSync(join(CWD, 'web')).map((f) => `web/${f}`);
+  const names = ref ? git(['ls-tree', '--name-only', EOO, ref, 'web/']).split('\n') : readdirSync(join(CWD, 'web')).map((f) => `web/${f}`);
   return names.filter(isScreensFile).map((file) => ({ file, src: readAt(ref, file) || '' }));
 }
 function contentProblems(ref) {
@@ -170,23 +247,29 @@ function contentProblems(ref) {
 }
 function existingRef(name) {   // `main`, else `origin/main` (a fresh clone may only have the remote one)
   for (const cand of [name, `origin/${name}`]) {
-    try { git(['rev-parse', '--verify', '--quiet', `${cand}^{commit}`]); return cand; } catch { /* try the next */ }
+    try { git(['rev-parse', '--verify', '--quiet', EOO, `${cand}^{commit}`]); return cand; } catch { /* try the next */ }
   }
   return name;
 }
 function branchProblems(base, ref) {
   const b = existingRef(base);
-  const files = git(['diff', '--name-only', `${b}...${ref}`]).split('\n').filter(Boolean);
-  const verdict = branchVerdict(files, git(['log', '--format=%B', `${b}..${ref}`]));
+  const files = git(['diff', '--name-only', '--no-renames', EOO, `${b}...${ref}`]).split('\n').filter(Boolean);
+  const verdict = branchVerdict(files, git(['log', '--format=%B', EOO, `${b}..${ref}`]));
   return verdict ? [`${verdict} (${ref} vs ${b})`] : [];
 }
 
 const FIX = 'Fix: update web/help/guide.md (and add a dated line to web/help/whats-new.md). If a program lead would notice nothing, add a commit whose message has a line "Help: none — <reason>" instead. Rules: CLAUDE.md → Conventions → "Help ships with the change".';
+const USAGE = 'usage: node scripts/check-help.mjs [--branch <ref> [--base <ref>]] | --hook';
 const listOf = (problems) => problems.map((p) => `  - ${p}`).join('\n');
 
 function cli(args) {
-  const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-  const ref = opt('--branch'), base = opt('--base') || 'main';
+  const opts = {};
+  for (let i = 0; i < args.length; i += 2) {
+    const flag = args[i], value = args[i + 1];
+    if (!['--branch', '--base'].includes(flag) || !value || value.startsWith('-')) { console.error(`check-help: unexpected argument "${flag}" — ${USAGE}`); return 1; }
+    opts[flag] = value;
+  }
+  const ref = opts['--branch'], base = opts['--base'] || 'main';
   try {
     const problems = [...contentProblems(ref), ...(ref ? branchProblems(base, ref) : [])];
     if (!problems.length) { console.log(`check-help: OK${ref ? ` (${ref} vs ${base})` : ''}`); return 0; }
@@ -204,9 +287,14 @@ async function hook() {
   let input;
   try { input = JSON.parse(raw || '{}'); } catch { return 0; }
   const command = (input.tool_input && input.tool_input.command) || '';
-  if (input.tool_name !== 'Bash' || !/\bgit\s+merge\b|\bgh\s+pr\s+create\b/.test(command)) return 0;   // fast path: not ours
+  if (input.tool_name !== 'Bash' || !(MERGE_RE.test(command) || PR_RE.test(command))) return 0;   // fast path: not ours
+  const dir = commandDirOf(command);
+  if (dir === undefined) return 0;                                // can't tell where it runs ($VAR) — stand aside
   try {
-    CWD = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: input.cwd || process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    CWD = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: resolve(input.cwd || process.cwd(), dir || '.'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (commonDir(CWD) !== commonDir(ROOT)) return 0;              // another repository — not ours to guard
+  } catch { return 0; }                                            // not in a git repo
+  try {
     const mergeRef = mergeIntoMainTarget(command, git(['rev-parse', '--abbrev-ref', 'HEAD']).trim());
     const prBase = mergeRef ? null : prCreateBase(command);
     if (!mergeRef && !prBase) return 0;
@@ -222,8 +310,10 @@ async function hook() {
 }
 
 // Run only when executed directly (the unit tests import the helpers above).
-// process.exitCode (not process.exit) so stderr to a pipe is flushed first.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Compare REAL paths: Node resolves symlinks in import.meta.url but not in
+// argv[1], and a mismatch would silently skip the guard.
+const isEntry = () => { try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; } };
+if (process.argv[1] && isEntry()) {
   const args = process.argv.slice(2);
-  process.exitCode = args.includes('--hook') ? await hook() : cli(args);
+  process.exitCode = args.includes('--hook') ? await hook() : cli(args);   // exitCode, not exit(): piped stderr flushes first
 }

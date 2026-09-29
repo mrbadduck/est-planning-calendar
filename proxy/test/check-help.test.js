@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isScreensFile, isHelpFile, normText, stripCodeComments, screenTexts,
-  labelProblems, refProblems, mergeIntoMainTarget, prCreateBase, hasHelpNone, branchVerdict,
+  isScreensFile, isHelpFile, normText, stripCodeComments, jsStrings, screenTexts,
+  labelProblems, refProblems, mergeIntoMainTarget, prCreateBase, commandDirOf, hasHelpNone, branchVerdict,
 } from '../../scripts/check-help.mjs';
 
 test('isScreensFile / isHelpFile', () => {
@@ -17,6 +17,7 @@ test('isScreensFile / isHelpFile', () => {
   assert.ok(!isScreensFile('gather/app.js'));
   assert.ok(isHelpFile('web/help/guide.md'));
   assert.ok(!isHelpFile('web/app.js'));
+  assert.ok(!isHelpFile('web/help/help-lib.js'));
 });
 
 test('normText: decodes &amp;, drops icons/ellipses/dashes, collapses space', () => {
@@ -28,6 +29,7 @@ test('normText: decodes &amp;, drops icons/ellipses/dashes, collapses space', ()
   assert.equal(normText('+ New event'), '+ New event');
   assert.equal(normText('?'), '?');
   assert.equal(normText('↻'), '');
+  assert.equal(normText('Couldn’t reach Eventbrite'), "Couldn't reach Eventbrite");
 });
 
 test('stripCodeComments: removes JS/HTML comments, keeps URLs and the line count', () => {
@@ -111,4 +113,37 @@ test('branchVerdict: screens changed without help → a problem, unless help cha
   assert.equal(branchVerdict(['web/app.js', 'web/help/guide.md'], 'feat: x'), null);
   assert.equal(branchVerdict(['web/app.js'], 'refactor\n\nHelp: none — no visible change'), null);
   assert.equal(branchVerdict(['proxy/src/worker.js', 'web/styles.css'], 'feat: y'), null);
+  assert.match(branchVerdict(['web/app.js', 'web/help/help-lib.js'], 'feat: x'), /but not web\/help\//);
+});
+
+test('screenTexts: a ${} template earlier in the file does not hide later strings', () => {
+  assert.ok(screenTexts(["a = `<b>${x}</b>`;\nt = 'Public listing';\nb = `<i>${y}</i>`;"]).has('Public listing'));
+});
+
+test('jsStrings: string bodies and template chunks, skipping comments and regex literals', () => {
+  assert.deepEqual(jsStrings("a = 'x'; // 'no'\nb = `p${q + '!'}r`; c = /'[']/g; d = \"y\";"), ['x', 'p', '!', 'r', 'y']);
+});
+
+test('mergeIntoMainTarget: merge-base/merge-tree are not merges; -C, env and option prefixes are', () => {
+  assert.equal(mergeIntoMainTarget('git merge-base main HEAD', 'main'), null);
+  assert.equal(mergeIntoMainTarget('git merge-tree --write-tree main feat/x', 'main'), null);
+  assert.equal(mergeIntoMainTarget('git -C /repo merge feat/x', 'main'), 'feat/x');
+  assert.equal(mergeIntoMainTarget('GIT_EDITOR=true git merge feat/x', 'main'), 'feat/x');
+  assert.equal(mergeIntoMainTarget('git --no-pager -c core.editor=true merge feat/x', 'main'), 'feat/x');
+  assert.equal(mergeIntoMainTarget('git checkout -q main && git merge feat/x', 'feat/x'), 'feat/x');
+  assert.equal(mergeIntoMainTarget('git checkout main-backup && git merge feat/x', 'feat/x'), null);
+});
+
+test('prCreateBase: never an option-like base; attached -B; another repo (-R/--repo) → null', () => {
+  assert.equal(prCreateBase('gh pr create --base --output=/tmp/x'), 'main');
+  assert.equal(prCreateBase('gh pr create -Bdevelop'), 'develop');
+  assert.equal(prCreateBase('gh pr create -R other/repo --fill'), null);
+  assert.equal(prCreateBase('gh pr create --repo=other/repo'), null);
+});
+
+test('commandDirOf: git -C, else the last cd before the command; null by default; $VAR → undefined', () => {
+  assert.equal(commandDirOf('git merge x'), null);
+  assert.equal(commandDirOf('git -C /a/b merge x'), '/a/b');
+  assert.equal(commandDirOf('cd /a && cd /b && gh pr create'), '/b');
+  assert.equal(commandDirOf('cd "$REPO" && git merge x'), undefined);
 });
