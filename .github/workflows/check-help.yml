@@ -1,0 +1,23 @@
+name: Help guide check
+# Keeps web/help/ (the in-app guides) in step with the app — see scripts/check-help.mjs.
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  check-help:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit + end-to-end tests (help-lib + guard)
+        run: node --test proxy/test/help-lib.test.js proxy/test/check-help.test.js proxy/test/check-help-hook.test.js
+      - name: Content check (labels, links, ids, What's new)
+        run: node scripts/check-help.mjs
+      - name: 'Branch check (screens changed → help changed, or "Help: none — <reason>")'
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-help.mjs --branch HEAD --base origin/${{ github.base_ref }}
