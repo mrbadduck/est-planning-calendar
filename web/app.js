@@ -611,40 +611,6 @@ function renderLayers(){
   }
 }
 
-function legendHTML(){
-  return `
-    <div class="fld full"><label>Status</label>
-      <div class="infogrid">
-        <span class="k"><span class="sw i"></span>Idea</span>
-        <span class="k"><span class="sw d"></span>Draft</span>
-        <span class="k"><span class="sw c"></span>Confirmed</span>
-        <span class="k"><span class="sw a"></span>Approved 🔒</span>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:5px">Dashed = tentative · solid = locked in · filled = approved.</div>
-    </div>
-    <div class="fld full"><label>Programs</label>
-      <div class="infogrid">
-        ${PROGRAMS.filter(p=>p.id!=='oth').map(p=>`<span class="k"><span class="sw" style="background:${p.color}"></span>${p.name}</span>`).join('')}
-      </div>
-    </div>
-    <div class="fld full"><label>Undated ideas</label>
-      <div style="font-size:11.5px;color:var(--muted)">Ideas without a firm day sit in the left gutter (Calendar) or the month footer (Overview), anchored to their rough week or month.</div>
-    </div>
-    <div class="fld full" style="border-top:1px dashed var(--hair);padding-top:10px">
-      <div style="font-size:11px;color:var(--faint)"><b style="color:var(--muted)">Reference calendars</b> (holidays, partner orgs) are read-only context pulled live from public feeds — toggle them under REFERENCE in the sidebar. Planning events read and write to the Coda <b>Mission Control</b> table.</div>
-    </div>`;
-}
-function openInfo(){
-  editing={id:'__info__'};
-  document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
-  document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
-  document.getElementById('mTitle').textContent='Legend & key';
-  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML='';
-  document.getElementById('mBody').innerHTML=legendHTML();
-  document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
-  show();
-}
-
 /* =========================================================================
    MODAL
    ========================================================================= */
@@ -2004,9 +1970,6 @@ document.getElementById('viewSeg').addEventListener('click',e=>{
   [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
   applyView();
 });
-
-/* legend / info modal */
-document.getElementById('infoBtn').addEventListener('click',openInfo);
 
 /* feedback / ideas modal */
 document.getElementById('feedbackBtn').addEventListener('click', ()=>{

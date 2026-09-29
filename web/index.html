@@ -16,13 +16,13 @@
     <div class="brand">
       <div class="brandline">
         <h1>Programming — Planning Calendar</h1>
-        <button class="info-btn" id="infoBtn" title="Legend & key" aria-label="Legend and key">i</button>
       </div>
-      <span class="sub sub-full">East Side Tribe · draft events, no eventbrite/gCal required</span>
+      <span class="sub sub-full">East Side Tribe · plan the year's programming together</span>
       <span class="sub sub-short">East Side Tribe</span>
     </div>
     <span class="grow-sp"></span>
     <button class="btn ghost" id="feedbackBtn">Feedback / Ideas</button>
+    <button class="help-btn" id="helpBtn" type="button" data-help="" aria-label="Help" title="Help">?</button>
     <span id="authSlot" class="authslot"></span>
   </div>
   <div class="bar-inner row2">
@@ -83,6 +83,7 @@
       <div id="gateSent" hidden></div>
     </div>
     <div class="gate-busy" id="gateBusy"><span class="ndoc-spin"></span> One moment…</div>
+    <p class="gate-help"><a href="#" data-help="welcome">New here? See how it works</a></p>
   </div>
 </div>
 
@@ -100,8 +101,20 @@
   </div>
 </div>
 
+<!-- ---- help drawer: guides from help/guide.md, rendered by help/help-lib.js ---- -->
+<aside class="help-drawer" id="helpDrawer" role="dialog" aria-modal="false" aria-labelledby="helpTitle" tabindex="-1" hidden>
+  <div class="help-head">
+    <button class="help-back" id="helpBack" type="button" hidden>← All guides</button>
+    <h2 class="help-title" id="helpTitle">Help</h2>
+    <button class="mhead-close" id="helpClose" type="button" aria-label="Close help" title="Close">×</button>
+  </div>
+  <div class="help-body" id="helpBody"></div>
+  <div class="help-foot">Still stuck? <a href="mailto:eastsidetribenashville@gmail.com">Email us</a></div>
+</aside>
+
 <script type="module" src="auth-firebase.js"></script>
 <script src="roster-lib.js"></script>
+<script src="help/help-lib.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

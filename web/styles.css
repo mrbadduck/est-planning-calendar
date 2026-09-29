@@ -56,12 +56,13 @@
   }
   .brand .sub{color:var(--muted);font-size:11.5px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
-  .info-btn{
-    width:24px;height:24px;flex:0 0 auto;border-radius:50%;border:1px solid var(--hair-strong);
-    background:var(--surface);color:var(--muted);font-family:Fraunces,serif;font-style:italic;font-weight:600;
-    font-size:13px;line-height:1;cursor:pointer;transition:.12s;
+  .help-btn{
+    position:relative;width:28px;height:28px;flex:0 0 auto;padding:0;border-radius:50%;border:1px solid var(--hair-strong);
+    background:var(--surface);color:var(--muted);font:inherit;font-size:14px;font-weight:600;line-height:1;cursor:pointer;transition:.12s;
+    display:inline-flex;align-items:center;justify-content:center;
   }
-  .info-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-tint)}
+  .help-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-tint)}
+  .help-btn.has-news::after{content:"";position:absolute;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;background:var(--today);border:2px solid var(--paper)}
 
   /* account: sign-in button, or signed-in avatar with a click menu */
   .authslot{display:flex;align-items:center;gap:8px;flex:0 0 auto}
@@ -402,13 +403,7 @@
 
   /* legend footer */
   .legend{max-width:1180px;margin:14px auto 0;padding:0 18px;color:var(--faint);font-size:11px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
-  .infogrid{display:flex;flex-wrap:wrap;gap:6px 14px}
   .k{display:inline-flex;align-items:center;gap:5px}
-  .k .sw{width:22px;height:12px;border-radius:3px;flex:0 0 auto}
-  .sw.i{border:1px dashed var(--faint)}
-  .sw.d{border:1px dashed var(--faint);background:#EDEDED}
-  .sw.c{border:1px solid #bbb;background:#DDD}
-  .sw.a{background:var(--faint)}
 
   .banner{max-width:1180px;margin:10px auto 0;padding:9px 14px;background:var(--accent-tint);border:1px solid #D5D5EC;border-radius:8px;color:var(--accent-dk);font-size:11.5px;line-height:1.5}
   .banner b{color:var(--accent-dk)}
@@ -464,7 +459,7 @@
     .brand h1{font-size:16px}
     .sub-full{display:none}
     .sub-short{display:block}
-    .info-btn{width:22px;height:22px;font-size:12px}
+    .help-btn{width:26px;height:26px;font-size:13px}
     .controls{gap:8px}
   }
 
@@ -632,6 +627,55 @@
     .roster-segs::-webkit-scrollbar{display:none}
     .roster-seg{flex:0 0 auto}
   }
+  /* ---- help drawer (web/help/: guide.md + whats-new.md, rendered by HelpLib) ---- */
+  :root{--help-w:400px}
+  .help-drawer{position:fixed;top:0;right:0;bottom:0;width:min(var(--help-w),100vw);z-index:70;background:var(--surface);border-left:1px solid var(--hair-strong);box-shadow:var(--shadow);display:flex;flex-direction:column}
+  .help-drawer[hidden]{display:none}
+  .help-drawer:focus{outline:none}
+  .help-head{display:flex;align-items:center;gap:8px;padding:14px 14px 12px 18px;border-bottom:1px solid var(--hair);flex-shrink:0}
+  .help-title{flex:1;min-width:0;margin:0;font-family:Fraunces,serif;font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .help-back{flex:0 0 auto;border:0;background:transparent;color:var(--accent);font:inherit;font-size:12px;font-weight:600;padding:4px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
+  .help-back:hover{background:var(--accent-tint)}
+  .help-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:14px 18px 18px}
+  .help-foot{flex-shrink:0;padding:10px 18px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--hair);font-size:12px;color:var(--muted)}
+  .help-foot a,.help-article a,.help-empty a{color:var(--accent);font-weight:600}
+  .help-search{width:100%;font:inherit;font-size:13px;padding:8px 10px;margin:0 0 6px;border:1px solid var(--hair-strong);border-radius:8px;background:var(--surface);color:var(--ink)}
+  .help-grouph{margin:14px 0 2px;font-size:10.5px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:var(--faint)}
+  .help-list{list-style:none;margin:0;padding:0}
+  .help-list li{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hair)}
+  .help-list a{color:var(--ink);font-size:13.5px;font-weight:500;text-decoration:none}
+  .help-list a:hover{color:var(--accent)}
+  .help-news{margin-top:16px}
+  .help-grp{font-size:11px;color:var(--faint)}
+  .help-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--today)}
+  .help-empty{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .help-article{font-size:13.5px;line-height:1.55;color:var(--ink)}
+  .help-article p{margin:0 0 10px}
+  .help-article h3{margin:16px 0 6px;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+  .help-article h3:first-child{margin-top:0}
+  .help-article ol,.help-article ul{margin:0 0 10px;padding-left:20px}
+  .help-article li{margin:4px 0}
+  .help-tip{margin:0 0 10px;padding:9px 11px;border-radius:8px;background:var(--accent-tint);font-size:13px}
+  .uichip{display:inline-block;padding:0 6px;border:1px solid var(--hair-strong);border-radius:5px;background:var(--surface);box-shadow:0 1px 0 var(--hair);color:var(--ink);font-size:12px;font-weight:600;line-height:1.5;white-space:nowrap}
+  .help-legend{display:grid;gap:6px;margin:2px 0 10px}
+  .help-legend-row{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+  .help-legend .chip{flex:0 0 120px;cursor:default}
+  .help-swatches{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 12px;font-size:12.5px}
+  .help-swatch{display:inline-block;width:10px;height:10px;margin-right:6px;border-radius:3px;vertical-align:-1px}
+  .mhead-ico.q{font-size:14px;font-weight:700}
+  .badge-btn{border:0;font-family:inherit;line-height:inherit;cursor:pointer;appearance:none}
+  .badge-btn:hover{filter:brightness(.95)}
+  .gate .gate-help{margin:16px 0 0;font-size:12.5px}
+  .gate .gate-help a{color:var(--accent);font-weight:600}
+  @media (min-width:601px){
+    body.help-open .scrim{padding-right:calc(var(--help-w) + 16px)}         /* the open editor sits beside the drawer */
+    body.help-open .gate-scrim{padding-right:calc(var(--help-w) + 20px)}
+  }
+  @media (max-width:600px){
+    .help-drawer{width:100%;border-left:0;box-shadow:none}
+    body.help-open{overflow:hidden}
+  }
+
   @media (prefers-color-scheme:dark){
     :root{
       color-scheme:dark;
