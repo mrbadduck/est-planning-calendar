@@ -1889,11 +1889,12 @@ async function deleteEditor(){
 function show(){ document.getElementById('scrim').classList.add('open'); document.body.classList.add('modal-open'); }   // lock background scroll while any modal is open
 function close(){
   _ndocGen++; clearTimeout(_autosaveT);
-  // Flush a pending/failed edit before tearing down so a fast Done/Esc/✕ doesn't
-  // drop the last change. autosaveEditor runs its prelude synchronously (reading
-  // `editing` and firing DB.update) before we null it below; not awaited.
+  // Flush any edit before tearing down so a fast Done/Esc/✕ can't drop the last
+  // change — including a field still being typed in (Esc closes without its blur).
+  // autosaveEditor skips an unchanged form, and runs its prelude synchronously
+  // (reading `editing` and firing DB.update) before we null it below; not awaited.
   const st=document.getElementById('saveStatus');
-  if(editing && editing.id && st && (st.classList.contains('dirty')||st.classList.contains('error'))) autosaveEditor();
+  if(editing && editing.id && st) autosaveEditor();
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
   document.getElementById('modal').classList.remove('ws','create'); document.getElementById('mBody').classList.remove('ws');
