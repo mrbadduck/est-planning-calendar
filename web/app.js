@@ -1026,8 +1026,13 @@ function openEditor(ev, section){
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
     const id=b.dataset.sect; if(id===activeSection) return;
+    // Nothing unsaved? Re-baseline after the switch: the new section's fields can
+    // render stored values in a normalized form (e.g. program order), and that must
+    // not count as an edit — close() flushes whenever the form differs.
+    const clean = canEdit && !locked && !!_lastSavedSnap && snap(readForm())===_lastSavedSnap;
     if(canEdit && !locked) Object.assign(ev, readForm());   // capture the outgoing section's edits so nothing is lost on switch
     setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove);
+    if(clean) _lastSavedSnap = snap(readForm());
     const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live && typeof syncUrl==='function') syncUrl(ev, id);
   });
 
@@ -1810,8 +1815,13 @@ async function autosaveEditor(){
   editing.editedBy=(state.identity && state.identity.name) || editing.editedBy;
   _saving=true; setSaveStatus('saving');
   applyLocal(editing); markRecent(editing.id, {e:editing}); rerender();   // reflect in the calendar behind the modal
-  try{ await DB.update(editing); _lastSavedSnap=snap(f); setSaveStatus('clean'); scheduleReconcile(); }
-  catch(err){ if(err && err.status===401) sessionExpired(); else { setSaveStatus('error'); console.warn('autosave failed:', err); } }
+  const ev=editing;   // the editor may close (or open another event) before this resolves
+  try{ await DB.update(ev); if(editing===ev){ _lastSavedSnap=snap(f); setSaveStatus('clean'); } scheduleReconcile(); }
+  catch(err){
+    if(err && err.status===401) sessionExpired();
+    else if(editing===ev){ setSaveStatus('error'); console.warn('autosave failed:', err); }
+    else { toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('autosave failed after close:', err); }
+  }
   finally{ _saving=false; }
 }
 // EB draft/listing goes out of sync when a public-facing field changes after a
