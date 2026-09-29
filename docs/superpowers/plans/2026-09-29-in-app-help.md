@@ -1821,7 +1821,7 @@ jobs:
         run: node --test proxy/test/help-lib.test.js proxy/test/check-help.test.js proxy/test/check-help-hook.test.js
       - name: Content check (labels, links, ids, What's new)
         run: node scripts/check-help.mjs
-      - name: Branch check (screens changed → help changed, or "Help: none — <reason>")
+      - name: 'Branch check (screens changed → help changed, or "Help: none — <reason>")'   # quoted: "Help: " is a YAML key otherwise
         if: github.event_name == 'pull_request'
         run: node scripts/check-help.mjs --branch HEAD --base origin/${{ github.base_ref }}
 ```
