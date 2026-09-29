@@ -25,8 +25,9 @@
     (Delete, Cancel event, removing a slot).
   - Promise only what the app does: check the trigger, role and confirmation behind
     every "saves", "appears", "notifies" or "can".
-  - About 150 words per guide (up to ~200 when it carries warnings; split it past
-    that). Link instead of repeating: [text](#guide-id).
+  - About 150 words per guide; one that carries warnings, or the Common problems
+    FAQ, can run to ~250. Past that, split it. Link instead of repeating:
+    [text](#guide-id).
   - These files are public: no member names, emails or private links.
 
   FORMAT — "# Group" starts a group. "## Title {#id}" starts a guide; ids are
@@ -129,7 +130,7 @@ Every event has a status, and the buttons in an open event change with it:
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.
 
-**To call an event off**, click [[Cancel event]] and confirm. Program Leads and Tribal Council can do this at any stage, even after it's live. If it's on Eventbrite, the listing comes down too; if people had registered, let them know. Only Tribal Council can bring it back to planning, with [[Reopen]], and that doesn't put it back on Eventbrite.
+**To call an event off**, click [[Cancel event]] and confirm. Program Leads and Tribal Council can do this at any stage, even after it's live. If it's on Eventbrite, the listing comes down too, so if people have registered, email them from [[Attendees]] before you cancel. Only Tribal Council can bring it back to planning, with [[Reopen]], and that doesn't put it back on Eventbrite.
 
 Only Tribal Council sees [[Delete]]. It removes the event right away, with no undo, and doesn't touch Eventbrite, so use [[Cancel event]] for anything that's been published.
 
@@ -166,7 +167,7 @@ Once an event is approved, Tribal Council publishes it. Program Leads can see th
 ### Before you publish
 
 - It needs an exact date and a start time. Whole-month, date-range and all-day events can't go on Eventbrite.
-- Pick its venue from the list. With no venue, a **＋ New venue** name, or a venue with no street address on file, Eventbrite lists it as online, so check your draft doesn't say **Online**.
+- Pick its venue from the list. With no venue, a **＋ New venue** name, or a venue with no street address on file, Eventbrite lists it as online. After you create the Eventbrite draft, check it doesn't say **Online**; if it does, fix the location on Eventbrite.
 
 ### Publish
 
