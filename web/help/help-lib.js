@@ -19,7 +19,9 @@
   const linesOf = (md) => stripComments(md).split('\n');
 
   // "# Group" starts a group; "## Title {#id}" starts a guide. Lines are 1-based.
-  // A guide with a missing/bad/reserved/duplicate id is reported and skipped.
+  // A guide with a missing/bad/reserved/duplicate id, no title, or no group is
+  // reported and skipped. Authoring slips (an unterminated comment, a [[label]]
+  // split across lines, a heading with no space after #) are reported too.
   function parseGuide(md) {
     const guides = [], errors = [], seen = new Set();
     let group = '', cur = null;
@@ -29,6 +31,9 @@
     };
     linesOf(md).forEach((raw, i) => {
       const line = i + 1;
+      if (raw.includes('<!--')) errors.push({ line, message: 'unterminated <!-- comment — close it with -->' });
+      if (/\[\[(?![^\]\n]*\]\])/.test(raw)) errors.push({ line, message: 'unclosed [[ — keep each [[Label]] on one line' });
+      if (/^#{1,3}[^#\s]/.test(raw)) errors.push({ line, message: 'put a space after the # in a heading' });
       let m = /^#\s+(.+?)\s*$/.exec(raw);
       if (m) { close(); group = m[1]; return; }
       m = /^##\s+(.+?)\s*$/.exec(raw);
@@ -41,6 +46,8 @@
         else if (!ID_RE.test(id)) err = `guide id "${id}" must be kebab-case (a-z, 0-9, -)`;
         else if (RESERVED.includes(id)) err = `guide id "${id}" is reserved`;
         else if (seen.has(id)) err = `duplicate guide id "${id}"`;
+        else if (!title) err = `guide "${id}" has no title`;
+        else if (!group) err = `guide "${id}" comes before the first "# Group" heading`;
         if (err) { errors.push({ line, message: err }); return; }
         seen.add(id);
         cur = { id, title, group, line, lines: [] };
@@ -68,37 +75,40 @@
     }
     return out + esc(s.slice(last));
   }
-  // #id → another guide (the drawer handles data-help-link clicks); http(s) and
-  // mailto → new tab; any other scheme (javascript:, data:) renders as plain text.
+  // #id → another guide (the drawer handles data-help-link clicks); http(s) →
+  // new tab; mailto → the mail app (no blank tab); any other scheme
+  // (javascript:, data:) renders as plain text.
   function link(label, url) {
     if (url.startsWith('#')) return `<a href="#" data-help-link="${esc(url.slice(1))}">${inline(label)}</a>`;
-    if (/^(?:https?:|mailto:)/i.test(url)) return `<a href="${esc(url)}" target="_blank" rel="noopener">${inline(label)}</a>`;
+    if (/^https?:/i.test(url)) return `<a href="${esc(url)}" target="_blank" rel="noopener">${inline(label)}</a>`;
+    if (/^mailto:/i.test(url)) return `<a href="${esc(url)}">${inline(label)}</a>`;
     return inline(label);
   }
 
   // Block markup for one guide body: paragraphs, "### " subheads, "- " / "1. "
-  // lists (one level), "> " tips, and {{embed}} on its own line (via opts.embed).
+  // lists (one level; an <ol> keeps its first number, e.g. after a tip), "> " tips,
+  // and {{embed}} on its own line (via opts.embed; inner spaces allowed).
   function renderGuide(body, opts) {
     const embed = (opts && opts.embed) || (() => '');
     const out = [];
     let para = [], list = null, tip = null;
     const flushPara = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
-    const flushList = () => { if (list) out.push(`<${list.tag}>${list.items.map((it) => `<li>${inline(it)}</li>`).join('')}</${list.tag}>`); list = null; };
+    const flushList = () => { if (list) out.push(`<${list.tag}${list.start > 1 ? ` start="${list.start}"` : ''}>${list.items.map((it) => `<li>${inline(it)}</li>`).join('')}</${list.tag}>`); list = null; };
     const flushTip = () => { if (tip) out.push(`<div class="help-tip">${inline(tip.join(' '))}</div>`); tip = null; };
     const flush = () => { flushPara(); flushList(); flushTip(); };
     for (const raw of stripComments(body).split('\n')) {
       const line = raw.trim();
       let m;
       if (!line) { flush(); continue; }
-      if ((m = /^\{\{([a-z][a-z0-9-]*)\}\}$/.exec(line))) { flush(); out.push(embed(m[1]) || ''); continue; }
-      if ((m = /^###\s+(.+)$/.exec(line))) { flush(); out.push(`<h4>${inline(m[1])}</h4>`); continue; }
+      if ((m = /^\{\{\s*([a-z][a-z0-9-]*)\s*\}\}$/.exec(line))) { flush(); out.push(embed(m[1]) || ''); continue; }
+      if ((m = /^###\s+(.+)$/.exec(line))) { flush(); out.push(`<h3>${inline(m[1])}</h3>`); continue; }
       if ((m = /^>\s?(.*)$/.exec(line))) { flushPara(); flushList(); (tip = tip || []).push(m[1]); continue; }
-      const item = /^-\s+(.+)$/.exec(line) || /^\d+\.\s+(.+)$/.exec(line);
-      if (item) {
-        const tag = line.startsWith('-') ? 'ul' : 'ol';
+      const ul = /^-\s+(.+)$/.exec(line), ol = !ul && /^(\d+)\.\s+(.+)$/.exec(line);
+      if (ul || ol) {
+        const tag = ul ? 'ul' : 'ol';
         flushPara(); flushTip();
-        if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
-        list.items.push(item[1]);
+        if (!list || list.tag !== tag) { flushList(); list = { tag, start: ol ? Number(ol[1]) : 1, items: [] }; }
+        list.items.push(ul ? ul[1] : ol[2]);
         continue;
       }
       if (list) { list.items[list.items.length - 1] += ' ' + line; continue; }   // wrapped list item
@@ -155,7 +165,7 @@
   }
   function renderWhatsNew(entries) {
     if (!entries || !entries.length) return '<p class="help-empty">Nothing new yet.</p>';
-    return entries.map((e) => `<h4>${esc(fmtDate(e.date))}</h4><ul>${e.items.map((it) => `<li>${inline(it)}</li>`).join('')}</ul>`).join('');
+    return entries.map((e) => `<h3>${esc(fmtDate(e.date))}</h3><ul>${e.items.map((it) => `<li>${inline(it)}</li>`).join('')}</ul>`).join('');
   }
 
   // Search: every word must appear in the guide's title or body (case-insensitive).
