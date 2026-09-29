@@ -936,6 +936,7 @@ function footerActionsHTML(ev, canWrite, canApprove){
 }
 function openEditor(ev, section){
   editing = ev;
+  if(_queuedSave && _queuedSave.ev===ev){ Object.assign(ev, _queuedSave.f); _queuedSave.detached=true; }   // reopened mid-save: show the queued edit; it saves on its own
   section = sectionId(section);
   activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'details';   // reset per open; honor a deep-linked section
   const isRef = ev.source==='ref';
@@ -1761,9 +1762,10 @@ function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(
    stays open (unlike saveEditor, which closes). Reuses the optimistic stack
    (applyLocal/markRecent/_recent guard/scheduleReconcile). No-op saves are
    skipped by diffing readForm() against the last-saved snapshot. */
-let _autosaveT=null, _lastSavedSnap=null, _queuedSave=null, _autoSaving=false;
+let _autosaveT=null, _lastSavedSnap=null, _queuedSave=null, _autoSaving=false, _inflight=null;
 // _queuedSave: an edit waiting behind an in-flight autosave. _autoSaving: the in-flight write IS
 // an autosave (create/transition/cancel/delete also hold _saving, but never drain the queue).
+// _inflight: { ev, snap } of the autosave being written — a queued form must differ from it to count.
 const snap = f => JSON.stringify(f);
 function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'error'
   const el=document.getElementById('saveStatus'); if(!el) return;
@@ -1780,8 +1782,12 @@ async function autosaveEditor(){
   if(!editing || !editing.id) return;
   if(_saving){
     clearTimeout(_autosaveT);
-    // An autosave is in flight: queue this one with the form as it is NOW — the editor may close before it runs.
-    if(_autoSaving) _queuedSave={ ev:editing, f:readForm() };
+    if(_autoSaving){
+      // An autosave is in flight: queue this one with the form as it is NOW — the editor may close before it runs.
+      const f=readForm(), base=(_inflight && _inflight.ev===editing) ? _inflight.snap : _lastSavedSnap;
+      if(!base || snap(f)!==base) _queuedSave={ ev:editing, f };   // only a real change — merely opening/closing another event must not write it
+      else if(_queuedSave && _queuedSave.ev===editing) _queuedSave=null;   // back to what's saved/being saved: an older queued edit is stale
+    }
     else _autosaveT=setTimeout(()=>autosaveEditor(), 300);   // create/transition/cancel/delete in flight: retry after it
     return;
   }
@@ -1790,7 +1796,7 @@ async function autosaveEditor(){
   markEbDirtyIfPublicChanged(f);
   Object.assign(editing, f);
   editing.editedBy=(state.identity && state.identity.name) || editing.editedBy;
-  _saving=true; _autoSaving=true; setSaveStatus('saving');
+  _saving=true; _autoSaving=true; _inflight={ ev:editing, snap:snap(f) }; setSaveStatus('saving');
   applyLocal(editing); markRecent(editing.id, {e:editing}); rerender();   // reflect in the calendar behind the modal
   const ev=editing;   // the editor may close (or open another event) before this resolves
   try{ await DB.update(ev); if(editing===ev){ _lastSavedSnap=snap(f); setSaveStatus('clean'); } scheduleReconcile(); }
@@ -1802,26 +1808,27 @@ async function autosaveEditor(){
       toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('autosave failed after close:', err);
     }
   }
-  finally{ _saving=false; _autoSaving=false; runQueuedSave(); }
+  finally{ _saving=false; _autoSaving=false; _inflight=null; runQueuedSave(); }
 }
-// The save queued behind an in-flight one: run it normally if its editor is still
-// open, else straight from the captured form — so a fast close can't drop the edit.
+// The save queued behind an in-flight one: run it normally if its editor is still open, else
+// straight from the captured form — so a fast close can't drop the edit. (An editor reopened
+// meanwhile already shows the edit — see openEditor — and it is written from the form too.)
 function runQueuedSave(){
   const q=_queuedSave; if(!q) return;
   _queuedSave=null;
-  if(editing===q.ev){ autosaveEditor(); return; }
+  if(editing===q.ev && !q.detached){ autosaveEditor(); return; }
   saveDetached(q.ev, q.f);
 }
 async function saveDetached(ev, f){
   Object.assign(ev, f);
   ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
-  _saving=true; _autoSaving=true; applyLocal(ev); markRecent(ev.id, {e:ev}); rerender();
-  try{ await DB.update(ev); scheduleReconcile(); }
+  _saving=true; _autoSaving=true; _inflight={ ev, snap:snap(f) }; applyLocal(ev); markRecent(ev.id, {e:ev}); rerender();
+  try{ await DB.update(ev); if(editing===ev) _lastSavedSnap=snap(f); scheduleReconcile(); }   // reopened meanwhile: what's saved now is f
   catch(err){
     if(err && err.status===401) sessionExpired();
     else { _recent.delete(ev.id); scheduleReconcile(); toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('queued save failed after close:', err); }
   }
-  finally{ _saving=false; _autoSaving=false; runQueuedSave(); }
+  finally{ _saving=false; _autoSaving=false; _inflight=null; runQueuedSave(); }
 }
 // EB draft/listing goes out of sync when a public-facing field changes after a
 // push. Session-local flag (resets on reload — see design's accepted limitation).
