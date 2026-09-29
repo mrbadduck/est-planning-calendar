@@ -1820,7 +1820,10 @@ async function autosaveEditor(){
   catch(err){
     if(err && err.status===401) sessionExpired();
     else if(editing===ev){ setSaveStatus('error'); console.warn('autosave failed:', err); }
-    else { toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('autosave failed after close:', err); }
+    else {   // drop the optimistic copy so the calendar (and a reopen) show what's really saved
+      _recent.delete(ev.id); scheduleReconcile();
+      toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('autosave failed after close:', err);
+    }
   }
   finally{ _saving=false; }
 }
