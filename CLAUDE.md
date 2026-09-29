@@ -28,7 +28,7 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 | `shared/` | Canonical browser code both apps use (`auth-firebase.js`); committed mirrors in `web/`+`gather/`, drift guard `scripts/sync-shared.sh --check` | (mirrored into each site) |
 | `proxy/` | Cloudflare Worker holding the Superhuman Docs token server-side | Cloudflare Workers |
 | `docs/` | architecture + deployment notes | — |
-| `.github/workflows/` | proxy→Workers auto-deploy (web→Netlify deploys via Netlify's own git integration, not a workflow) | — |
+| `.github/workflows/` | proxy→Workers auto-deploy (`deploy-proxy.yml`, ignores `proxy/test/**`; web→Netlify deploys via Netlify's own git integration, not a workflow) and the help guard check (`check-help.yml`) | — |
 
 ## Current status
 
@@ -159,9 +159,10 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   — Draft→**Propose**|**Cancel**; Proposed→**Approve**(council)|**Cancel**;
   Approved→**Cancel** (+ Publish in the Publish section); Cancelled→**Reopen**
   (council). **Delete** is council-only (leads get **Cancel** in that spot);
-  approve gated server-side (Tribal Council). Header = derived status badge +
-  copy-link icon; footer = transitions left / save-status right (`statusInfo`,
-  `footerActionsHTML`, `transitionTo`, `cancelEvent`). **Cancel** tears down the
+  approve gated server-side (Tribal Council). Header = derived status badge (a button
+  that opens the lifecycle guide) + ? / View in gather / Copy link icons; footer =
+  transitions left / save-status right (`statusInfo`, `footerActionsHTML`,
+  `transitionTo`, `cancelEvent`). **Cancel** tears down the
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
   +notify) then sets Status=Cancelled. Design:
   `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
@@ -212,9 +213,9 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   `.mbody`. Keep them distinct (they collided once and broke the calendar grid).
 - Coloring is intentional: planning events by **program** (hue), **status** by
   chip treatment (dashed→tint→solid→filled+lock); reference calendars muted.
-- No `localStorage` in the app today (it was built as an artifact). Once
-  self-hosted this is fine to add, but real persistence should come from the Coda
-  backing, not browser storage.
+- `localStorage` holds only caches (`est-cache-*`) and per-device UI state (the
+  help drawer's `est-help-welcomed` / `est-help-seen`); real persistence comes from
+  the Coda backing, never browser storage.
 - After any JS edit, sanity-check by extracting the `<script>` and running
   `node --check` on it.
 - **The Worker caches Coda reads in KV (stale-while-revalidate).** Coda calls run
