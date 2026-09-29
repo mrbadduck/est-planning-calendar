@@ -1761,7 +1761,9 @@ function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(
    stays open (unlike saveEditor, which closes). Reuses the optimistic stack
    (applyLocal/markRecent/_recent guard/scheduleReconcile). No-op saves are
    skipped by diffing readForm() against the last-saved snapshot. */
-let _autosaveT=null, _lastSavedSnap=null;
+let _autosaveT=null, _lastSavedSnap=null, _queuedSave=null, _autoSaving=false;
+// _queuedSave: an edit waiting behind an in-flight autosave. _autoSaving: the in-flight write IS
+// an autosave (create/transition/cancel/delete also hold _saving, but never drain the queue).
 const snap = f => JSON.stringify(f);
 function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'error'
   const el=document.getElementById('saveStatus'); if(!el) return;
@@ -1776,13 +1778,19 @@ function scheduleAutosave(){
 async function flushAutosave(){ clearTimeout(_autosaveT); if(editing && editing.id) await autosaveEditor(); }
 async function autosaveEditor(){
   if(!editing || !editing.id) return;
-  if(_saving){ clearTimeout(_autosaveT); _autosaveT=setTimeout(()=>autosaveEditor(), 300); return; }  // coalesce behind an in-flight save
+  if(_saving){
+    clearTimeout(_autosaveT);
+    // An autosave is in flight: queue this one with the form as it is NOW — the editor may close before it runs.
+    if(_autoSaving) _queuedSave={ ev:editing, f:readForm() };
+    else _autosaveT=setTimeout(()=>autosaveEditor(), 300);   // create/transition/cancel/delete in flight: retry after it
+    return;
+  }
   const f=readForm();
   if(_lastSavedSnap && snap(f)===_lastSavedSnap){ setSaveStatus('clean'); return; } // nothing changed
   markEbDirtyIfPublicChanged(f);
   Object.assign(editing, f);
   editing.editedBy=(state.identity && state.identity.name) || editing.editedBy;
-  _saving=true; setSaveStatus('saving');
+  _saving=true; _autoSaving=true; setSaveStatus('saving');
   applyLocal(editing); markRecent(editing.id, {e:editing}); rerender();   // reflect in the calendar behind the modal
   const ev=editing;   // the editor may close (or open another event) before this resolves
   try{ await DB.update(ev); if(editing===ev){ _lastSavedSnap=snap(f); setSaveStatus('clean'); } scheduleReconcile(); }
@@ -1794,7 +1802,26 @@ async function autosaveEditor(){
       toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('autosave failed after close:', err);
     }
   }
-  finally{ _saving=false; }
+  finally{ _saving=false; _autoSaving=false; runQueuedSave(); }
+}
+// The save queued behind an in-flight one: run it normally if its editor is still
+// open, else straight from the captured form — so a fast close can't drop the edit.
+function runQueuedSave(){
+  const q=_queuedSave; if(!q) return;
+  _queuedSave=null;
+  if(editing===q.ev){ autosaveEditor(); return; }
+  saveDetached(q.ev, q.f);
+}
+async function saveDetached(ev, f){
+  Object.assign(ev, f);
+  ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
+  _saving=true; _autoSaving=true; applyLocal(ev); markRecent(ev.id, {e:ev}); rerender();
+  try{ await DB.update(ev); scheduleReconcile(); }
+  catch(err){
+    if(err && err.status===401) sessionExpired();
+    else { _recent.delete(ev.id); scheduleReconcile(); toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('queued save failed after close:', err); }
+  }
+  finally{ _saving=false; _autoSaving=false; runQueuedSave(); }
 }
 // EB draft/listing goes out of sync when a public-facing field changes after a
 // push. Session-local flag (resets on reload — see design's accepted limitation).
