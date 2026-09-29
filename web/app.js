@@ -618,15 +618,16 @@ let editing=null; // event being edited, or null
 let whenType='exact';
 
 // Editor workspace sections (left rail). `live` sections have real panels;
-// the rest render a muted "coming soon" teaser. No icon webfont — text labels.
+// the rest render a muted "coming soon" teaser. `help` = the guide (web/help/
+// guide.md) the editor header's ? opens for that tab. No icon webfont — text labels.
 const SECTIONS = [
-  { id:'details',   label:'Details',              live:true },
-  { id:'notes',     label:'Planning Notes',       live:true },
-  { id:'volunteers',label:'Potluck & Volunteers', live:true },
-  { id:'attendees', label:'Attendees',            live:true },
-  { id:'budget',    label:'Budget & expenses',    live:false },
-  { id:'comms',     label:'Comms',                live:false },
-  { id:'feedback',  label:'Feedback',             live:false },
+  { id:'details',   label:'Details',              live:true,  help:'edit-details' },
+  { id:'notes',     label:'Planning Notes',       live:true,  help:'planning-notes' },
+  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups' },
+  { id:'attendees', label:'Attendees',            live:true,  help:'attendees' },
+  { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback' },
+  { id:'comms',     label:'Comms',                live:false, help:'feedback' },
+  { id:'feedback',  label:'Feedback',             live:false, help:'feedback' },
 ];
 // Back-compat: Details was formerly 'planning'; Attendees was the 'attendance'
 // stub; the Publish tab folded into Details (2026-09) → 'publish' opens Details.
@@ -965,13 +966,14 @@ function openEditor(ev, section){
     show(); return;
   }
 
-  // header: derived status badge next to the title on the LEFT (display-only;
-  // transitions live in the footer); action icons on the right.
+  // header: derived status badge next to the title on the LEFT (a button that
+  // opens the lifecycle guide; transitions live in the footer); action icons on
+  // the right — ? (help for the active tab), view-in-gather, copy-link.
   const si=statusInfo(ev);
-  let badges = `<span class="badge b-${si.cls}">${si.label}</span>`;
+  let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;
   if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
   document.getElementById('mBadges').innerHTML = badges;
-  let head = '';
+  let head = `<button type="button" class="mhead-ico q" data-act="help" title="Help for this tab" aria-label="Help for this tab">?</button>`;
   if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" title="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
   if(ev.id) head += `<button class="mhead-ico" data-act="copylink" title="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
@@ -1020,7 +1022,8 @@ function openNewEventForm(seed){
   _lastSavedSnap = null;
   document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
   document.getElementById('mTitle').textContent = 'New event';
-  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML = '';   // no status/approve until the row exists
+  document.getElementById('mBadges').innerHTML='';   // no status/approve until the row exists
+  document.getElementById('mActions').innerHTML = `<button type="button" class="mhead-ico q" data-help="add-event" title="Help: adding an event" aria-label="Help: adding an event">?</button>`;
   document.getElementById('modal').classList.remove('ws'); document.getElementById('modal').classList.add('create');   // fixed shell = same height as the workspace
   const body=document.getElementById('mBody'); body.classList.remove('ws');
   body.innerHTML = renderPlanning(seed, true, false, false);
@@ -1895,10 +1898,12 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   else if(act==='reopen') transitionTo('draft');
   else if(act==='delete') deleteEditor();
 });
-// header actions: copy-link icon (status is display-only; transitions are in the footer)
+// header actions: ? (help for the active tab) + copy-link. The status badge opens
+// the lifecycle guide through data-help; transitions are in the footer.
 document.getElementById('mActions').addEventListener('click',e=>{
-  const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
-  if(act==='copylink'){ navigator.clipboard.writeText(location.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }
+  const btn=e.target.closest('[data-act]'); const act=btn?.dataset.act; if(!act) return;
+  if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it
+  else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', btn); }
 });
 document.getElementById('mBody').addEventListener('click',e=>{
   if(e.target.closest('[data-act="coda"]')){ e.preventDefault(); alert('Live version: deep-links to this row in the Mission Control Coda doc for full editing (ticketing, banner, promotion).'); }
