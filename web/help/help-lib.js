@@ -109,5 +109,61 @@
     return out.join('\n');
   }
 
-  root.HelpLib = { EMBEDS, RESERVED, esc, stripComments, parseGuide, renderGuide, renderInline: inline };
+  // Every `re` match on each (comment-stripped) line, mapped with its 1-based line.
+  function scan(md, re, map) {
+    const out = [];
+    linesOf(md).forEach((raw, i) => { for (const m of raw.matchAll(re)) out.push(map(m, i + 1, raw)); });
+    return out;
+  }
+  const uiLabels = (md) => scan(md, /\[\[([^\]\n]+)\]\]/g, (m, line) => ({ label: m[1].trim(), line }));
+  const guideLinks = (md) => scan(md, /\]\(#([^)\s]*)\)/g, (m, line) => ({ id: m[1], line }));
+  const embeds = (md) => scan(md, /\{\{([^}\n]*)\}\}/g, (m, line, raw) => ({ name: m[1].trim(), line, ownLine: raw.trim() === m[0] }));
+
+  // whats-new.md: "## YYYY-MM-DD" headings, newest first, each with "- " bullets.
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function parseWhatsNew(md) {
+    const entries = [], errors = [];
+    let cur = null;
+    linesOf(md).forEach((raw, i) => {
+      const line = i + 1, t = raw.trim();
+      let m = /^##\s+(.+?)\s*$/.exec(raw);
+      if (m) {
+        if (!DATE_RE.test(m[1])) errors.push({ line, message: `heading "${m[1]}" must be a date like 2026-09-29` });
+        cur = { date: m[1], line, items: [] };
+        entries.push(cur);
+        return;
+      }
+      m = /^-\s+(.+)$/.exec(t);
+      if (m) {
+        if (cur) cur.items.push(m[1]);
+        else errors.push({ line, message: 'bullet before the first date heading' });
+        return;
+      }
+      if (t && !t.startsWith('#') && cur && cur.items.length) cur.items[cur.items.length - 1] += ' ' + t;   // wrapped bullet
+    });
+    entries.forEach((e, k) => {
+      if (!e.items.length) errors.push({ line: e.line, message: `${e.date} has no bullet points` });
+      const prev = entries[k - 1];
+      if (prev && DATE_RE.test(e.date) && DATE_RE.test(prev.date) && e.date >= prev.date) errors.push({ line: e.line, message: `${e.date} is out of order — newest first` });
+    });
+    return { entries, errors };
+  }
+  function fmtDate(d) {
+    const p = DATE_RE.test(d) ? d.split('-').map(Number) : null;
+    return p && MONTHS[p[1] - 1] ? `${MONTHS[p[1] - 1]} ${p[2]}, ${p[0]}` : String(d);
+  }
+  function renderWhatsNew(entries) {
+    if (!entries || !entries.length) return '<p class="help-empty">Nothing new yet.</p>';
+    return entries.map((e) => `<h4>${esc(fmtDate(e.date))}</h4><ul>${e.items.map((it) => `<li>${inline(it)}</li>`).join('')}</ul>`).join('');
+  }
+
+  // Search: every word must appear in the guide's title or body (case-insensitive).
+  function searchGuides(guides, query) {
+    const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    return (guides || []).filter((g) => { const hay = `${g.title}\n${g.body}`.toLowerCase(); return words.every((w) => hay.includes(w)); });
+  }
+
+  root.HelpLib = { EMBEDS, RESERVED, esc, stripComments, parseGuide, renderGuide, renderInline: inline, uiLabels, guideLinks, embeds, parseWhatsNew, renderWhatsNew, searchGuides };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

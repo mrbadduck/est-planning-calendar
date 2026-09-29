@@ -70,3 +70,38 @@ test('renderGuide: {{embed}} on its own line calls opts.embed; none given → no
   assert.equal(H.renderGuide('Key:\n\n{{legend}}\n\nEnd', { embed }), '<p>Key:</p>\n<div data-embed="legend"></div>\n<p>End</p>');
   assert.equal(H.renderGuide('{{legend}}'), '');
 });
+
+test('uiLabels / guideLinks / embeds: report line numbers and ignore comments', () => {
+  const md = ['<!-- [[Ghost]] [x](#ghost) {{ghost}} -->', 'Click [[Propose]] then [[ Approve ]].', 'See [x](#lifecycle).', '{{legend}}', 'Inline {{legend}} here'].join('\n');
+  assert.deepEqual(H.uiLabels(md), [{ label: 'Propose', line: 2 }, { label: 'Approve', line: 2 }]);
+  assert.deepEqual(H.guideLinks(md), [{ id: 'lifecycle', line: 3 }]);
+  assert.deepEqual(H.embeds(md), [{ name: 'legend', line: 4, ownLine: true }, { name: 'legend', line: 5, ownLine: false }]);
+});
+
+test('parseWhatsNew: dated entries newest-first, with wrapped bullets', () => {
+  const md = ["# What's new", '## 2026-09-29', '- **Help.** Click ?', '  for guides.', '## 2026-09-16', '- **Attendees.**'].join('\n');
+  const { entries, errors } = H.parseWhatsNew(md);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(entries.map((e) => [e.date, e.items]), [['2026-09-29', ['**Help.** Click ? for guides.']], ['2026-09-16', ['**Attendees.**']]]);
+});
+
+test('parseWhatsNew: flags a bad date, an empty entry and out-of-order dates', () => {
+  const { errors } = H.parseWhatsNew(['## Sept 1', '- x', '## 2026-09-01', '## 2026-09-10', '- y'].join('\n'));
+  assert.deepEqual(errors.map((e) => e.line), [1, 3, 4]);
+  assert.match(errors[0].message, /must be a date/);
+  assert.match(errors[1].message, /no bullet points/);
+  assert.match(errors[2].message, /out of order/);
+});
+
+test('renderWhatsNew: formats dates and renders inline markup', () => {
+  assert.equal(H.renderWhatsNew([{ date: '2026-09-19', items: ['**Moved.** See [[Details]].'] }]), '<h4>September 19, 2026</h4><ul><li><strong>Moved.</strong> See <span class="uichip">Details</span>.</li></ul>');
+  assert.equal(H.renderWhatsNew([]), '<p class="help-empty">Nothing new yet.</p>');
+  assert.equal(H.renderWhatsNew(null), '<p class="help-empty">Nothing new yet.</p>');
+});
+
+test('searchGuides: every word must appear in the title or body, case-insensitive', () => {
+  const guides = [{ id: 'a', title: 'Add an event', body: 'Click [[+ New event]].' }, { id: 'b', title: 'Publish', body: 'Eventbrite listing' }];
+  assert.deepEqual(H.searchGuides(guides, 'NEW event').map((g) => g.id), ['a']);
+  assert.deepEqual(H.searchGuides(guides, 'eventbrite').map((g) => g.id), ['b']);
+  assert.deepEqual(H.searchGuides(guides, '  '), []);
+});
