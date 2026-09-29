@@ -157,3 +157,12 @@ test('command regexes stay linear on many VAR="v" lines', () => {
   assert.equal(prCreateBase(cmd), null);
   assert.ok(Date.now() - t < 1000, `took ${Date.now() - t} ms`);
 });
+
+test('command regexes stay fast on long runs of blank lines, and still see a command after them', () => {
+  const blank = '\n'.repeat(50000);
+  const t = Date.now();
+  assert.equal(mergeIntoMainTarget(`echo hi${blank}echo bye`, 'main'), null);
+  assert.ok(Date.now() - t < 1000, `took ${Date.now() - t} ms`);
+  assert.equal(mergeIntoMainTarget(`echo hi${blank}  git merge feat/x`, 'main'), 'feat/x');
+  assert.equal(mergeIntoMainTarget('git checkout main &&\n  git merge feat/x', 'feat/x'), 'feat/x');
+});

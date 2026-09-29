@@ -147,7 +147,7 @@ export function refProblems(guideMd, newsMd, sources) {
   return out;
 }
 
-const CMD = String.raw`(?:^|&&|\|\||;|\||\(|\n)\s*`;                   // a command position in a shell line
+const CMD = String.raw`(?:^|&&|\|\||;|\||\(|\n)[ \t]*`;                // a command position in a shell line (each \n is its own)
 // One shell word. Its alternatives start with different characters (" or ' or
 // neither), so any text matches exactly one way — no catastrophic backtracking
 // on the hook's fast path, which sees every Bash call.
