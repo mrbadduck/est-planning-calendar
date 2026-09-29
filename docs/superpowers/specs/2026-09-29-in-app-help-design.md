@@ -156,8 +156,9 @@ drawer first**; the editor stays open until the next Esc.
    all widths (it replaces the **i**, so the phone header gains no width) → index.
 2. **Welcome** auto-opens once: when a signed-in identity resolves, and
    `localStorage['est-help-welcomed']` is unset, and the URL has no `event` or `help`
-   param. The flag is set when it auto-opens (a reload won't repeat it), and What's
-   new is marked seen for that brand-new user.
+   param. It's decided once per page load; the flag is set when it auto-opens (a
+   reload won't repeat it), and What's new is marked seen for a brand-new user (no
+   cached rows yet — a returning user keeps the dot).
 3. **Event editor header ?** (next to copy-link) → the guide for the active tab, via
    a new `help:` field on each `SECTIONS` entry: `details` → `edit-details`, `notes`
    → `planning-notes`, `volunteers` → `signups`, `attendees` → `attendees`, the
@@ -180,8 +181,8 @@ a `data-help="<id>"` attribute — the three forms the guard checks.
 
 **Live legend.** `{{legend}}` renders sample chips using the calendar's real chip
 classes for the four statuses the calendar renders today (`draft`, `proposed`,
-`approved` with its lock, `cancelled`) plus a reference-calendar chip, explains the
-**Live** and **Past** badges, and shows program swatches from the live program list.
+`approved` with its lock, `cancelled`) plus a reference-calendar chip, and shows program swatches from the live program
+list (active programs only); the guide's own text explains the **Live** and **Past** badges.
 It replaces `legendHTML()`, whose Idea / Confirmed rows are legacy (those CSS classes
 remain in `styles.css` but are no longer rendered).
 
@@ -214,8 +215,9 @@ excluded).
 
 **Content checks** (always):
 1. Every `[[label]]` in `guide.md` appears in the screens code **as on-screen
-   text** — between tags (`>Label<`) or as a whole quoted string (`'Label'`,
-   `"Label"`, `` `Label` ``), after decoding `&amp;`. Code comments don't count.
+   text** — between tags (`>Label<`), as a whole quoted string, or as a JS string /
+   template chunk (a one-pass scanner reads the JS), after decoding `&amp;` and
+   folding curly apostrophes. Code comments don't count.
    Finding: `guide.md:42 [[Publish]] no longer appears on screen`.
 2. Guide ids are unique and kebab-case; `(#id)` links between guides resolve; every
    `openHelp('…')`, `help:'…'` and `data-help="…"` in the screens code names an
@@ -228,8 +230,9 @@ screens file but none of the help text (`web/help/*.md` — not its renderer), i
 `<base>..<ref>` contains a line `Help: none — <reason>`. The guard accepts any dash,
 hyphen or colon after `none` (`Help: none - typo fix` is fine) but requires a
 non-empty reason. In
-branch mode the content checks read files from `<ref>`'s committed tree (`git show
-<ref>:<path>`) — i.e. what would actually be merged.
+branch mode (and in the hook) the content checks read the tree the merge would
+produce (`git merge-tree --write-tree`; on a conflict, `<ref>`'s own tree) — i.e.
+what would actually be merged.
 
 **Output / exit codes.** Findings print one per line, each with its fix ("update
 `web/help/guide.md`, or add a commit with `Help: none — <reason>`").
@@ -298,8 +301,10 @@ forced decision cover it: Claude must either update the guide or say why not.
 
 ## 11. Rollout
 
-Netlify only — `web/` redeploys on merge to `main`. No Worker / proxy change, no new
-services, no secrets. The GitHub workflow is new but free.
+`web/` redeploys on Netlify on merge to `main`. No Worker code changes; the new tests
+live in `proxy/test/`, so this one merge re-runs the Worker deploy workflow with
+unchanged code (later test-only edits don't — `deploy-proxy.yml` now ignores
+`proxy/test/**`). No new services, no secrets. The GitHub workflow is new but free.
 
 ## Open item for the plan
 
