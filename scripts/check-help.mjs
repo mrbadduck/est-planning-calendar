@@ -149,3 +149,81 @@ export function branchVerdict(files, messages) {
   if (!screens.length || files.some(isHelpFile) || hasHelpNone(messages)) return null;
   return `this branch changes the app's screens (${screens.join(', ')}) but not web/help/`;
 }
+
+/* ---- git plumbing + entry points ------------------------------------------ */
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+let CWD = ROOT;   // repo toplevel the git commands run in (hook mode: the session's cwd)
+const git = (args) => execFileSync('git', args, { cwd: CWD, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+
+function readAt(ref, path) {   // a file from <ref>'s commit, or from the working tree when ref is empty
+  try { return ref ? git(['show', `${ref}:${path}`]) : readFileSync(join(CWD, path), 'utf8'); } catch { return null; }
+}
+function screensSourcesAt(ref) {
+  const names = ref ? git(['ls-tree', '--name-only', ref, 'web/']).split('\n') : readdirSync(join(CWD, 'web')).map((f) => `web/${f}`);
+  return names.filter(isScreensFile).map((file) => ({ file, src: readAt(ref, file) || '' }));
+}
+function contentProblems(ref) {
+  const sources = screensSourcesAt(ref);
+  const guideMd = readAt(ref, 'web/help/guide.md');
+  const newsMd = readAt(ref, 'web/help/whats-new.md');
+  return [...refProblems(guideMd, newsMd, sources), ...(guideMd == null ? [] : labelProblems(guideMd, sources))];
+}
+function existingRef(name) {   // `main`, else `origin/main` (a fresh clone may only have the remote one)
+  for (const cand of [name, `origin/${name}`]) {
+    try { git(['rev-parse', '--verify', '--quiet', `${cand}^{commit}`]); return cand; } catch { /* try the next */ }
+  }
+  return name;
+}
+function branchProblems(base, ref) {
+  const b = existingRef(base);
+  const files = git(['diff', '--name-only', `${b}...${ref}`]).split('\n').filter(Boolean);
+  const verdict = branchVerdict(files, git(['log', '--format=%B', `${b}..${ref}`]));
+  return verdict ? [`${verdict} (${ref} vs ${b})`] : [];
+}
+
+const FIX = 'Fix: update web/help/guide.md (and add a dated line to web/help/whats-new.md). If a program lead would notice nothing, add a commit whose message has a line "Help: none — <reason>" instead. Rules: CLAUDE.md → Conventions → "Help ships with the change".';
+const listOf = (problems) => problems.map((p) => `  - ${p}`).join('\n');
+
+function cli(args) {
+  const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+  const ref = opt('--branch'), base = opt('--base') || 'main';
+  try {
+    const problems = [...contentProblems(ref), ...(ref ? branchProblems(base, ref) : [])];
+    if (!problems.length) { console.log(`check-help: OK${ref ? ` (${ref} vs ${base})` : ''}`); return 0; }
+    console.error(`check-help: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n${listOf(problems)}\n${FIX}`);
+    return 1;
+  } catch (err) {
+    console.error(`check-help: could not run — ${err.message}`);
+    return 1;
+  }
+}
+
+async function hook() {
+  let raw = '';
+  for await (const chunk of process.stdin) raw += chunk;
+  let input;
+  try { input = JSON.parse(raw || '{}'); } catch { return 0; }
+  const command = (input.tool_input && input.tool_input.command) || '';
+  if (input.tool_name !== 'Bash' || !/\bgit\s+merge\b|\bgh\s+pr\s+create\b/.test(command)) return 0;   // fast path: not ours
+  try {
+    CWD = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: input.cwd || process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const mergeRef = mergeIntoMainTarget(command, git(['rev-parse', '--abbrev-ref', 'HEAD']).trim());
+    const prBase = mergeRef ? null : prCreateBase(command);
+    if (!mergeRef && !prBase) return 0;
+    const [ref, base] = mergeRef ? [mergeRef, 'main'] : ['HEAD', prBase];
+    const problems = [...contentProblems(ref), ...branchProblems(base, ref)];
+    if (!problems.length) return 0;
+    process.stderr.write(`Help guard blocked this ${mergeRef ? `merge of ${ref} into main` : 'pull request'} — the in-app help is out of step with the app:\n${listOf(problems)}\n${FIX}\nThen run the command again.\n`);
+    return 2;
+  } catch (err) {
+    process.stderr.write(`check-help hook skipped (guard error, not blocking): ${err.message}\n`);
+    return 1;
+  }
+}
+
+// Run only when executed directly (the unit tests import the helpers above).
+// process.exitCode (not process.exit) so stderr to a pipe is flushed first.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  process.exitCode = args.includes('--hook') ? await hook() : cli(args);
+}
