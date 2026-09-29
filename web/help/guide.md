@@ -129,7 +129,7 @@ Every event has a status, and the buttons in an open event change with it:
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.
 
-**To call an event off**, click [[Cancel event]] and confirm. Program Leads and Tribal Council can do this at any stage, even after it's live. If it's on Eventbrite, the listing comes down too. Only Tribal Council can undo it, with [[Reopen]].
+**To call an event off**, click [[Cancel event]] and confirm. Program Leads and Tribal Council can do this at any stage, even after it's live. If it's on Eventbrite, the listing comes down too; if people had registered, let them know. Only Tribal Council can bring it back to planning, with [[Reopen]], and that doesn't put it back on Eventbrite.
 
 Only Tribal Council sees [[Delete]]. It removes the event right away, with no undo, and doesn't touch Eventbrite, so use [[Cancel event]] for anything that's been published.
 
@@ -166,7 +166,7 @@ Once an event is approved, Tribal Council publishes it. Program Leads can see th
 ### Before you publish
 
 - It needs an exact date and a start time. Whole-month, date-range and all-day events can't go on Eventbrite.
-- Pick its venue from the list. With no venue, or a **＋ New venue** name, Eventbrite lists it as online, so check your draft doesn't say **Online**.
+- Pick its venue from the list. With no venue, a **＋ New venue** name, or a venue with no street address on file, Eventbrite lists it as online, so check your draft doesn't say **Online**.
 
 ### Publish
 
