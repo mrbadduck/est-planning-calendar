@@ -52,5 +52,62 @@
     return { guides, errors };
   }
 
-  root.HelpLib = { EMBEDS, RESERVED, esc, stripComments, parseGuide };
+  // Inline markup: [[Label]] chip, **bold**, *italic*, [text](url). Everything
+  // else is escaped. A fresh RegExp per call, so recursion can't share lastIndex.
+  const INLINE = String.raw`\[\[([^\]\n]+)\]\]|\*\*([^*\n]+)\*\*|\*([^*\s][^*\n]*)\*|\[([^\]\n]+)\]\(([^)\s]+)\)`;
+  function inline(text) {
+    const s = String(text == null ? '' : text);
+    let out = '', last = 0;
+    for (const m of s.matchAll(new RegExp(INLINE, 'g'))) {
+      out += esc(s.slice(last, m.index));
+      if (m[1] !== undefined) out += `<span class="uichip">${esc(m[1].trim())}</span>`;
+      else if (m[2] !== undefined) out += `<strong>${inline(m[2])}</strong>`;
+      else if (m[3] !== undefined) out += `<em>${inline(m[3])}</em>`;
+      else out += link(m[4], m[5]);
+      last = m.index + m[0].length;
+    }
+    return out + esc(s.slice(last));
+  }
+  // #id → another guide (the drawer handles data-help-link clicks); http(s) and
+  // mailto → new tab; any other scheme (javascript:, data:) renders as plain text.
+  function link(label, url) {
+    if (url.startsWith('#')) return `<a href="#" data-help-link="${esc(url.slice(1))}">${inline(label)}</a>`;
+    if (/^(?:https?:|mailto:)/i.test(url)) return `<a href="${esc(url)}" target="_blank" rel="noopener">${inline(label)}</a>`;
+    return inline(label);
+  }
+
+  // Block markup for one guide body: paragraphs, "### " subheads, "- " / "1. "
+  // lists (one level), "> " tips, and {{embed}} on its own line (via opts.embed).
+  function renderGuide(body, opts) {
+    const embed = (opts && opts.embed) || (() => '');
+    const out = [];
+    let para = [], list = null, tip = null;
+    const flushPara = () => { if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`); para = []; };
+    const flushList = () => { if (list) out.push(`<${list.tag}>${list.items.map((it) => `<li>${inline(it)}</li>`).join('')}</${list.tag}>`); list = null; };
+    const flushTip = () => { if (tip) out.push(`<div class="help-tip">${inline(tip.join(' '))}</div>`); tip = null; };
+    const flush = () => { flushPara(); flushList(); flushTip(); };
+    for (const raw of stripComments(body).split('\n')) {
+      const line = raw.trim();
+      let m;
+      if (!line) { flush(); continue; }
+      if ((m = /^\{\{([a-z][a-z0-9-]*)\}\}$/.exec(line))) { flush(); out.push(embed(m[1]) || ''); continue; }
+      if ((m = /^###\s+(.+)$/.exec(line))) { flush(); out.push(`<h4>${inline(m[1])}</h4>`); continue; }
+      if ((m = /^>\s?(.*)$/.exec(line))) { flushPara(); flushList(); (tip = tip || []).push(m[1]); continue; }
+      const item = /^-\s+(.+)$/.exec(line) || /^\d+\.\s+(.+)$/.exec(line);
+      if (item) {
+        const tag = line.startsWith('-') ? 'ul' : 'ol';
+        flushPara(); flushTip();
+        if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
+        list.items.push(item[1]);
+        continue;
+      }
+      if (list) { list.items[list.items.length - 1] += ' ' + line; continue; }   // wrapped list item
+      flushTip();
+      para.push(line);
+    }
+    flush();
+    return out.join('\n');
+  }
+
+  root.HelpLib = { EMBEDS, RESERVED, esc, stripComments, parseGuide, renderGuide, renderInline: inline };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
