@@ -7,6 +7,7 @@
 
 ## 2026-09-29
 - **New: Help.** Click **?** at the top for step-by-step guides. Inside an event, **?** opens the guide for the tab you're on.
+- **The i button is gone.** The color and status key it showed now lives in Help, under *Read the calendar*.
 
 ## 2026-09-19
 - **Publishing moved into Details.** The Eventbrite listing (public summary, description, capacity) now sits at the bottom of an event's **Details** tab, under **Public listing**. The separate Publish tab is gone.
