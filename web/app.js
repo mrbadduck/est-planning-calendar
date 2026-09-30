@@ -611,40 +611,6 @@ function renderLayers(){
   }
 }
 
-function legendHTML(){
-  return `
-    <div class="fld full"><label>Status</label>
-      <div class="infogrid">
-        <span class="k"><span class="sw i"></span>Idea</span>
-        <span class="k"><span class="sw d"></span>Draft</span>
-        <span class="k"><span class="sw c"></span>Confirmed</span>
-        <span class="k"><span class="sw a"></span>Approved 🔒</span>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:5px">Dashed = tentative · solid = locked in · filled = approved.</div>
-    </div>
-    <div class="fld full"><label>Programs</label>
-      <div class="infogrid">
-        ${PROGRAMS.filter(p=>p.id!=='oth').map(p=>`<span class="k"><span class="sw" style="background:${p.color}"></span>${p.name}</span>`).join('')}
-      </div>
-    </div>
-    <div class="fld full"><label>Undated ideas</label>
-      <div style="font-size:11.5px;color:var(--muted)">Ideas without a firm day sit in the left gutter (Calendar) or the month footer (Overview), anchored to their rough week or month.</div>
-    </div>
-    <div class="fld full" style="border-top:1px dashed var(--hair);padding-top:10px">
-      <div style="font-size:11px;color:var(--faint)"><b style="color:var(--muted)">Reference calendars</b> (holidays, partner orgs) are read-only context pulled live from public feeds — toggle them under REFERENCE in the sidebar. Planning events read and write to the Coda <b>Mission Control</b> table.</div>
-    </div>`;
-}
-function openInfo(){
-  editing={id:'__info__'};
-  document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
-  document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
-  document.getElementById('mTitle').textContent='Legend & key';
-  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML='';
-  document.getElementById('mBody').innerHTML=legendHTML();
-  document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
-  show();
-}
-
 /* =========================================================================
    MODAL
    ========================================================================= */
@@ -652,15 +618,16 @@ let editing=null; // event being edited, or null
 let whenType='exact';
 
 // Editor workspace sections (left rail). `live` sections have real panels;
-// the rest render a muted "coming soon" teaser. No icon webfont — text labels.
+// the rest render a muted "coming soon" teaser. `help` = the guide (web/help/
+// guide.md) the editor header's ? opens for that tab. No icon webfont — text labels.
 const SECTIONS = [
-  { id:'details',   label:'Details',              live:true },
-  { id:'notes',     label:'Planning Notes',       live:true },
-  { id:'volunteers',label:'Potluck & Volunteers', live:true },
-  { id:'attendees', label:'Attendees',            live:true },
-  { id:'budget',    label:'Budget & expenses',    live:false },
-  { id:'comms',     label:'Comms',                live:false },
-  { id:'feedback',  label:'Feedback',             live:false },
+  { id:'details',   label:'Details',              live:true,  help:'edit-details' },
+  { id:'notes',     label:'Planning Notes',       live:true,  help:'planning-notes' },
+  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups' },
+  { id:'attendees', label:'Attendees',            live:true,  help:'attendees' },
+  { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback' },
+  { id:'comms',     label:'Comms',                live:false, help:'feedback' },
+  { id:'feedback',  label:'Feedback',             live:false, help:'feedback' },
 ];
 // Back-compat: Details was formerly 'planning'; Attendees was the 'attendance'
 // stub; the Publish tab folded into Details (2026-09) → 'publish' opens Details.
@@ -969,6 +936,7 @@ function footerActionsHTML(ev, canWrite, canApprove){
 }
 function openEditor(ev, section){
   editing = ev;
+  if(_queuedSave && _queuedSave.ev===ev){ Object.assign(ev, _queuedSave.f); _queuedSave.detached=true; }   // reopened mid-save: show the queued edit; it saves on its own
   section = sectionId(section);
   activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'details';   // reset per open; honor a deep-linked section
   const isRef = ev.source==='ref';
@@ -999,13 +967,14 @@ function openEditor(ev, section){
     show(); return;
   }
 
-  // header: derived status badge next to the title on the LEFT (display-only;
-  // transitions live in the footer); action icons on the right.
+  // header: derived status badge next to the title on the LEFT (a button that
+  // opens the lifecycle guide; transitions live in the footer); action icons on
+  // the right — ? (help for the active tab), view-in-gather, copy-link.
   const si=statusInfo(ev);
-  let badges = `<span class="badge b-${si.cls}">${si.label}</span>`;
+  let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;
   if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
   document.getElementById('mBadges').innerHTML = badges;
-  let head = '';
+  let head = `<button type="button" class="mhead-ico q" data-act="help" title="Help for this tab" aria-label="Help for this tab">?</button>`;
   if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" title="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
   if(ev.id) head += `<button class="mhead-ico" data-act="copylink" title="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
@@ -1026,8 +995,13 @@ function openEditor(ev, section){
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
     const id=b.dataset.sect; if(id===activeSection) return;
+    // Nothing unsaved? Re-baseline after the switch: the new section's fields can
+    // render stored values in a normalized form (e.g. program order), and that must
+    // not count as an edit — close() flushes whenever the form differs.
+    const clean = canEdit && !locked && !!_lastSavedSnap && snap(readForm())===_lastSavedSnap;
     if(canEdit && !locked) Object.assign(ev, readForm());   // capture the outgoing section's edits so nothing is lost on switch
     setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove);
+    if(clean) _lastSavedSnap = snap(readForm());
     const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live && typeof syncUrl==='function') syncUrl(ev, id);
   });
 
@@ -1049,7 +1023,8 @@ function openNewEventForm(seed){
   _lastSavedSnap = null;
   document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
   document.getElementById('mTitle').textContent = 'New event';
-  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML = '';   // no status/approve until the row exists
+  document.getElementById('mBadges').innerHTML='';   // no status/approve until the row exists
+  document.getElementById('mActions').innerHTML = `<button type="button" class="mhead-ico q" data-help="add-event" title="Help: adding an event" aria-label="Help: adding an event">?</button>`;
   document.getElementById('modal').classList.remove('ws'); document.getElementById('modal').classList.add('create');   // fixed shell = same height as the workspace
   const body=document.getElementById('mBody'); body.classList.remove('ws');
   body.innerHTML = renderPlanning(seed, true, false, false);
@@ -1787,7 +1762,10 @@ function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(
    stays open (unlike saveEditor, which closes). Reuses the optimistic stack
    (applyLocal/markRecent/_recent guard/scheduleReconcile). No-op saves are
    skipped by diffing readForm() against the last-saved snapshot. */
-let _autosaveT=null, _lastSavedSnap=null;
+let _autosaveT=null, _lastSavedSnap=null, _queuedSave=null, _autoSaving=false, _inflight=null;
+// _queuedSave: an edit waiting behind an in-flight autosave. _autoSaving: the in-flight write IS
+// an autosave (create/transition/cancel/delete also hold _saving, but never drain the queue).
+// _inflight: { ev, snap } of the autosave being written — a queued form must differ from it to count.
 const snap = f => JSON.stringify(f);
 function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'error'
   const el=document.getElementById('saveStatus'); if(!el) return;
@@ -1802,17 +1780,55 @@ function scheduleAutosave(){
 async function flushAutosave(){ clearTimeout(_autosaveT); if(editing && editing.id) await autosaveEditor(); }
 async function autosaveEditor(){
   if(!editing || !editing.id) return;
-  if(_saving){ clearTimeout(_autosaveT); _autosaveT=setTimeout(()=>autosaveEditor(), 300); return; }  // coalesce behind an in-flight save
+  if(_saving){
+    clearTimeout(_autosaveT);
+    if(_autoSaving){
+      // An autosave is in flight: queue this one with the form as it is NOW — the editor may close before it runs.
+      const f=readForm(), base=(_inflight && _inflight.ev===editing) ? _inflight.snap : _lastSavedSnap;
+      if(!base || snap(f)!==base) _queuedSave={ ev:editing, f };   // only a real change — merely opening/closing another event must not write it
+      else if(_queuedSave && _queuedSave.ev===editing) _queuedSave=null;   // back to what's saved/being saved: an older queued edit is stale
+    }
+    else _autosaveT=setTimeout(()=>autosaveEditor(), 300);   // create/transition/cancel/delete in flight: retry after it
+    return;
+  }
   const f=readForm();
   if(_lastSavedSnap && snap(f)===_lastSavedSnap){ setSaveStatus('clean'); return; } // nothing changed
   markEbDirtyIfPublicChanged(f);
   Object.assign(editing, f);
   editing.editedBy=(state.identity && state.identity.name) || editing.editedBy;
-  _saving=true; setSaveStatus('saving');
+  _saving=true; _autoSaving=true; _inflight={ ev:editing, snap:snap(f) }; setSaveStatus('saving');
   applyLocal(editing); markRecent(editing.id, {e:editing}); rerender();   // reflect in the calendar behind the modal
-  try{ await DB.update(editing); _lastSavedSnap=snap(f); setSaveStatus('clean'); scheduleReconcile(); }
-  catch(err){ if(err && err.status===401) sessionExpired(); else { setSaveStatus('error'); console.warn('autosave failed:', err); } }
-  finally{ _saving=false; }
+  const ev=editing;   // the editor may close (or open another event) before this resolves
+  try{ await DB.update(ev); if(editing===ev){ _lastSavedSnap=snap(f); setSaveStatus('clean'); } scheduleReconcile(); }
+  catch(err){
+    if(err && err.status===401) sessionExpired();
+    else if(editing===ev){ setSaveStatus('error'); console.warn('autosave failed:', err); }
+    else {   // drop the optimistic copy so the calendar (and a reopen) show what's really saved
+      _recent.delete(ev.id); scheduleReconcile();
+      toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('autosave failed after close:', err);
+    }
+  }
+  finally{ _saving=false; _autoSaving=false; _inflight=null; runQueuedSave(); }
+}
+// The save queued behind an in-flight one: run it normally if its editor is still open, else
+// straight from the captured form — so a fast close can't drop the edit. (An editor reopened
+// meanwhile already shows the edit — see openEditor — and it is written from the form too.)
+function runQueuedSave(){
+  const q=_queuedSave; if(!q) return;
+  _queuedSave=null;
+  if(editing===q.ev && !q.detached){ autosaveEditor(); return; }
+  saveDetached(q.ev, q.f);
+}
+async function saveDetached(ev, f){
+  Object.assign(ev, f);
+  ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
+  _saving=true; _autoSaving=true; _inflight={ ev, snap:snap(f) }; applyLocal(ev); markRecent(ev.id, {e:ev}); rerender();
+  try{ await DB.update(ev); if(editing===ev) _lastSavedSnap=snap(f); scheduleReconcile(); }   // reopened meanwhile: what's saved now is f
+  catch(err){
+    if(err && err.status===401) sessionExpired();
+    else { _recent.delete(ev.id); scheduleReconcile(); toast(`Your last change to “${ev.title||'an event'}” didn’t save — open it and try again`,'err'); console.warn('queued save failed after close:', err); }
+  }
+  finally{ _saving=false; _autoSaving=false; _inflight=null; runQueuedSave(); }
 }
 // EB draft/listing goes out of sync when a public-facing field changes after a
 // push. Session-local flag (resets on reload — see design's accepted limitation).
@@ -1889,11 +1905,12 @@ async function deleteEditor(){
 function show(){ document.getElementById('scrim').classList.add('open'); document.body.classList.add('modal-open'); }   // lock background scroll while any modal is open
 function close(){
   _ndocGen++; clearTimeout(_autosaveT);
-  // Flush a pending/failed edit before tearing down so a fast Done/Esc/✕ doesn't
-  // drop the last change. autosaveEditor runs its prelude synchronously (reading
-  // `editing` and firing DB.update) before we null it below; not awaited.
+  // Flush any edit before tearing down so a fast Done/Esc/✕ can't drop the last
+  // change — including a field still being typed in (Esc closes without its blur).
+  // autosaveEditor skips an unchanged form, and runs its prelude synchronously
+  // (reading `editing` and firing DB.update) before we null it below; not awaited.
   const st=document.getElementById('saveStatus');
-  if(editing && editing.id && st && (st.classList.contains('dirty')||st.classList.contains('error'))) autosaveEditor();
+  if(editing && editing.id && st) autosaveEditor();
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
   document.getElementById('modal').classList.remove('ws','create'); document.getElementById('mBody').classList.remove('ws');
@@ -1915,10 +1932,12 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   else if(act==='reopen') transitionTo('draft');
   else if(act==='delete') deleteEditor();
 });
-// header actions: copy-link icon (status is display-only; transitions are in the footer)
+// header actions: ? (help for the active tab) + copy-link. The status badge opens
+// the lifecycle guide through data-help; transitions are in the footer.
 document.getElementById('mActions').addEventListener('click',e=>{
-  const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
-  if(act==='copylink'){ navigator.clipboard.writeText(location.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }
+  const btn=e.target.closest('[data-act]'); const act=btn?.dataset.act; if(!act) return;
+  if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it
+  else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', btn); }
 });
 document.getElementById('mBody').addEventListener('click',e=>{
   if(e.target.closest('[data-act="coda"]')){ e.preventDefault(); alert('Live version: deep-links to this row in the Mission Control Coda doc for full editing (ticketing, banner, promotion).'); }
@@ -1990,9 +2009,6 @@ document.getElementById('viewSeg').addEventListener('click',e=>{
   [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
   applyView();
 });
-
-/* legend / info modal */
-document.getElementById('infoBtn').addEventListener('click',openInfo);
 
 /* feedback / ideas modal */
 document.getElementById('feedbackBtn').addEventListener('click', ()=>{
@@ -2182,6 +2198,7 @@ async function refresh(){
 }
 async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
+  { const hp=new URL(location.href).searchParams.get('help'); if(hp!==null) openHelp(hp); }   // ?help=<id> opens that guide (works signed out)
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
   headerMQ.addEventListener('change', applyHeaderMode);
   applyHeaderMode();
@@ -2200,6 +2217,7 @@ async function init(){
   const cachedRefs = cacheGet('references');
   if(cachedRefs && cachedRefs.layers){ rebuildRefs(cachedRefs.layers); renderLayers(); }
   if(cachedRows && cachedRows.length){ state.events = [...cachedRows.map(planningRowToEvent), ...((cachedRefs&&cachedRefs.events)||[])]; applyView(); layoutSticky(); }
+  loadNews().then(paintHelpDot, ()=>{});   // What's new dot on the header ? — doesn't wait on the (slower) rows load
   // Fresh events (renders as soon as /rows returns).
   await refresh();
   openFromUrl();                 // deep-link: ?event=<id>&section=<id> opens that event
@@ -2209,6 +2227,204 @@ async function init(){
     else { const el=document.querySelector('.cell.today'); if(el) el.scrollIntoView({block:'center'}); }
   },60);
 }
+
+/* =========================================================================
+   HELP — the Help drawer. Guides live in web/help/guide.md and What's new in
+   web/help/whats-new.md; HelpLib (web/help/help-lib.js) parses + renders them.
+   Entry points: the header ?, the editor/create-form ?, the status badge, the
+   sign-in gate link, ?help=<id>, and a once-per-device Welcome. App code names
+   a guide ONLY via openHelp('<id>'), help:'<id>' or data-help="<id>" — the
+   forms scripts/check-help.mjs verifies. Design:
+   docs/superpowers/specs/2026-09-29-in-app-help-design.md
+   ========================================================================= */
+const HELP_WELCOMED_KEY='est-help-welcomed';   // set once the Welcome has auto-opened on this device
+const HELP_SEEN_KEY='est-help-seen';           // newest What's-new date this device has seen
+const HELP_RETURNING=!!cacheGet('rows-raw');   // used the app before? (read before init() refreshes the row cache).
+                                               // A first visit that signs in by emailed link counts as returning — /rows is cached while signed out — so that user just keeps the What's new dot.
+const help={ guides:null, news:null, view:'index', id:'', query:'', opener:null };
+let _helpP=null, _newsP=null;
+
+// localStorage for help state: undefined = storage unavailable (so never nag), null = unset.
+function helpGet(k){ try{ return localStorage.getItem(k); }catch(_){ return undefined; } }
+function helpSet(k,v){ try{ localStorage.setItem(k,v); return true; }catch(_){ return false; } }
+
+async function fetchHelpFile(name){
+  const r=await fetch(`help/${name}`, { cache:'no-cache' });   // revalidate: a deploy shows up on the next page load
+  if(!r.ok) throw new Error(`help/${name}: ${r.status}`);
+  return r.text();
+}
+function loadNews(){
+  if(!_newsP) _newsP=fetchHelpFile('whats-new.md')
+    .then(md=>{ help.news=HelpLib.parseWhatsNew(md).entries; return help.news; })
+    .catch(err=>{ _newsP=null; throw err; });
+  return _newsP;
+}
+function loadHelp(){
+  if(!_helpP) _helpP=Promise.all([fetchHelpFile('guide.md'), loadNews().catch(()=>null)])
+    .then(([md])=>{ help.guides=HelpLib.parseGuide(md).guides; })
+    .catch(err=>{ _helpP=null; throw err; });
+  return _helpP;
+}
+
+function latestNews(){ return (help.news && help.news[0] && help.news[0].date) || ''; }
+function newsUnseen(){ const latest=latestNews(), seen=helpGet(HELP_SEEN_KEY); return !!latest && seen!==undefined && (!seen || latest>seen); }
+function markNewsSeen(){ const latest=latestNews(); if(latest) helpSet(HELP_SEEN_KEY, latest); paintHelpDot(); }
+function paintHelpDot(){
+  const b=document.getElementById('helpBtn'); if(!b) return;
+  const unseen=newsUnseen();
+  b.classList.toggle('has-news', unseen);
+  b.setAttribute('aria-label', unseen ? 'Help (new updates)' : 'Help');
+}
+
+function setHelpUrl(id){
+  const u=new URL(location.href);
+  if(id) u.searchParams.set('help', id);
+  else if(u.searchParams.has('help')) u.searchParams.delete('help');
+  else return;
+  history.replaceState(null,'',u);
+}
+// A CSS color from data (e.g. a reference calendar's Color) — only real color
+// values, so a value can't add declarations to a style="" attribute.
+function cssColor(c, fallback){ const s=String(c||'').trim(); return /^(#[0-9a-f]{3,8}|(?:rgb|hsl)a?\([\d\s.,%\/+-]+\)|var\(--[\w-]+\)|[a-z]+)$/i.test(s) ? s : fallback; }
+// The header ? and the editor's aria-modal track the drawer (the editor stays usable beside it).
+function setHelpExpanded(open){
+  const b=document.getElementById('helpBtn'); if(b) b.setAttribute('aria-expanded', String(open));
+  const m=document.getElementById('modal'); if(m) m.setAttribute('aria-modal', open ? 'false' : 'true');
+}
+
+// {{legend}} in guide.md: the calendar key, drawn with the calendar's own chip
+// classes and the live program list — so it can't drift from what's on screen.
+function legendEmbedHTML(){
+  const progs=PROGRAMS.filter(p=>p.id!=='oth' && p.active!==false);
+  const hue=cssColor(progs[0] && progs[0].color, 'var(--accent)');
+  const row=(cls,label,note)=>`<div class="help-legend-row"><div class="chip ${cls}" style="--c:${hue}"><span class="t">${label}</span>${cls==='approved'?'<span class="lock">🔒</span>':''}</div><span>${note}</span></div>`;
+  const ref=REF_LAYERS[0];
+  return `<div class="help-legend">
+      ${row('draft','Draft','Being planned')}
+      ${row('proposed','Proposed','Waiting for Tribal Council')}
+      ${row('approved','Approved','Confirmed and locked')}
+      ${row('cancelled','Cancelled','Not happening')}
+      <div class="help-legend-row"><div class="chip ref" style="--c:${cssColor(ref && ref.color, 'var(--faint)')}"><span class="t">${esc(ref?ref.name:'Holiday')}</span></div><span>Reference calendar (read-only)</span></div>
+    </div>
+    <div class="help-swatches">${progs.map(p=>`<span><span class="help-swatch" style="background:${cssColor(p.color, 'var(--faint)')}"></span>${esc(p.name)}</span>`).join('')}</div>`;
+}
+function helpEmbed(name){ return name==='legend' ? legendEmbedHTML() : ''; }
+
+function helpResultsHTML(){
+  const q=help.query.trim();
+  const item=g=>`<li><a href="#" data-help-link="${esc(g.id)}">${esc(g.title)}</a>${q?` <span class="help-grp">${esc(g.group)}</span>`:''}</li>`;
+  if(q){
+    const hits=HelpLib.searchGuides(help.guides, q);
+    return hits.length ? `<ul class="help-list">${hits.map(item).join('')}</ul>`
+      : `<p class="help-empty">No guides match — try other words, or <a href="mailto:${SUPPORT_EMAIL}">email us</a>.</p>`;
+  }
+  const groups=[...new Set(help.guides.map(g=>g.group))];
+  return groups.map(gr=>`<div class="help-grouph">${esc(gr)}</div><ul class="help-list">${help.guides.filter(g=>g.group===gr).map(item).join('')}</ul>`).join('')
+    + `<ul class="help-list help-news"><li><a href="#" data-help-link="whats-new">What's new</a>${newsUnseen()?'<span class="help-dot" title="New since your last look"></span>':''}</li></ul>`;
+}
+
+async function renderHelp(){
+  const d=document.getElementById('helpDrawer'), body=document.getElementById('helpBody'), title=document.getElementById('helpTitle'), back=document.getElementById('helpBack');
+  if(!help.guides){
+    title.textContent='Help'; back.hidden=true;
+    body.innerHTML=`<p class="help-empty"><span class="ndoc-spin"></span> Loading help…</p>`;
+    try{ await loadHelp(); }
+    catch(_){
+      body.innerHTML=`<p class="help-empty">Help couldn't load. Check your connection and try again.</p><button type="button" class="btn sm" data-help-retry>Retry</button>`;
+      return;
+    }
+    if(d.hidden) return;   // closed while loading: don't re-add ?help= or mark What's new seen
+  }
+  if(help.view==='guide' && help.id==='whats-new' && !help.news){   // What's new failed earlier: try again now
+    title.textContent="What's new"; back.hidden=false;
+    body.innerHTML=`<p class="help-empty"><span class="ndoc-spin"></span> Loading…</p>`;
+    try{ await loadNews(); }
+    catch(_){
+      if(d.hidden || help.id!=='whats-new') return;   // closed, or the user moved on while it retried
+      body.innerHTML=`<p class="help-empty">What's new couldn't load. Check your connection and try again.</p><button type="button" class="btn sm" data-help-retry>Retry</button>`;
+      return;
+    }
+    if(d.hidden || help.id!=='whats-new') return;
+  }
+  const guide=(help.view==='guide' && help.id!=='whats-new') ? help.guides.find(g=>g.id===help.id) : null;
+  if(help.view==='guide' && help.id==='whats-new'){
+    title.textContent="What's new";
+    body.innerHTML=`<article class="help-article">${HelpLib.renderWhatsNew(help.news)}</article>`;
+    markNewsSeen();
+  } else if(guide){
+    title.textContent=guide.title;
+    body.innerHTML=`<article class="help-article">${HelpLib.renderGuide(guide.body, { embed:helpEmbed })}</article>`;
+  } else {                                       // the index — also the fallback for an unknown id
+    help.view='index'; help.id='';
+    title.textContent='Help';
+    body.innerHTML=`<input class="help-search" id="helpSearch" type="search" placeholder="Search help" aria-label="Search help" value="${esc(help.query)}"><div id="helpResults">${helpResultsHTML()}</div>`;
+  }
+  back.hidden = help.view==='index';
+  setHelpUrl(help.view==='index' ? '' : help.id);
+  body.scrollTop=0;
+}
+function openHelp(id, opener){
+  const d=document.getElementById('helpDrawer'); if(!d) return;
+  if(d.hidden || opener) help.opener=opener||document.activeElement;   // an explicit opener (editor ?, status badge) takes over even when already open
+  help.view=id?'guide':'index'; help.id=id||'';
+  d.hidden=false; document.body.classList.add('help-open'); setHelpExpanded(true);
+  renderHelp();
+  d.focus({ preventScroll:true });
+}
+function closeHelp(){
+  const d=document.getElementById('helpDrawer'); if(!d || d.hidden) return;
+  const ae=document.activeElement, hadFocus=!ae || ae===document.body || d.contains(ae);
+  d.hidden=true; document.body.classList.remove('help-open'); setHelpExpanded(false); setHelpUrl('');
+  let o=help.opener; help.opener=null;
+  if(!hadFocus) return;                                                     // the user moved on (e.g. into the editor)
+  const scrim=document.getElementById('scrim');
+  if(scrim.classList.contains('open') && !(o && scrim.contains(o))) o=document.getElementById('mClose');   // the opener is behind the modal
+  if(o && o.isConnected && o.getClientRects().length) o.focus({ preventScroll:true });                    // skip hidden openers
+}
+// Navigate inside the drawer and keep keyboard focus in it (the clicked link is re-rendered away).
+function showHelp(view, id){ help.view=view; help.id=id; renderHelp(); document.getElementById('helpDrawer').focus({ preventScroll:true }); }
+
+document.getElementById('helpClose').addEventListener('click', closeHelp);
+document.getElementById('helpBack').addEventListener('click', ()=>showHelp('index',''));
+document.getElementById('helpDrawer').addEventListener('click', e=>{
+  const l=e.target.closest('[data-help-link]');
+  if(l){ e.preventDefault(); showHelp('guide', l.dataset.helpLink); return; }
+  if(e.target.closest('[data-help-retry]')) showHelp(help.view, help.id);
+});
+document.getElementById('helpBody').addEventListener('input', e=>{
+  if(e.target.id!=='helpSearch') return;
+  help.query=e.target.value;
+  const r=document.getElementById('helpResults'); if(r) r.innerHTML=helpResultsHTML();
+});
+// Any [data-help="<id>"] opens that guide ("" = the index); the header ? toggles.
+document.addEventListener('click', e=>{
+  const t=e.target.closest('[data-help]'); if(!t) return;
+  e.preventDefault();
+  const d=document.getElementById('helpDrawer');
+  if(t.id==='helpBtn' && d && !d.hidden){ closeHelp(); return; }
+  openHelp(t.dataset.help, t);
+});
+// Esc peels the drawer first: the capture phase runs before the modal's Esc-to-close.
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape') return;
+  const d=document.getElementById('helpDrawer');
+  if(d && !d.hidden){ e.preventDefault(); e.stopImmediatePropagation(); closeHelp(); }
+}, true);
+// Welcome: auto-opens once per device, the first time a signed-in identity resolves.
+let _welcomeChecked=false;
+function maybeWelcome(){
+  if(_welcomeChecked || !(state.identity && state.identity.signedIn)) return;
+  _welcomeChecked=true;   // first signed-in identity of this page load only — est:identity re-fires on every token refresh
+  const p=new URL(location.href).searchParams;
+  if(p.has('event') || p.has('help')){ if(!document.getElementById('helpDrawer').hidden) helpSet(HELP_WELCOMED_KEY,'1'); return; }   // arrived via a shared link — don't cover it (reading a guide already counts as welcomed)
+  if(!document.getElementById('helpDrawer').hidden){ helpSet(HELP_WELCOMED_KEY,'1'); return; }   // already reading help (e.g. from the sign-in screen)
+  if(document.getElementById('scrim').classList.contains('open')) return;   // something is already open
+  if(helpGet(HELP_WELCOMED_KEY)!==null) return;                             // welcomed before, or storage unavailable
+  if(!helpSet(HELP_WELCOMED_KEY,'1')) return;
+  if(!HELP_RETURNING) loadNews().then(markNewsSeen, ()=>{});                // brand-new here: nothing is "new" to them
+  openHelp('welcome');
+}
+document.addEventListener('est:identity', maybeWelcome);
 
 /* utils */
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}

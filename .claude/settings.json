@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/check-help.mjs\"; [ -f \"$f\" ] || exit 0; node \"$f\" --hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
