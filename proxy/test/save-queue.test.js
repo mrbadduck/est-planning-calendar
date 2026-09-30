@@ -203,6 +203,15 @@ test('an onState callback that throws does not jam the queue', async () => {
   assert.ok(errors.includes('ui broke'), 'the callback error is reported, not swallowed');
 });
 
+test('settle rejects with the write error even when onState discards on it', async () => {
+  const w = fakeWriter();
+  const q = create({ write: w.write, onState: (id, s) => { if (s === 'error') q.discard(id); } });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  const p = q.settle('e1');
+  w.calls[0].reject(new Error('offline'));
+  await assert.rejects(p, /offline/);
+});
+
 test('discard clears an error so nothing is retried', async () => {
   const w = fakeWriter(); const q = create({ write: w.write });
   q.stage('e1', [{ column: 'Title', value: 'A' }]);

@@ -183,11 +183,13 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   coalesce, a failed write rides along with the next one; no global saving flag.
   `_unsaved` (`id → {ev, before}`) keeps an edited event's local copy through
   re-fetches until it saves (then the `_recent` guard; `scheduleReconcile` pulls
-  server truth). A failed save stays retryable only while its editor is open; once
-  closed (after one more try) `dropFailedEdits` puts the saved values back and
-  toasts — a stale local copy must never linger (a stale Status there once let a
-  Propose undo an approval). A 401 retries after sign-in (`_authRetry`); a 404 is
-  final. Relations arrive as names and `mapRelations` maps them to row ids; an
+  server truth). A failed save stays retryable only while its editor is open; when
+  the editor goes (`leaveForm`/`close`, after one more try) `dropFailedEdits` puts
+  back only the fields the failed edits changed — what did save (a create, a status
+  change) stays, re-guarded by `_recent` against Coda's list lag — and toasts. A
+  stale local copy must never linger (one once let a Propose undo an approval). A
+  401 retries after sign-in (`_authRetry`); a 404 is an ordinary failure (Coda can
+  404 a row created seconds ago). Relations arrive as names and `mapRelations` maps them to row ids; an
   event stays `_lossy` until every reference list is loaded and its names all
   map, and meanwhile the editor waits ("Loading…", first visit) or shows
   Program(s)/Leads/Where read-only (`relationsReady`) — a picker seeded from a
@@ -195,7 +197,8 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   pill** (`#saveStatus`: Saved/Unsaved/Saving…/failed-retry, click to retry).
   `close()` — and every opener that replaces the modal, via `leaveForm()` —
   queues a pending edit so a fast Done/Esc/✕ can't drop the last change;
-  `beforeunload` warns while anything is unsaved. Typeahead/venue pickers take an
+  `beforeunload` (listened for only while an editor is open or a save is pending —
+  `guardUnload`) queues the form and asks. Typeahead/venue pickers take an
   `onChange` (guarded against initial seeding) so chip/segment mutations schedule
   a save. Transitions/Cancel/Delete hold the event they started on (never
   `editing`, which can change mid-await; `_busy` per event) and wait for its queue

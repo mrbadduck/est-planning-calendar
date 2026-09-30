@@ -63,8 +63,8 @@
         for (const [column, value] of batch) if (!r.pending.has(column)) r.pending.set(column, value);   // newer values win
         if (r.newer) { pump(id); return; }      // the user kept editing: send it all again now
         r.error = err;
+        release(r, err);                        // waiters hear the real error — before onState can discard
         emit(id, 'error', err);
-        release(r, err);
         return;
       }
       if (r.pending.size) { pump(id); return; }

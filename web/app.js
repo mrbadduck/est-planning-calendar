@@ -1058,6 +1058,7 @@ function openEditor(ev, section){
   if(ev.id) syncUrl(ev, activeSection);
   if(canEdit && !locked && ev.id){
     _form = { ev, base: formCells(readForm()) };   // what's saved or already queued — autosave sends only what differs from it
+    guardUnload();
     paintSaveStatus();                   // reopened mid-save: Saving… / Save failed — retry
     document.getElementById('wpanel').addEventListener('focusout', ()=>scheduleAutosave());
   }
@@ -1114,7 +1115,10 @@ async function createFromForm(){
     if(saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); }  // swap temp → real id
     markRecent(e.id, {e}); rerender(); toast('Created','ok'); scheduleReconcile();
     _creating=false;
-    if(editing===seed) openEditor(e);   // land in the workspace for the just-created event
+    if(editing===seed){   // land in the workspace for the just-created event
+      if(String(e.id).startsWith('tmp-')) close();   // no row id came back — it appears on the next refresh; don't invite a second Create
+      else openEditor(e);
+    }
   }catch(err){
     applyLocal(e, true); rerender(); _creating=false;
     if(err && err.status===401) sessionExpired();
@@ -1859,37 +1863,56 @@ const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
 const saveQueue = SaveQueue.create({
   write: (id, cells) => DB.update(id, cells),
   onState(id, st, err){
-    if(st==='saved'){ const u=_unsaved.get(id); _unsaved.delete(id); if(u) markRecent(id, {e:u.ev}); scheduleReconcile(); }
+    if(st==='saved'){ const u=_unsaved.get(id); _unsaved.delete(id); guardUnload(); if(u) markRecent(id, {e:u.ev}); scheduleReconcile(); }
     if(st==='error'){
       console.warn('save failed:', err);
       if(err && err.status===401){ _authRetry.add(id); sessionExpired(); }
-      else if(err && err.status===404){ dropFailedEdits(id, 'That event no longer exists — it may have been deleted.'); if(editing && editing.id===id) close(); }
+      // (A 404 is retryable like any failure: Coda can 404 a row created seconds ago.)
       else if(!(_form && _form.ev===editing && editing.id===id)) dropFailedEdits(id);   // no open editor to retry from
     }
     if(editing && editing.id===id) paintSaveStatus();
   },
 });
-// A save failed with no open editor to retry from: put the event back to its saved
-// values (so the calendar matches Coda), forget the edits, and say so.
+// A save failed with no open editor to retry from: put back the fields the failed
+// edits changed (the rest — a create, a status change — did save), forget the
+// edits, and say so.
 function dropFailedEdits(id, msg){
-  const u=_unsaved.get(id);
+  const u=_unsaved.get(id), title=(u && u.ev.title) || 'an event';
   saveQueue.discard(id);
-  _unsaved.delete(id); _recent.delete(id);
-  if(u){ Object.assign(u.ev, u.before); applyLocal(u.ev); rerender(); }
+  _unsaved.delete(id); guardUnload();
+  if(u){
+    Object.assign(u.ev, u.before); applyLocal(u.ev); rerender();
+    markRecent(id, {e:u.ev});   // keep guarding what did save against Coda's list lag
+  }
   scheduleReconcile();
-  toast(msg || `Your last change to “${(u&&u.ev.title)||'an event'}” didn’t save — open it and make the change again`,'err');
+  toast(msg || `Your last change to “${title}” didn’t save — open it and make the change again`,'err');
+}
+// A failed save gets one more try when its editor goes; if that fails too, the
+// edits are dropped with a toast (onState → dropFailedEdits). An expired session
+// retries after sign-in instead.
+function retryFailedSave(id){
+  if(saveQueue.status(id)==='error' && !_authRetry.has(id)) saveQueue.settle(id).catch(()=>{});
 }
 // Saves that hit an expired session go out again once the user has signed back in.
 document.addEventListener('est:identity', ()=>{
   if(!(state.identity && state.identity.signedIn)) return;
   for(const id of [..._authRetry]){ _authRetry.delete(id); saveQueue.settle(id).catch(()=>{}); }
 });
-// Leaving (reload/close) while a change is still saving — or failed with its
-// editor open — would lose it: queue what's in the form and let the browser ask.
-window.addEventListener('beforeunload', e=>{
+// Leaving (reload/close) with an editor open or a change not yet saved would lose
+// it: queue what's in the form and let the browser ask (desktop browsers do;
+// iPhone/iPad Safari doesn't). Only listened for while needed — a standing
+// beforeunload listener keeps some browsers from caching the page for Back.
+function onBeforeUnload(e){
   if(_form) autosaveEditor();
   if(_unsaved.size){ e.preventDefault(); e.returnValue=''; }
-});
+}
+let _unloadGuarded=false;
+function guardUnload(){
+  const need=!!_form || _unsaved.size>0;
+  if(need===_unloadGuarded) return;
+  _unloadGuarded=need;
+  if(need) window.addEventListener('beforeunload', onBeforeUnload); else window.removeEventListener('beforeunload', onBeforeUnload);
+}
 function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'error'
   const el=document.getElementById('saveStatus'); if(!el) return;
   el.className='savestat '+s;
@@ -1914,7 +1937,7 @@ function autosaveEditor(){
   if(changes.length){
     markEbDirtyIfPublicChanged(f);
     let u=_unsaved.get(ev.id);
-    if(!u || u.ev!==ev){ u={ ev, before:(u&&u.before)||{} }; _unsaved.set(ev.id, u); }
+    if(!u || u.ev!==ev){ u={ ev, before:(u&&u.before)||{} }; _unsaved.set(ev.id, u); guardUnload(); }
     for(const k of Object.keys(f)) if(!(k in u.before) && !sameVal(ev[k], f[k])) u.before[k]=ev[k];   // saved values — put back if this never saves
     Object.assign(ev, f);
     ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
@@ -1924,10 +1947,13 @@ function autosaveEditor(){
   }
   paintSaveStatus();
 }
-// The modal is about to show something else: queue the open form's edits, then let it go.
+// The modal is about to show something else: queue the open form's edits, then let
+// it go — and give its failed save, if any, that one more try.
 function leaveForm(){
+  const id=_form && _form.ev.id;
   if(_form) autosaveEditor();
-  _form=null; clearTimeout(_autosaveT); _autosaveT=null;
+  _form=null; clearTimeout(_autosaveT); _autosaveT=null; guardUnload();
+  if(id) retryFailedSave(id);
 }
 // Write everything in the open form now; rejects if that fails. Publishing needs
 // this first — the Worker builds the listing from what Coda has.
@@ -2010,7 +2036,7 @@ async function deleteEditor(){
   if(_busy.has(ev.id)) return;
   const id=ev.id;
   _busy.add(id);
-  _form=null; _unsaved.delete(id); _authRetry.delete(id);   // its unsaved edits go with it — close() has nothing to queue
+  _form=null; _unsaved.delete(id); _authRetry.delete(id); guardUnload();   // its unsaved edits go with it — close() has nothing to queue
   applyLocal({id}, true); close(); rerender(); toast('Deleting…','busy');
   try{
     await saveQueue.discard(id);               // …and a write already in flight finishes before the delete
@@ -2034,14 +2060,12 @@ function close(){
   // change — including a field still being typed in (Esc closes without its blur).
   // The queue writes it after the editor is gone.
   const id=editing && editing.id;
-  leaveForm();
+  leaveForm();   // (retries the open form's failed save once)
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
   document.getElementById('modal').classList.remove('ws','create'); document.getElementById('mBody').classList.remove('ws');
   editing=null; clearUrl();
-  // A save that failed gets one more try now; if that fails too, the event goes
-  // back to its saved values with a toast (saveQueue's onState → dropFailedEdits).
-  if(id && saveQueue.status(id)==='error') saveQueue.settle(id).catch(()=>{});
+  if(id) retryFailedSave(id);   // …and a read-only editor's, whose form wasn't bound
 }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });

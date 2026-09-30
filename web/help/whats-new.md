@@ -7,7 +7,7 @@
 
 ## 2026-09-30
 - **Safer saving.** A save now changes only what you changed. Before, editing an event right after opening the planner could clear its program, leads or venue, an edit could undo an approval made at the same moment, and closing an event mid-approval could stop saving until you reloaded.
-- **Leaving mid-save asks first.** Reload or close the page while a change is still saving (or couldn't save), and your browser checks before you go.
+- **Leaving mid-save asks first.** On a computer, reloading or closing the page while a change is still saving (or couldn't save) asks before you go.
 
 ## 2026-09-29
 - **New: Help.** Click **?** at the top for step-by-step guides. Inside an event, **?** opens the guide for the tab you're on.
