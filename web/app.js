@@ -1879,7 +1879,7 @@ const saveQueue = SaveQueue.create({
 function dropFailedEdits(id, msg){
   const u=_unsaved.get(id), title=(u && u.ev.title) || 'an event';
   saveQueue.discard(id);
-  _unsaved.delete(id); guardUnload();
+  _unsaved.delete(id); _authRetry.delete(id); guardUnload();
   if(u){
     Object.assign(u.ev, u.before); applyLocal(u.ev); rerender();
     markRecent(id, {e:u.ev});   // keep guarding what did save against Coda's list lag
@@ -2036,10 +2036,11 @@ async function deleteEditor(){
   if(_busy.has(ev.id)) return;
   const id=ev.id;
   _busy.add(id);
-  _form=null; _unsaved.delete(id); _authRetry.delete(id); guardUnload();   // its unsaved edits go with it — close() has nothing to queue
+  _form=null; _unsaved.delete(id); _authRetry.delete(id); guardUnload();   // its unsaved edits go with it — close() has nothing to queue or retry
+  const drained=saveQueue.discard(id);
   applyLocal({id}, true); close(); rerender(); toast('Deleting…','busy');
   try{
-    await saveQueue.discard(id);               // …and a write already in flight finishes before the delete
+    await drained;                             // …and a write already in flight finishes before the delete
     await DB.remove(id);
     markRecent(id, { deleted:true });
     toast('Deleted','ok'); scheduleReconcile();
