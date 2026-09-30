@@ -171,27 +171,35 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   workspace, so no premature empty rows; on Create it persists once and
   transitions into the workspace via `openEditor(saved)`. An EXISTING event's
   workspace **autosaves every field on blur** (`autosaveEditor`, debounced 800ms,
-  in place — modal stays open) and **writes only the columns that changed**:
-  `formCells(readForm())` vs `_formBase` (the form as last queued), diffed by
-  `SaveQueue.changedCells`. It never writes Status (only `transitionTo`/
-  `cancelEvent` do) or a column the user didn't touch — a whole-row write once
-  blanked relations and undid approvals (#24). Writes go through **`saveQueue`**
-  (`web/save-queue.js`, node-tested in `proxy/test/save-queue.test.js`): per event,
-  one write in flight, later edits coalesce, a failed write rides along with the
-  next one; no global saving flag. `_unsaved` keeps an edited event's local copy
-  through re-fetches until it saves (then the `_recent` guard; `scheduleReconcile`
-  pulls server truth). Relations arrive as names and `mapRelations` maps them to
-  row ids; an event stays `_lossy` until every reference list is loaded and its
-  names all map, and meanwhile the editor waits ("Loading…", first visit) or shows
+  in place — modal stays open) and **writes only the columns whose form value
+  changed**: `formCells(readForm())` vs `_form.base` (the form as last queued;
+  `_form` = `{ev, base}`, bound to its event), diffed by `SaveQueue.changedCells`.
+  That's normally just the user's edits — the one deliberate exception is
+  `seedLiveFields` syncing the public-listing fields from the live Eventbrite
+  listing. It never writes Status (only `transitionTo`/`cancelEvent` do) — a
+  whole-row write once blanked relations and undid approvals (#24). Writes go
+  through **`saveQueue`** (`web/save-queue.js`, node-tested in
+  `proxy/test/save-queue.test.js`): per event, one write in flight, later edits
+  coalesce, a failed write rides along with the next one; no global saving flag.
+  `_unsaved` (`id → {ev, before}`) keeps an edited event's local copy through
+  re-fetches until it saves (then the `_recent` guard; `scheduleReconcile` pulls
+  server truth). A failed save stays retryable only while its editor is open; once
+  closed (after one more try) `dropFailedEdits` puts the saved values back and
+  toasts — a stale local copy must never linger (a stale Status there once let a
+  Propose undo an approval). A 401 retries after sign-in (`_authRetry`); a 404 is
+  final. Relations arrive as names and `mapRelations` maps them to row ids; an
+  event stays `_lossy` until every reference list is loaded and its names all
+  map, and meanwhile the editor waits ("Loading…", first visit) or shows
   Program(s)/Leads/Where read-only (`relationsReady`) — a picker seeded from a
   partial map would save a partial list. Footer = transitions + a **save-status
   pill** (`#saveStatus`: Saved/Unsaved/Saving…/failed-retry, click to retry).
-  `close()` queues a pending edit so a fast Done/Esc/✕ can't drop the last change;
-  a save that fails after close keeps the edit (toast; reopening shows retry).
-  Typeahead/venue pickers take an `onChange` (guarded against initial seeding) so
-  chip/segment mutations schedule a save. Transitions/Cancel/Delete hold the event
-  they started on (never `editing`, which can change mid-await; `_busy` per event)
-  and wait for its queue first. Publish push (`Create draft`/`Publish`) calls
+  `close()` — and every opener that replaces the modal, via `leaveForm()` —
+  queues a pending edit so a fast Done/Esc/✕ can't drop the last change;
+  `beforeunload` warns while anything is unsaved. Typeahead/venue pickers take an
+  `onChange` (guarded against initial seeding) so chip/segment mutations schedule
+  a save. Transitions/Cancel/Delete hold the event they started on (never
+  `editing`, which can change mid-await; `_busy` per event) and wait for its queue
+  first; a still-creating (`tmp-`) event doesn't open. Publish push (`Create draft`/`Publish`) calls
   `flushAutosave()` first and stops if the save fails (the Worker reads Coda); a
   session-local `_ebDirty` flag is set on public-field edits but not yet shown (the
   push button is gated only on the listing fields — title/date/time/venue edits

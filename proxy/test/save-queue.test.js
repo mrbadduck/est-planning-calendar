@@ -153,6 +153,56 @@ test('discard drops queued edits and ignores the write in flight', async () => {
   assert.ok(!states.includes('error'));
 });
 
+test('discard ignores a write in flight that succeeds', async () => {
+  const w = fakeWriter(); const states = [];
+  const q = create({ write: w.write, onState: (id, s) => states.push(s) });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  const p = q.discard('e1');
+  w.calls[0].resolve(); await p;
+  assert.deepEqual(states, ['saving'], 'no saved for a discarded write');
+  assert.equal(q.status('e1'), 'idle');
+});
+
+test('discard rejects settle waiters whose edits it dropped', async () => {
+  const w = fakeWriter(); const q = create({ write: w.write });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  const waiting = q.settle('e1');
+  q.discard('e1');
+  await assert.rejects(waiting, /discarded/);
+  w.calls[0].resolve();
+});
+
+test('settle after a discard resolves once the discarded write finishes', async () => {
+  const w = fakeWriter(); const q = create({ write: w.write });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  q.discard('e1');
+  let settled = false; const p = q.settle('e1').then(() => { settled = true; });
+  await tick(); assert.equal(settled, false);
+  w.calls[0].resolve(); await p;
+  assert.equal(settled, true);
+});
+
+test('edits staged after a discard are written once the discarded write finishes', async () => {
+  const w = fakeWriter(); const q = create({ write: w.write });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  q.discard('e1');
+  q.stage('e1', [{ column: 'Title', value: 'B' }]);
+  assert.equal(w.calls.length, 1, 'waits for the discarded write');
+  w.calls[0].reject(new Error('offline')); await tick();
+  assert.equal(w.calls.length, 2);
+  assert.deepEqual(cols(w.calls[1].cells), { Title: 'B' }, 'the discarded cells are not restored');
+});
+
+test('an onState callback that throws does not jam the queue', async () => {
+  const w = fakeWriter(); const errors = [];
+  const q = create({ write: w.write, onState: () => { throw new Error('ui broke'); }, onError: e => errors.push(e.message) });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  assert.equal(w.calls.length, 1, 'the write still goes out');
+  w.calls[0].resolve(); await tick();
+  assert.equal(q.status('e1'), 'idle');
+  assert.ok(errors.includes('ui broke'), 'the callback error is reported, not swallowed');
+});
+
 test('discard clears an error so nothing is retried', async () => {
   const w = fakeWriter(); const q = create({ write: w.write });
   q.stage('e1', [{ column: 'Title', value: 'A' }]);

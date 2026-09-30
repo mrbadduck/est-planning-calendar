@@ -428,17 +428,20 @@ const todayStr=(()=>{const t=new Date();return ymd(t.getFullYear(),t.getMonth(),
 // Map id -> { e (optimistic event) | deleted:true, until }.
 const _recent = new Map();
 function markRecent(id, rec){ _recent.set(id, Object.assign({ until: Date.now() + 8000 }, rec)); }
-// Events with edits the save queue hasn't written yet (id -> the edited object):
-// a re-fetch keeps showing them until they save, however long that takes.
+// Events with edits the save queue hasn't written yet: id -> { ev: the edited
+// object, before: the saved values of the fields it changed }. A re-fetch keeps
+// showing the edited object until it saves; if it can't be saved, `before` puts
+// it back (dropFailedEdits).
 const _unsaved = new Map();
 async function loadEvents(){
   const [p,r] = await Promise.all([DB.listPlanning(), DB.listReferences()]);
   const now = Date.now();
   for(const [id,rec] of [..._recent]) if(rec.until <= now) _recent.delete(id);
-  const local = id => _unsaved.get(id) || (_recent.get(id)||{}).e;
+  const local = id => (_unsaved.get(id)||{}).ev || (_recent.get(id)||{}).e;
   const planning = p.filter(ev => !(_recent.get(ev.id)||{}).deleted)   // hide just-deleted
                     .map(ev => local(ev.id) || ev);                      // keep just-edited / not yet saved
   for(const id of new Set([..._unsaved.keys(), ..._recent.keys()])){ const e=local(id); if(e && !p.some(x=>x.id===id)) planning.push(e); }   // keep just-created
+  for(const e of planning) if(e._lossy && e!==editing) mapRelations(e);   // a list may have landed while these rows were loading
   state.events = [...planning, ...r];
 }
 // A reference list just arrived: map the events that were waiting on it (colors,
@@ -974,8 +977,8 @@ function footerActionsHTML(ev, canWrite, canApprove){
   return b.join('');
 }
 function openEditor(ev, section){
-  if(_formBase) autosaveEditor();   // leaving an open editor (or rebuilding this one): queue its unsaved edits first
-  _formBase = null;
+  if(String(ev.id||'').startsWith('tmp-')){ toast('Still creating this event — try again in a moment'); return; }   // no row to save into yet
+  leaveForm();   // leaving an open editor (or rebuilding this one): queue its unsaved edits first
   editing = ev;
   section = sectionId(section);
   activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'details';   // reset per open; honor a deep-linked section
@@ -1043,18 +1046,18 @@ function openEditor(ev, section){
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
     const id=b.dataset.sect; if(id===activeSection) return;
-    if(_formBase) autosaveEditor();   // save the outgoing section's edits before its fields leave the DOM
+    if(_form) autosaveEditor();   // save the outgoing section's edits before its fields leave the DOM
     setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove);
     // The new section can render stored values in a normalized form (e.g. program
     // order) — that isn't an edit, so it becomes the baseline.
-    if(_formBase) _formBase = formCells(readForm());
+    if(_form && _form.ev===ev) _form.base = formCells(readForm());
     const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live && typeof syncUrl==='function') syncUrl(ev, id);
   });
 
   show();
   if(ev.id) syncUrl(ev, activeSection);
   if(canEdit && !locked && ev.id){
-    _formBase = formCells(readForm());   // what's saved or already queued — autosave sends only what differs from it
+    _form = { ev, base: formCells(readForm()) };   // what's saved or already queued — autosave sends only what differs from it
     paintSaveStatus();                   // reopened mid-save: Saving… / Save failed — retry
     document.getElementById('wpanel').addEventListener('focusout', ()=>scheduleAutosave());
   }
@@ -1077,8 +1080,7 @@ function showModalLoading(title, color){
    transitions into the full workspace via openEditor(savedEvent). */
 function openNewEventForm(seed){
   if(!(state.identity && state.identity.canWrite)){ toast('Sign in as a program lead to add events','err'); return; }
-  if(_formBase) autosaveEditor();
-  _formBase = null;
+  leaveForm();
   editing = seed;
   if(!relationsReady(seed) && !_refsSettled){   // first visit: the pickers need the reference lists
     showModalLoading('New event', progColor(seed.program));
@@ -1101,6 +1103,7 @@ function openNewEventForm(seed){
 let _creating=false;
 async function createFromForm(){
   if(_creating) return;
+  const seed=editing;   // the create form — land in the new event only if that's still what's open
   const f=readForm();
   const me=(state.identity && state.identity.name) || '';
   const e=Object.assign({}, {source:'planning', eventbriteUrl:'', gcalId:'', createdBy:me, editedBy:me}, f);
@@ -1111,7 +1114,7 @@ async function createFromForm(){
     if(saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); }  // swap temp → real id
     markRecent(e.id, {e}); rerender(); toast('Created','ok'); scheduleReconcile();
     _creating=false;
-    openEditor(e);                 // land in the workspace for the just-created event
+    if(editing===seed) openEditor(e);   // land in the workspace for the just-created event
   }catch(err){
     applyLocal(e, true); rerender(); _creating=false;
     if(err && err.status===401) sessionExpired();
@@ -1136,6 +1139,7 @@ function clearUrl(){
 function openFromUrl(){
   const p=new URL(location.href).searchParams;
   const id=p.get('event'); if(!id) return;
+  if(editing && editing.id===id) return;   // already open (e.g. from the cached calendar) — don't rebuild it under the user
   const ev=state.events.find(x=>x.id===id); if(!ev) return;
   openEditor(ev, sectionId(p.get('section')||'details'));
 }
@@ -1203,7 +1207,7 @@ function renderPlanning(ev, canEdit, locked, canApprove){
       <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>`
       : `<div class="fld full">${roText([ev.venueTypeName, ev.venueName||ev.venueOther].filter(Boolean).join(' · '))}</div>`}
     </div>
-    ${(!relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists didn’t load. Reload the page to try again.</div>`:``}
+    ${(!relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}`;
 }
@@ -1832,33 +1836,59 @@ function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(
 
 /* ---- workspace auto-save (existing events) --------------------------------
    Every editable workspace field saves on blur, debounced, in place — the modal
-   stays open. A save sends ONLY the columns that differ from the form as it was
-   last queued (formCells vs _formBase), so a column the user didn't touch — a
+   stays open. A save sends ONLY the columns whose form value changed since the
+   form was last queued (formCells vs _form.base) — normally just the user's
+   edits (the one deliberate exception: seedLiveFields syncs the public-listing
+   fields from the live Eventbrite listing). So a column nobody touched — a
    relation mapped before its list loaded, a Status someone else just changed —
-   is never written back. Status itself is written only by the lifecycle actions
+   is never written back; Status is written only by the lifecycle actions
    (transitionTo/cancelEvent). Writes go through saveQueue (web/save-queue.js):
    one at a time per event, later edits coalesce, a failed write rides along with
-   the next one, and one event's saves never wait on or replace another's. The
-   calendar updates optimistically (applyLocal; _unsaved/_recent keep the local
-   copy through re-fetches; scheduleReconcile pulls server truth after). */
+   the next one, and one event's saves never wait on or replace another's. A
+   failed save stays retryable only while its editor is open; after that (and
+   one more try on close) the event goes back to its saved values and a toast
+   says so (dropFailedEdits) — a stale local copy must not linger. The calendar
+   updates optimistically (applyLocal; _unsaved/_recent keep the local copy
+   through re-fetches; scheduleReconcile pulls server truth after). */
 let _autosaveT=null;
-let _formBase=null;       // the open editor's form cells as last queued; null = no editable workspace open
-const _busy=new Set();    // event ids with a transition/cancel/delete in flight
+let _form=null;               // the open editable workspace: { ev, base: its form cells as last queued }
+const _busy=new Set();        // event ids with a transition/cancel/delete in flight
+const _authRetry=new Set();   // event ids whose save hit an expired session — sent again after sign-in
+const sameVal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
 const saveQueue = SaveQueue.create({
   write: (id, cells) => DB.update(id, cells),
   onState(id, st, err){
-    if(st==='saved'){ const e=_unsaved.get(id); _unsaved.delete(id); if(e) markRecent(id, {e}); scheduleReconcile(); }
+    if(st==='saved'){ const u=_unsaved.get(id); _unsaved.delete(id); if(u) markRecent(id, {e:u.ev}); scheduleReconcile(); }
     if(st==='error'){
       console.warn('save failed:', err);
-      if(err && err.status===401) sessionExpired();
-      else if(!(editing && editing.id===id)){   // editor closed: the edit stays queued — reopening shows it with Save failed — retry
-        const e=_unsaved.get(id);
-        toast(`Your last change to “${(e&&e.title)||'an event'}” didn’t save — open it and try again`,'err');
-      }
+      if(err && err.status===401){ _authRetry.add(id); sessionExpired(); }
+      else if(err && err.status===404){ dropFailedEdits(id, 'That event no longer exists — it may have been deleted.'); if(editing && editing.id===id) close(); }
+      else if(!(_form && _form.ev===editing && editing.id===id)) dropFailedEdits(id);   // no open editor to retry from
     }
     if(editing && editing.id===id) paintSaveStatus();
   },
+});
+// A save failed with no open editor to retry from: put the event back to its saved
+// values (so the calendar matches Coda), forget the edits, and say so.
+function dropFailedEdits(id, msg){
+  const u=_unsaved.get(id);
+  saveQueue.discard(id);
+  _unsaved.delete(id); _recent.delete(id);
+  if(u){ Object.assign(u.ev, u.before); applyLocal(u.ev); rerender(); }
+  scheduleReconcile();
+  toast(msg || `Your last change to “${(u&&u.ev.title)||'an event'}” didn’t save — open it and make the change again`,'err');
+}
+// Saves that hit an expired session go out again once the user has signed back in.
+document.addEventListener('est:identity', ()=>{
+  if(!(state.identity && state.identity.signedIn)) return;
+  for(const id of [..._authRetry]){ _authRetry.delete(id); saveQueue.settle(id).catch(()=>{}); }
+});
+// Leaving (reload/close) while a change is still saving — or failed with its
+// editor open — would lose it: queue what's in the form and let the browser ask.
+window.addEventListener('beforeunload', e=>{
+  if(_form) autosaveEditor();
+  if(_unsaved.size){ e.preventDefault(); e.returnValue=''; }
 });
 function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'error'
   const el=document.getElementById('saveStatus'); if(!el) return;
@@ -1871,7 +1901,7 @@ function paintSaveStatus(){
   setSaveStatus(q==='saving' ? 'saving' : q==='error' ? 'error' : _autosaveT ? 'dirty' : 'clean');
 }
 function scheduleAutosave(){
-  if(!_formBase) return;                       // create modal / read-only: nothing to auto-save into
+  if(!_form || _form.ev!==editing) return;     // create modal / read-only: nothing to auto-save into
   setSaveStatus('dirty');
   clearTimeout(_autosaveT); _autosaveT=setTimeout(autosaveEditor, 800);
 }
@@ -1879,18 +1909,25 @@ function scheduleAutosave(){
 // close() can call it on the way out — the queue writes it after the editor is gone.
 function autosaveEditor(){
   clearTimeout(_autosaveT); _autosaveT=null;
-  const ev=editing;
-  if(!ev || !ev.id || !_formBase) return;
-  const f=readForm(), cells=formCells(f), changes=SaveQueue.changedCells(_formBase, cells);
+  if(!_form || _form.ev!==editing || !editing.id) return;   // the modal shows something else now
+  const ev=_form.ev, f=readForm(), cells=formCells(f), changes=SaveQueue.changedCells(_form.base, cells);
   if(changes.length){
     markEbDirtyIfPublicChanged(f);
+    let u=_unsaved.get(ev.id);
+    if(!u || u.ev!==ev){ u={ ev, before:(u&&u.before)||{} }; _unsaved.set(ev.id, u); }
+    for(const k of Object.keys(f)) if(!(k in u.before) && !sameVal(ev[k], f[k])) u.before[k]=ev[k];   // saved values — put back if this never saves
     Object.assign(ev, f);
     ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
-    _formBase=cells; _unsaved.set(ev.id, ev);
+    _form.base=cells;
+    saveQueue.stage(ev.id, changes);           // queue first: a render error must not lose the edit
     applyLocal(ev); rerender();                // reflect in the calendar behind the modal
-    saveQueue.stage(ev.id, changes);
   }
   paintSaveStatus();
+}
+// The modal is about to show something else: queue the open form's edits, then let it go.
+function leaveForm(){
+  if(_form) autosaveEditor();
+  _form=null; clearTimeout(_autosaveT); _autosaveT=null;
 }
 // Write everything in the open form now; rejects if that fails. Publishing needs
 // this first — the Worker builds the listing from what Coda has.
@@ -1954,7 +1991,10 @@ async function cancelEvent(){
     await saveQueue.settle(ev.id).catch(()=>{});   // queued edits land first; one that fails is reported, not a reason to stop
     const res=await DB.cancelEventbrite(ev.id);
     if(res && res.publishStatus) ev.publishStatus=res.publishStatus;
-    markRecent(ev.id, {e:ev}); toast('Event cancelled','ok'); scheduleReconcile();
+    markRecent(ev.id, {e:ev}); scheduleReconcile();
+    // The event is locked now, so a field edit that failed has nowhere to be retried.
+    if(saveQueue.status(ev.id)==='error') dropFailedEdits(ev.id, 'Event cancelled, but your last change to it didn’t save');
+    else toast('Event cancelled','ok');
   }catch(err){
     Object.assign(ev, prev); applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
@@ -1970,7 +2010,7 @@ async function deleteEditor(){
   if(_busy.has(ev.id)) return;
   const id=ev.id;
   _busy.add(id);
-  _formBase=null; _unsaved.delete(id);         // its unsaved edits go with it — close() has nothing to queue
+  _form=null; _unsaved.delete(id); _authRetry.delete(id);   // its unsaved edits go with it — close() has nothing to queue
   applyLocal({id}, true); close(); rerender(); toast('Deleting…','busy');
   try{
     await saveQueue.discard(id);               // …and a write already in flight finishes before the delete
@@ -1993,15 +2033,15 @@ function close(){
   // Queue any edit before tearing down so a fast Done/Esc/✕ can't drop the last
   // change — including a field still being typed in (Esc closes without its blur).
   // The queue writes it after the editor is gone.
-  if(editing && editing.id && _formBase){
-    autosaveEditor();
-    if(saveQueue.status(editing.id)==='error') saveQueue.settle(editing.id).catch(()=>{});   // one more try; if it fails, a toast says so
-  }
-  clearTimeout(_autosaveT); _autosaveT=null; _formBase=null;
+  const id=editing && editing.id;
+  leaveForm();
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
   document.getElementById('modal').classList.remove('ws','create'); document.getElementById('mBody').classList.remove('ws');
   editing=null; clearUrl();
+  // A save that failed gets one more try now; if that fails too, the event goes
+  // back to its saved values with a toast (saveQueue's onState → dropFailedEdits).
+  if(id && saveQueue.status(id)==='error') saveQueue.settle(id).catch(()=>{});
 }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });
@@ -2063,6 +2103,7 @@ function newIdeaInMonth(mkey){
 
 /* tiny day picker when a cell overflows */
 function openDayPicker(ds,list){
+  leaveForm();
   editing={id:'__picker__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent=fmtDate(ds);
@@ -2099,6 +2140,7 @@ document.getElementById('viewSeg').addEventListener('click',e=>{
 
 /* feedback / ideas modal */
 document.getElementById('feedbackBtn').addEventListener('click', ()=>{
+  leaveForm();   // (reachable by keyboard while an event is open — its edits must not be lost or misfiled)
   editing={id:'__feedback__'};
   document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');

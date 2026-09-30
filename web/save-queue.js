@@ -21,11 +21,15 @@
     return (after || []).filter(c => !prev.has(c.column) || !same(prev.get(c.column), c.value));
   }
 
-  // opts.write(id, cells) → Promise; opts.onState(id, 'saving'|'saved'|'error', err)
+  // opts.write(id, cells) → Promise; opts.onState(id, 'saving'|'saved'|'error', err);
+  // opts.onError(e) receives anything onState throws (default console.error) — a
+  // broken callback must never jam the queue.
   function create(opts) {
     const write = opts.write;
     const onState = opts.onState || function () {};
+    const onError = opts.onError || (e => { if (typeof console !== 'undefined') console.error(e); });
     const recs = new Map();   // id → { pending: Map(column → value), inflight, newer, error, epoch, waiters, drains }
+    function emit(id, st, err) { try { onState(id, st, err); } catch (e) { onError(e); } }
 
     function rec(id) {
       let r = recs.get(id);
@@ -39,7 +43,7 @@
       if (r.inflight || !r.pending.size) return;
       const batch = r.pending, epoch = r.epoch;
       r.pending = new Map(); r.inflight = true; r.newer = false; r.error = null;
-      onState(id, 'saving');
+      emit(id, 'saving');
       let p;
       try { p = Promise.resolve(write(id, [...batch].map(([column, value]) => ({ column, value })))); }
       catch (e) { p = Promise.reject(e); }
@@ -51,19 +55,20 @@
       r.inflight = false;
       if (epoch !== r.epoch) {                  // discarded while in flight: its outcome no longer matters
         for (const f of r.drains.splice(0)) f();
-        pump(id);
+        if (r.pending.size) pump(id);           // edits staged since the discard
+        else release(r, null);                  // settle() calls made since the discard
         return;
       }
       if (err) {
         for (const [column, value] of batch) if (!r.pending.has(column)) r.pending.set(column, value);   // newer values win
         if (r.newer) { pump(id); return; }      // the user kept editing: send it all again now
         r.error = err;
-        onState(id, 'error', err);
+        emit(id, 'error', err);
         release(r, err);
         return;
       }
       if (r.pending.size) { pump(id); return; }
-      onState(id, 'saved');
+      emit(id, 'saved');
       release(r, null);
     }
 
@@ -87,11 +92,12 @@
     }
 
     // Drop the event's queued (and failed) edits; the outcome of a write in flight
-    // is ignored. Resolves once no write is in flight.
+    // is ignored, and anyone waiting on settle() is told the edits were dropped.
+    // Resolves once no write is in flight.
     function discard(id) {
       const r = rec(id);
       r.pending.clear(); r.error = null; r.newer = false; r.epoch++;
-      release(r, null);
+      release(r, new Error('discarded'));
       if (!r.inflight) return Promise.resolve();
       return new Promise(resolve => r.drains.push(resolve));
     }
