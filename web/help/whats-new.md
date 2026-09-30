@@ -5,6 +5,10 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-09-30
+- **Safer saving.** A save now changes only what you changed. Before, editing an event right after opening the planner could clear its program, leads or venue, an edit could undo an approval made at the same moment, and closing an event mid-approval could stop saving until you reloaded.
+- **Changes that don't save wait for you.** If a save fails after you close an event, open it again: your change is still there, and **Save failed — retry** sends it.
+
 ## 2026-09-29
 - **New: Help.** Click **?** at the top for step-by-step guides. Inside an event, **?** opens the guide for the tab you're on.
 - **The i button is gone.** The color and status key it showed now lives in Help, under *Read the calendar*.

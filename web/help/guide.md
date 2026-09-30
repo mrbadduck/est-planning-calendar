@@ -216,9 +216,11 @@ The app never sends email itself. It comes from your own account.
 
 **I can't find an event.** Check the program year, make sure [[Planning events]] isn't crossed out, and click **↻** to refresh. Undated ideas sit under **date TBD** (Overview) or in the [[Ideas]] column (Calendar).
 
-**My change didn't stick.** Look for **Saved** in the open event. If it says [[Save failed — retry]], click it.
+**My change didn't stick.** Look for **Saved** in the open event. If it says [[Save failed — retry]], click it. If a message said a change didn't save after you closed the event, open it again: your change is still there, waiting for that click.
 
 **Everything is grayed out.** The event is approved (only Tribal Council can change it), it's cancelled (Tribal Council can reopen it), or your account doesn't have the Program Lead role yet (see above).
+
+**Only Program(s), Leads and Where are grayed out.** Their lists didn't finish loading. Reload the page.
 
 ## Suggest an improvement {#feedback}
 
