@@ -489,8 +489,8 @@
   /* workspace mode: modal is a fixed-height flex column; mbody is the rail+panel
      row (not the 2-col field grid); only the panel scrolls, the rail stays put. */
   .modal.ws{height:min(760px, calc(100dvh - 96px));max-width:740px}
-  /* create modal: same fixed shell as the workspace so Create→workspace doesn't jump */
-  .modal.create{height:min(760px, calc(100dvh - 96px));max-width:740px}
+  /* create modal: sizes to its form (the body scrolls past the cap); phones stay full-screen below */
+  .modal.create{height:auto;max-height:min(760px, calc(100dvh - 96px));max-width:740px}
   /* phone: these shells fill the screen (declared AFTER the desktop caps above so
      the equal-specificity mobile rule wins on source order, not just in @media). */
   @media (max-width:600px){ .modal.ws,.modal.create{height:100dvh;max-height:100dvh;max-width:none} }
