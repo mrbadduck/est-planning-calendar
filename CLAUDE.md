@@ -166,7 +166,10 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
   +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
   or Live, date gone by) locks its **Details** tab and drops Cancel/Delete; Notes,
-  Potluck & Volunteers and Attendees are unaffected. Design:
+  Potluck & Volunteers and Attendees are unaffected. The lock is decided when the event
+  opens (so a Council date typo can still be fixed in that session; approving a
+  past-dated proposal asks first) and is enforced only in the UI — the Worker doesn't
+  check it (#32), and `todayStr` is fixed at page load. Design:
   `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
 - **Save model (create-then-workspace + on-blur autosave):** a NEW event opens a
   one-shot compact Planning modal (`openNewEventForm`, Cancel/Create) — not the

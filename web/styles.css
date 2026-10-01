@@ -112,9 +112,10 @@
   .acct-menu .btn{text-align:left}
 
   .sub-short{display:none}
-  /* calendar settings pop-over (⚙ #ovfBtn → #ovfPanel): the layer toggles */
+  /* calendar settings pop-over (⚙ #ovfBtn → #ovfPanel): the layer toggles, anchored to the ⚙ */
+  .ovf{position:relative;display:inline-flex}
   .ovf-panel{
-    position:absolute;right:14px;top:100%;margin-top:6px;z-index:55;
+    position:absolute;right:0;top:100%;margin-top:6px;z-index:55;
     width:min(280px, calc(100vw - 28px));
     background:var(--surface);border:1px solid var(--hair-strong);border-radius:12px;box-shadow:var(--shadow);
     padding:10px;display:flex;flex-direction:column;gap:6px;
@@ -222,7 +223,14 @@
   .cell:hover .cell-add,.gcell:hover .gadd,.qzone:hover .zone-add,
   .cell-add:focus-visible,.gadd:focus-visible,.zone-add:focus-visible{opacity:.8}
   .cell-add:hover,.gadd:hover,.zone-add:hover{opacity:1;background:var(--accent-tint)}
-  @media (hover:none){ .cell-add,.gadd,.zone-add{opacity:.45} }
+  .ghead{display:flex;align-items:center;justify-content:space-between;gap:4px;min-height:20px}
+  .gcell .gadd{position:static;flex:0 0 auto;width:18px;height:18px;font-size:14px}
+  @media (hover:none){   /* touch: no hover, so the + buttons show faintly — at a 24px target */
+    .cell-add,.gadd,.zone-add{opacity:.5}
+    .cell-add,.zone-add{width:24px;height:24px;top:1px;right:1px}
+    .qzone > :not(.zone-add):first-child{margin-right:26px}
+  }
+  @media (max-width:600px){ .cell-add{display:none} }   /* phone day cells are too narrow for a + beside the date — add from Overview's lanes or + at the top */
 
   /* chips */
   .chips{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -417,8 +425,8 @@
   .qweek{display:grid;grid-template-columns:38px minmax(0,1fr) minmax(0,1fr);border-top:1px solid var(--hair);min-height:38px}
   .qwk{font-size:10px;color:var(--faint);padding:5px 3px 0 7px;line-height:1.15;border-right:1px solid var(--hair)}
   .qzone{padding:4px;display:flex;flex-direction:column;gap:2px;min-width:0;cursor:default;position:relative}
-  .qzone:hover{background:rgba(69,69,158,.06)}
-  .qzone.wknd:hover{background:rgba(69,69,158,.09)}
+  .qzone:hover,.qzone.wknd:hover{background:var(--accent-tint)}
+  .qzone > :not(.zone-add):first-child{margin-right:22px}   /* room for the + beside the lane's first chip — it never covers (or takes clicks from) a chip */
   .qzone.wknd{background:rgba(69,69,158,.035);border-left:1px solid var(--hair)}
   .qzone .zlbl{font-size:11px;color:#D3D0C8;text-align:center;padding-top:2px}
   .qchip{font-size:10px;line-height:1.25;border-radius:4px;padding:2px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-left:3px solid var(--c)}
@@ -449,7 +457,7 @@
     .mbody > .fld.full,.mbody > .meta,.mbody > .locknote{grid-column:1}   /* collapse the spanning top-level fields; leaves nested grids (timerow) alone */
   }
 
-  /* mobile: slim two-row bar; year-nav + filters live behind the ⋯ menu */
+  /* mobile: slim two-row bar */
   @media (max-width:600px){
     .bar{padding:10px 0 8px}
     .bar-inner{padding:0 14px;gap:8px}
@@ -467,7 +475,7 @@
     .yearnav{gap:2px}
     .yearnav .btn.icon{padding:6px 6px}
     .yearnav .yr{min-width:46px;font-size:14px}
-    .row2 > .btn.icon{padding:6px 7px}
+    #refreshBtn,#ovfBtn{padding:6px 7px}
     #addBtn .add-long{display:none}
     #addBtn .add-short{display:inline}
     #addBtn{padding:5px 9px;font-size:16px;line-height:1}
@@ -678,7 +686,8 @@
   .badge-btn:hover{filter:brightness(.95)}
   .gate .gate-help{margin:16px 0 0;font-size:12.5px}
   .gate .gate-help a{color:var(--accent);font-weight:600}
-  @media (min-width:1000px){ body.help-open{padding-right:var(--help-w)} }   /* wide: Help sits beside the page — header and calendar narrow instead of hiding under it */
+  @media (min-width:1000px){ body.help-open{padding-right:var(--help-w)} }
+  @media (min-width:1000px) and (max-width:1399px){ body.help-open .qgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }   /* the page is under 1000px wide then — three columns get cramped */   /* wide: Help sits beside the page — header and calendar narrow instead of hiding under it */
   @media (min-width:1000px){ body.help-open .scrim{padding-right:calc(var(--help-w) + 16px)} }       /* an open editor (≥568px) sits beside the drawer; narrower, the drawer overlays it */
   @media (min-width:780px){  body.help-open .gate-scrim{padding-right:calc(var(--help-w) + 20px)} }  /* the 340px sign-in card still fits beside it */
   @media (max-width:600px){

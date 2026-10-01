@@ -91,7 +91,7 @@ A few more things you'll see:
 
 Program Leads and Tribal Council can add events.
 
-1. Click [[+ New event]] (just **+** on a phone), or point at a day in Calendar view, or a weeknight or weekend lane in Overview, and click the **+** that appears. In Calendar view, the **+** in a month's [[Ideas]] column adds a whole-month idea.
+1. Click [[+ New event]] (just **+** on a phone), or point at a day in Calendar view, or a weeknight or weekend lane in Overview, and click the **+** that appears. On a phone, Overview's lanes always show their **+**. In Calendar view, the **+** at the top of a month's [[Ideas]] column adds a whole-month idea.
 2. Give it a [[Title]].
 3. Under **When**, pick [[Exact date]], [[Date range]] (sometime in a window) or [[Whole month]]. A new exact-date event starts at 6:30–8:00 pm, so check the times.
 4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, set **Venue type** to [[Any]] to search every venue, or type its name and choose **＋ New venue**.

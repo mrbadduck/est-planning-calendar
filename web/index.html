@@ -39,18 +39,20 @@
     </div>
     <span class="grow-sp"></span>
     <button class="btn ghost icon" id="refreshBtn" type="button" aria-label="Refresh event data" data-tip="Refresh event data">↻</button>
-    <button class="btn ghost icon" id="ovfBtn" type="button" aria-label="Calendar settings" data-tip="Calendar settings" aria-expanded="false" aria-controls="ovfPanel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    <span class="ovf">
+      <button class="btn ghost icon" id="ovfBtn" type="button" aria-label="Calendar settings" data-tip="Calendar settings" aria-expanded="false" aria-controls="ovfPanel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      <div class="ovf-panel" id="ovfPanel" hidden>
+        <div class="ovf-h" id="ovfH">Show on calendar</div>
+        <div class="layers" id="layers" role="group" aria-labelledby="ovfH">
+          <button type="button" class="lyr" data-on="true" aria-pressed="true" data-layer="planning">
+            <span class="dot" style="background:linear-gradient(135deg,var(--p-kab),var(--p-tot))"></span>
+            <span class="name">Planning events</span>
+          </button>
+          <!-- reference toggles injected by renderLayers -->
+        </div>
+      </div>
+    </span>
     <button class="btn primary" id="addBtn" type="button" aria-label="New event"><span class="add-long">+ New event</span><span class="add-short" aria-hidden="true">+</span></button>
-  </div>
-  <div class="ovf-panel" id="ovfPanel" hidden>
-    <div class="ovf-h">Show on calendar</div>
-    <div class="layers" id="layers">
-      <button type="button" class="lyr" data-on="true" aria-pressed="true" data-layer="planning">
-        <span class="dot" style="background:linear-gradient(135deg,var(--p-kab),var(--p-tot))"></span>
-        <span class="name">Planning events</span>
-      </button>
-      <!-- reference toggles injected by renderLayers -->
-    </div>
   </div>
 </div>
 

@@ -6,7 +6,7 @@
 -->
 
 ## 2026-10-01
-- **Calendar settings.** Showing or hiding planning events and reference calendars moved into **⚙** at the top, next to **↻**. **+ New event** is now at the far right.
+- **Calendar settings.** Showing or hiding planning events and reference calendars moved into **⚙** at the top of the page, next to **↻** and **+ New event**.
 - **Adding from the calendar.** Point at a day or lane and click its **+**. Clicking elsewhere no longer starts a new event.
 - **Past events lock.** Once an approved event's date has passed, its details can't be changed and it can't be cancelled or deleted. Notes, sign-ups and Attendees still work.
 - **Smaller fixes.** Venue type is a dropdown, the new-event form fits its content, icons name themselves when you point at them, and on wide screens Help sits beside the calendar instead of covering it.

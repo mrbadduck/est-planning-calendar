@@ -508,7 +508,7 @@ function progNames(e){ return (e.programs&&e.programs.length?e.programs:[e.progr
 function xMark(e){ return (e.programs&&e.programs.length>1) ? ` <span style="font-size:9px;font-weight:700;opacity:.65" title="${esc(progNames(e).join(' + '))}">+${e.programs.length-1}</span>` : ''; }
 function chipHTML(e){
   if(e.source==='ref'){
-    const c=REF[e.refLayer].color;
+    const c=cssColor(REF[e.refLayer].color, 'var(--faint)');
     return `<div class="chip ref" style="--c:${c}" data-id="${e.id}" data-ref="1" title="${esc(e.title)}"><span class="t">${esc(e.title)}</span></div>`;
   }
   const c=progColor(e.program);
@@ -555,8 +555,8 @@ function renderMonths(){
     let body='';
     for(let w=0; w<rows; w++){
       const ideas=(byWeek[w]||[]);
-      const ghint = w===0 ? `<span class="ghint">date TBD</span>` : '';
-      body += `<div class="gcell">${ghint}<button type="button" class="gadd" data-newidea="${mk}" aria-label="Add an idea for ${MONTHS[Number(mk.slice(5,7))-1]}" data-tip="Add an idea for this month">+</button>${ideas.map(e=>gchipHTML(e,mk)).join('')}</div>`;
+      const ghead = w===0 ? `<div class="ghead"><span class="ghint">date TBD</span><button type="button" class="gadd" data-newidea="${mk}" aria-label="Add an idea for ${MONTHS[Number(mk.slice(5,7))-1]}" data-tip="Add an idea for this month">+</button></div>` : '';   // one + per month
+      body += `<div class="gcell">${ghead}${ideas.map(e=>gchipHTML(e,mk)).join('')}</div>`;
       for(let k=0;k<7;k++){
         const dayNum=w*7+k-startWd+1;
         let cy=y,cm=m,dn=dayNum,other=false;
@@ -566,7 +566,7 @@ function renderMonths(){
         const isToday=ds===todayStr;
         const evs=(byDate[ds]||[]).slice().sort(sortEv);
         body += `<div class="cell ${other?'other':''} ${k===0||k===6?'we':''} ${isToday?'today':''}" data-date="${ds}" ${other?'data-other="1"':''}>
-          <button type="button" class="cell-add" data-add-date="${ds}" aria-label="Add an event on ${fmtDate(ds)}" data-tip="Add an event">+</button>
+          ${other ? '' : `<button type="button" class="cell-add" data-add-date="${ds}" aria-label="Add an event on ${fmtDate(ds)}" data-tip="Add an event">+</button>`}
           <span class="dnum">${dn}</span>
           <div class="chips">${evs.map(chipHTML).join('')}</div>
         </div>`;
@@ -586,7 +586,7 @@ function renderMonths(){
    undated ideas sit in a card footer
    ========================================================================= */
 function qchipHTML(e){
-  if(e.source==='ref') return `<div class="qchip ref" style="--c:${REF[e.refLayer].color}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}</div>`;
+  if(e.source==='ref') return `<div class="qchip ref" style="--c:${cssColor(REF[e.refLayer].color, 'var(--faint)')}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}</div>`;
   const c=progColor(e.program);
   return `<div class="qchip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${esc(e.title)}${xMark(e)}</div>`;
 }
@@ -631,7 +631,7 @@ function renderOverview(){
     cols += `<div class="qcol" data-mk="${mk}"><div class="qhead"><span>${MONTHS[m]}</span><span class="qy">${y}</span></div><div>${weeks}</div>${ftr}</div>`;
   }
   cont.innerHTML=`<div class="qgrid">${cols}</div>
-    <div class="legend" style="margin-top:14px"><span class="k" style="color:var(--faint)">Each week splits into <b style="color:var(--muted)">weeknight</b> (Mon–Thu) and <b style="color:var(--muted)">weekend</b> (Fri–Sun). Undated ideas sit in each month's footer. Click a lane to add.</span></div>`;
+    <div class="legend" style="margin-top:14px"><span class="k" style="color:var(--faint)">Each week splits into <b style="color:var(--muted)">weeknight</b> (Mon–Thu) and <b style="color:var(--muted)">weekend</b> (Fri–Sun). Undated ideas sit in each month's footer. Point at a lane and click its + to add.</span></div>`;
 }
 
 function sortEv(a,b){
@@ -642,6 +642,14 @@ function sortEv(a,b){
 
 function renderLayers(){
   const box=document.getElementById('layers');
+  // Same layers as last time (every refresh calls this)? Just sync on/off in place,
+  // so a toggle focused from the keyboard keeps its focus.
+  const sig=REF_LAYERS.map(r=>[r.id,r.name,r.color].join('\u0001')).join('\u0002');
+  if(box.dataset.sig===sig){
+    box.querySelectorAll('[data-ref-toggle]').forEach(el=>{ const on=!!state.layers[el.dataset.layer]; el.dataset.on=on; el.setAttribute('aria-pressed', String(on)); });
+    return;
+  }
+  box.dataset.sig=sig;
   // remove any previously injected ref toggles
   box.querySelectorAll('[data-ref-toggle]').forEach(n=>n.remove());
   for(const r of REF_LAYERS){
@@ -1001,7 +1009,7 @@ function openEditor(ev, section){
     afterRefs(()=>{ if(editing===ev) openEditor(ev, section); });   // try again as each list lands
     return;
   }
-  const c = isRef ? REF[ev.refLayer].color : progColor(ev.program);
+  const c = isRef ? cssColor(REF[ev.refLayer].color, 'var(--faint)') : progColor(ev.program);
   document.getElementById('mStripe').style.setProperty('--c',c);
   document.getElementById('mTitle').textContent = isRef ? 'Reference event' : (ev.id ? (ev.title||'Untitled') : 'New event');
   const actions=document.getElementById('mActions');
@@ -1048,12 +1056,12 @@ function openEditor(ev, section){
   document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
   body.innerHTML = `<div class="wsplit"><nav class="wrail" id="wrail">${railHTML()}</nav><div class="wpanel" id="wpanel"></div></div>`;
   wireScrollFade(document.getElementById('wrail'));   // edge-fade hint when tabs overflow (mobile horizontal rail)
-  renderSection(activeSection, ev, canEdit, locked, canApprove);
+  renderSection(activeSection, ev, canEdit, locked, canApprove, pastLocked);
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
     const id=b.dataset.sect; if(id===activeSection) return;
     if(_form) autosaveEditor();   // save the outgoing section's edits before its fields leave the DOM
-    setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove);
+    setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove, pastLocked);
     // The new section can render stored values in a normalized form (e.g. program
     // order) — that isn't an edit, so it becomes the baseline.
     if(_form && _form.ev===ev) _form.base = formCells(readForm());
@@ -1166,14 +1174,14 @@ function railHTML(){
 }
 function setActiveRail(id){ activeSection=id; document.querySelectorAll('#wrail .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
 
-function renderSection(id, ev, canEdit, locked, canApprove){
+function renderSection(id, ev, canEdit, locked, canApprove, pastLocked){
   const panel=document.getElementById('wpanel'); if(!panel) return;
   const sec=SECTIONS.find(s=>s.id===id);
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
-  const detailsLocked = locked || isHistory(ev);   // a past approved event's Details are history; other tabs don't take this lock
+  const detailsLocked = locked || !!pastLocked;   // a past approved event's Details are history (decided when it opened); other tabs don't take this lock
   panel.innerHTML=renderDetails(ev, canEdit, detailsLocked, canApprove); wireDetails(panel, ev, canEdit, detailsLocked, canApprove);
 }
 
@@ -1843,24 +1851,28 @@ function toast(msg, kind){
 const _tip=document.createElement('div'); _tip.className='tip'; _tip.setAttribute('role','tooltip'); _tip.hidden=true;
 document.body.appendChild(_tip);
 let _tipFor=null;
+let _tipMuted=null;   // the element just clicked — no bubble again until the pointer leaves it
 function showTip(el){
   const text=el.dataset.tip; if(!text) return;
   _tipFor=el; _tip.textContent=text; _tip.hidden=false;
-  const r=el.getBoundingClientRect(), w=_tip.offsetWidth, h=_tip.offsetHeight;
-  const left=Math.max(6, Math.min(r.left + r.width/2 - w/2, innerWidth - w - 6));
+  const r=el.getBoundingClientRect(), w=_tip.offsetWidth, h=_tip.offsetHeight, vw=document.documentElement.clientWidth;   // (not innerWidth: that includes a scrollbar)
+  const left=Math.max(6, Math.min(r.left + r.width/2 - w/2, vw - w - 6));
   const top=(r.bottom + 6 + h > innerHeight - 6) ? r.top - h - 6 : r.bottom + 6;   // flip above near the bottom edge
   _tip.style.left=left+'px'; _tip.style.top=top+'px';
 }
 function hideTip(){ _tipFor=null; _tip.hidden=true; }
 document.addEventListener('pointerover', e=>{
   if(e.pointerType==='touch') return;
+  if(_tipFor && !_tipFor.isConnected) hideTip();   // its element was re-rendered away
   const el=e.target.closest('[data-tip]');
+  if(el && el===_tipMuted) return;
+  _tipMuted=null;
   if(el){ if(el!==_tipFor) showTip(el); } else if(_tipFor) hideTip();
 });
 document.addEventListener('pointerout', e=>{ if(!e.relatedTarget) hideTip(); });   // left the window
 document.addEventListener('focusin', e=>{ const el=e.target.closest('[data-tip]'); if(el && el.matches(':focus-visible')) showTip(el); });
 document.addEventListener('focusout', hideTip);
-document.addEventListener('pointerdown', hideTip);
+document.addEventListener('pointerdown', e=>{ _tipMuted=e.target.closest('[data-tip]'); hideTip(); });
 document.addEventListener('scroll', hideTip, true);
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') hideTip(); });
 let _reconcileT=null;
@@ -2010,6 +2022,7 @@ function applyLocal(e, remove){
 async function transitionTo(status){
   const ev=editing;
   if(!ev || !ev.id || _busy.has(ev.id)) return;
+  if(status==='approved' && isPastEvent(ev) && !confirm('This event’s date has passed. Once it’s approved, its details lock and it can’t be cancelled or deleted. Approve anyway?')) return;
   autosaveEditor();                            // queue any field edit still in the form
   _busy.add(ev.id);
   const prev=ev.status;
@@ -2089,6 +2102,7 @@ function close(){
   // change — including a field still being typed in (Esc closes without its blur).
   // The queue writes it after the editor is gone.
   const id=editing && editing.id;
+  hideTip();
   leaveForm();   // (retries the open form's failed save once)
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
@@ -2208,7 +2222,12 @@ document.addEventListener('click', e=>{
   if(!e.target.closest('#ovfPanel') && !e.target.closest('#ovfBtn')) ovfMenu(false);
   if(!e.target.closest('.msel')) document.querySelectorAll('.msel-menu').forEach(m=>{ m.hidden=true; const b=m.parentElement.querySelector('.msel-btn'); if(b) b.setAttribute('aria-expanded','false'); });
 });
-document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ acctMenu(false); ovfMenu(false); } });
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape') return;
+  acctMenu(false);
+  const p=document.getElementById('ovfPanel');
+  if(p && !p.hidden){ const back=p.contains(document.activeElement); ovfMenu(false); if(back) document.getElementById('ovfBtn').focus(); }
+});
 
 /* layer toggles */
 document.getElementById('layers').addEventListener('click',e=>{
@@ -2541,7 +2560,7 @@ function openHelp(id, opener){
 function closeHelp(){
   const d=document.getElementById('helpDrawer'); if(!d || d.hidden) return;
   const ae=document.activeElement, hadFocus=!ae || ae===document.body || d.contains(ae);
-  d.hidden=true; document.body.classList.remove('help-open'); setHelpExpanded(false); setHelpUrl('');
+  d.hidden=true; document.body.classList.remove('help-open'); setHelpExpanded(false); setHelpUrl(''); hideTip();
   layoutSticky();
   let o=help.opener; help.opener=null;
   if(!hadFocus) return;                                                     // the user moved on (e.g. into the editor)
