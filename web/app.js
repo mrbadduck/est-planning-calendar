@@ -181,7 +181,7 @@ function initVenuePicker(container, ev, opts){
   const disabled = input.disabled;
   let ready = false;
   const fire = () => { if(ready && opts.onChange) opts.onChange(); };   // user edits only (not initial state)
-  const selTypeId = () => { const b=document.querySelector('#f_vtype_seg button[aria-pressed="true"]'); return b?b.dataset.vtype:''; };
+  const selTypeId = () => { const s=document.getElementById('f_vtype'); return s ? s.value : ''; };
   const typeName = () => (VENUE_TYPES.find(x=>x.id===selTypeId())||{}).name;
   const pool = () => { const tn=typeName(); return VENUES.filter(v=>!v.closed && (!tn || v.type===tn)).slice().sort((a,b)=>a.name.localeCompare(b.name)); };
   let active = -1;
@@ -189,8 +189,8 @@ function initVenuePicker(container, ev, opts){
   function showSelect(){ container.dataset.venueId=''; clearPill(); otherWrap.hidden=true; otherInput.value=''; input.hidden=false; input.value=''; menu.hidden=true; if(!disabled) input.focus(); fire(); }
   function selectVenue(v){
     container.dataset.venueId=v.id; clearPill(); otherWrap.hidden=true; input.hidden=true; menu.hidden=true;
-    const tid=venueTypeIdByName[v.type], seg=document.getElementById('f_vtype_seg');   // sync the type switcher to the venue
-    if(seg && tid) [...seg.children].forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.vtype===tid)));
+    const tid=venueTypeIdByName[v.type], sel=document.getElementById('f_vtype');   // sync the type picker to the venue
+    if(sel && tid) sel.value=tid;
     const chip=document.createElement('span'); chip.className='ta-chip venue-pick';
     chip.innerHTML=esc(v.name)+(disabled?'':' <button type="button" aria-label="Clear" tabindex="-1">×</button>');
     if(!disabled) chip.querySelector('button').addEventListener('click', showSelect);
@@ -1206,10 +1206,10 @@ function renderPlanning(ev, canEdit, locked, canApprove){
     </div>
     <div class="fieldgroup">
       <div class="fieldgroup-h">Where</div>
-      ${relOK ? `<div class="whenseg vtype-seg" id="f_vtype_seg">
-        <button type="button" data-vtype="" aria-pressed="${!ev.venueType}" ${dis}>Any</button>
-        ${VENUE_TYPES.map(t=>`<button type="button" data-vtype="${t.id}" aria-pressed="${t.id===ev.venueType}" ${dis}>${esc(t.name)}</button>`).join('')}
-      </div>
+      ${relOK ? `<div class="fld full"><label for="f_vtype">Venue type</label><select id="f_vtype" ${dis}>
+        <option value="" ${!ev.venueType?'selected':''}>Any</option>
+        ${VENUE_TYPES.map(t=>`<option value="${esc(t.id)}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}
+      </select></div>
       <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>`
       : `<div class="fld full">${roText([ev.venueTypeName, ev.venueName||ev.venueOther].filter(Boolean).join(' · '))}</div>`}
     </div>
@@ -1245,15 +1245,9 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
     }
   }
 
-  const vtSeg=document.getElementById('f_vtype_seg');   // absent while the relations show read-only (relationsReady)
-  if(vtSeg && canEdit && !locked){
-    // Where: venue-type switcher (single-select) — filters the venue typeahead pool
-    vtSeg.addEventListener('click', e=>{
-      const b=e.target.closest('button[data-vtype]'); if(!b) return;
-      [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
-      scheduleAutosave();
-    });
-  }
+  // Where: venue type — filters the venue search; saves like any field
+  const vtSel=document.getElementById('f_vtype');   // absent while the relations show read-only (relationsReady)
+  if(vtSel && canEdit && !locked) vtSel.addEventListener('change', scheduleAutosave);
 
   // when control: mode switch + all-day toggle both re-render the time fields
   whenType = sched;
@@ -1794,8 +1788,8 @@ function readForm(){
   const venBox=g('f_venue_box'), venOther=venBox && venBox.querySelector('.venue-other-wrap');
   const venue=venBox ? (venBox.dataset.venueId||'') : ((editing&&editing.venue)||'');
   const venueOther=venBox ? ((venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '') : ((editing&&editing.venueOther)||'');
-  const vtBtn=document.querySelector('#f_vtype_seg button[aria-pressed="true"]');
-  const venueType=g('f_vtype_seg') ? (vtBtn ? (vtBtn.dataset.vtype||'') : '') : ((editing&&editing.venueType)||'');
+  const vtSel=g('f_vtype');
+  const venueType=vtSel ? (vtSel.value||'') : ((editing&&editing.venueType)||'');
   const whenRendered=!!g('f_when');
   const wt=whenRendered ? whenType : ((editing&&editing.scheduling)||'exact');
   const w=whenRendered ? collectWhen() : {};
