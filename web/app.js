@@ -407,7 +407,7 @@ const DB = CodaSource;
    ========================================================================= */
 const state = {
   startYear: 2026,           // program year = Sep(startYear) .. Aug(startYear+1)
-  view: 'overview',          // 'overview' (default) | 'year' (Calendar)
+  view: 'overview',          // 'overview' (default) | 'year' (Calendar) | 'list' — phones always get 'list' (curView)
   role: 'vp',                // legacy; superseded by identity from /me
   currentUser: 'Eric',
   idToken: null,
@@ -634,32 +634,96 @@ function renderOverview(){
     <div class="legend" style="margin-top:14px"><span class="k" style="color:var(--faint)">Each week splits into <b style="color:var(--muted)">weeknight</b> (Mon–Thu) and <b style="color:var(--muted)">weekend</b> (Fri–Sun). Undated ideas sit in each month's footer. Point at a lane and click its + to add.</span></div>`;
 }
 
+/* =========================================================================
+   LIST VIEW — the program year as a scrolling agenda: one row per day that has
+   something on it, planning events first, the day's reference dates collapsed
+   into one muted line. Undated ideas close out their month under "Date TBD".
+   The only view on phones (curView); an option beside Overview/Calendar above.
+   ========================================================================= */
+function hm12(hm){
+  const [h,m]=String(hm||'').split(':').map(Number); if(isNaN(h)) return '';
+  return `${h%12||12}${m?':'+pad(m):''} ${h<12?'am':'pm'}`;
+}
+function listWhen(e){
+  if(e.scheduling==='month') return `Sometime in ${MONTHS[Number((e.targetMonth||'').slice(5,7))-1]||'the month'}`;
+  if(e.scheduling==='range'){
+    const f=ds=>ds?`${MONTHS[Number(ds.slice(5,7))-1].slice(0,3)} ${Number(ds.slice(8,10))}`:'';
+    return [f(e.rangeStart), f(e.rangeEnd)].filter(Boolean).join('–');
+  }
+  if(e.allDay || !e.start) return 'All day';
+  return e.end ? `${hm12(e.start)}–${hm12(e.end)}` : hm12(e.start);
+}
+function lrowHTML(e){
+  const si=statusInfo(e);
+  const meta=[listWhen(e), si.label, e.venueName||e.venueOther||e.location].filter(Boolean).map(esc).join(' · ');
+  return `<button type="button" class="lev ${e.status}" style="--c:${progColor(e.program)}" data-id="${e.id}">
+      <span class="lt">${esc(e.title)||'(untitled)'}${xMark(e)}</span><span class="lm">${meta}</span>
+    </button>`;
+}
+function renderList(){
+  const box=document.getElementById('listView');
+  const byDate=eventsByDate(), roughMap=roughByMonth();
+  let html='', anchored=false;
+  for(const {y,m} of monthsOfYear()){
+    const mk=monthKey(y,m), daysIn=new Date(y,m+1,0).getDate();
+    let days='';
+    for(let d=1; d<=daysIn; d++){
+      const ds=ymd(y,m,d), evs=byDate[ds]; if(!evs) continue;
+      const plans=evs.filter(e=>e.source==='planning').sort(sortEv), refs=evs.filter(e=>e.source!=='planning');
+      const cls=[ds===todayStr?'today':'', ds<todayStr?'past':''];
+      if(!anchored && ds>=todayStr){ anchored=true; cls.push('lnow'); }   // where the list opens: today, or the next day with anything on it
+      days += `<div class="lday ${cls.join(' ')}">
+        <div class="ldate"><span class="lwd">${WD[new Date(y,m,d).getDay()]}</span><span class="ldn">${d}</span></div>
+        <div class="litems">${plans.map(lrowHTML).join('')}${refs.length ? `<div class="lrefs">${refs.map(r=>`<button type="button" class="lref" style="--c:${cssColor(REF[r.refLayer].color,'var(--faint)')}" data-id="${r.id}">${esc(r.title)}</button>`).join('')}</div>` : ''}</div>
+      </div>`;
+    }
+    const rough=roughMap[mk]||[];
+    if(rough.length) days += `<div class="lday ltbd">
+        <div class="ldate"><span class="lwd">Date</span><span class="ldn">TBD</span></div>
+        <div class="litems">${rough.map(lrowHTML).join('')}</div>
+      </div>`;
+    html += `<section class="lmonth" data-mk="${mk}"><h2 class="lmhead">${MONTHS[m]}<span class="ly">${y}</span></h2>${days || '<p class="lempty">Nothing on the calendar</p>'}</section>`;
+  }
+  box.innerHTML=html;
+}
+document.getElementById('listView').addEventListener('click',e=>{
+  const row=e.target.closest('.lev,.lref'); if(!row) return;
+  const ev=state.events.find(x=>x.id===row.dataset.id); if(ev) openEditor(ev);
+});
+
 function sortEv(a,b){
   if(a.source!==b.source) return a.source==='planning'?-1:1;      // plans above refs
   const at=a.allDay?'':(a.start||''), bt=b.allDay?'':(b.start||'');
   return at.localeCompare(bt);
 }
 
+// The layer toggles live in two places — the ⚙ pop-over (#layers) and the phone ☰
+// menu (#menuLayers) — and both always show the same on/off state.
+const LAYER_BOXES = ['layers','menuLayers'];
+function syncLayerToggles(){
+  for(const id of LAYER_BOXES){
+    const box=document.getElementById(id); if(!box) continue;
+    box.querySelectorAll('.lyr').forEach(el=>{ const on=!!state.layers[el.dataset.layer]; el.dataset.on=on; el.setAttribute('aria-pressed', String(on)); });
+  }
+}
 function renderLayers(){
-  const box=document.getElementById('layers');
   // Same layers as last time (every refresh calls this)? Just sync on/off in place,
   // so a toggle focused from the keyboard keeps its focus.
   const sig=REF_LAYERS.map(r=>[r.id,r.name,r.color].join('\u0001')).join('\u0002');
-  if(box.dataset.sig===sig){
-    box.querySelectorAll('[data-ref-toggle]').forEach(el=>{ const on=!!state.layers[el.dataset.layer]; el.dataset.on=on; el.setAttribute('aria-pressed', String(on)); });
-    return;
+  for(const id of LAYER_BOXES){
+    const box=document.getElementById(id); if(!box || box.dataset.sig===sig) continue;
+    box.dataset.sig=sig;
+    // remove any previously injected ref toggles
+    box.querySelectorAll('[data-ref-toggle]').forEach(n=>n.remove());
+    for(const r of REF_LAYERS){
+      const el=document.createElement('button');
+      el.type='button'; el.className='lyr';
+      el.dataset.refToggle='1'; el.dataset.layer=r.id;
+      el.innerHTML=`<span class="swatch-ref" style="background:${cssColor(r.color,'var(--faint)')}"></span><span class="name">${esc(r.name)}</span>`;
+      box.appendChild(el);
+    }
   }
-  box.dataset.sig=sig;
-  // remove any previously injected ref toggles
-  box.querySelectorAll('[data-ref-toggle]').forEach(n=>n.remove());
-  for(const r of REF_LAYERS){
-    const on=!!state.layers[r.id];
-    const el=document.createElement('button');
-    el.type='button'; el.className='lyr'; el.dataset.on=on; el.setAttribute('aria-pressed', String(on));
-    el.dataset.refToggle='1'; el.dataset.layer=r.id;
-    el.innerHTML=`<span class="swatch-ref" style="background:${cssColor(r.color,'var(--faint)')}"></span><span class="name">${esc(r.name)}</span>`;
-    box.appendChild(el);
-  }
+  syncLayerToggles();
 }
 
 /* =========================================================================
@@ -1027,7 +1091,7 @@ function openEditor(ev, section){
       ${ev.description ? `<div class="fld full"><label>Description</label><div class="refdesc">${linkify(ev.description)}</div></div>` : ''}
       ${ev.url ? `<div class="fld full"><a class="reflink" href="${esc(ev.url)}" target="_blank" rel="noopener">Open event ↗</a></div>` : ''}
       <div class="fld full"><label>Calendar</label><input value="${esc(R.name)}" disabled></div>
-      <div class="locknote">Read-only reference calendar. To hide this layer, turn it off under ⚙ at the top.</div>`;
+      <div class="locknote">Read-only reference calendar. To hide this layer, turn it off under ${PHONE_MQ.matches?'☰ (the menu)':'⚙'} at the top.</div>`;
     document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
     show(); return;
   }
@@ -2190,13 +2254,19 @@ function layoutSticky(){
 window.addEventListener('resize', layoutSticky);
 
 /* view switch */
-function rerender(){ if(state.view==='overview') renderOverview(); else renderMonths(); }
+// Phones (≤600px — the same breakpoint as the stylesheet) get the list only: the
+// grids don't fit, and the one-row header has no view switch.
+const PHONE_MQ = window.matchMedia('(max-width:600px)');
+function curView(){ return PHONE_MQ.matches ? 'list' : state.view; }
+function rerender(){ const v=curView(); if(v==='overview') renderOverview(); else if(v==='list') renderList(); else renderMonths(); }
 function applyView(){
-  const yv=document.getElementById('yearView'), q=document.getElementById('quarter');
-  if(state.view==='overview'){ yv.style.display='none'; q.classList.add('on'); renderOverview(); }
-  else { yv.style.display=''; q.classList.remove('on'); renderMonths(); }
-  updateNavLabel(); layoutSticky();
+  const v=curView();
+  document.getElementById('yearView').style.display = v==='year' ? '' : 'none';
+  document.getElementById('quarter').classList.toggle('on', v==='overview');
+  document.getElementById('listView').classList.toggle('on', v==='list');
+  rerender(); updateNavLabel(); layoutSticky();
 }
+PHONE_MQ.addEventListener('change', ()=>{ phoneMenu(false); applyView(); });   // rotated, or a window resized across 600px
 document.getElementById('viewSeg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
   state.view=b.dataset.view;
@@ -2205,7 +2275,7 @@ document.getElementById('viewSeg').addEventListener('click',e=>{
 });
 
 /* feedback / ideas modal */
-document.getElementById('feedbackBtn').addEventListener('click', ()=>{
+function openFeedback(){
   leaveForm();   // (reachable by keyboard while an event is open — its edits must not be lost or misfiled)
   editing={id:'__feedback__'};
   document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
@@ -2214,7 +2284,8 @@ document.getElementById('feedbackBtn').addEventListener('click', ()=>{
   document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
   const body=document.getElementById('mBody'); body.innerHTML=`<div class="fld full"><div class="hint">Suggest anything, or +1 an idea. For section-specific ideas, open an event and visit that section.</div>${feedbackBoardHTML('General')}</div>`;
   wireFeedback(body,'General'); show();
-});
+}
+document.getElementById('feedbackBtn').addEventListener('click', openFeedback);
 
 /* close the account + overflow menus on outside click / Esc */
 document.addEventListener('click', e=>{
@@ -2227,14 +2298,15 @@ document.addEventListener('keydown', e=>{
   acctMenu(false);
   const p=document.getElementById('ovfPanel');
   if(p && !p.hidden){ const back=p.contains(document.activeElement); ovfMenu(false); if(back) document.getElementById('ovfBtn').focus(); }
+  if(!document.getElementById('menuPanel').hidden){ phoneMenu(false); document.getElementById('menuBtn').focus(); }
 });
 
-/* layer toggles */
-document.getElementById('layers').addEventListener('click',e=>{
+/* layer toggles (⚙ pop-over and ☰ menu) */
+for(const id of LAYER_BOXES) document.getElementById(id).addEventListener('click',e=>{
   const lab=e.target.closest('.lyr'); if(!lab) return;
-  const id=lab.dataset.layer;                  // 'planning' or a reference layer id
-  state.layers[id]=!state.layers[id];
-  lab.dataset.on=state.layers[id]; lab.setAttribute('aria-pressed', String(state.layers[id]));
+  const layer=lab.dataset.layer;               // 'planning' or a reference layer id
+  state.layers[layer]=!state.layers[layer];
+  syncLayerToggles();
   rerender();
 });
 
@@ -2244,10 +2316,13 @@ function updateNavLabel(){
   const el=document.getElementById('yrLabel');
   el.textContent=`'${String(state.startYear).slice(2)}–'${String(state.startYear+1).slice(2)}`;   // compact: '26–'27
   el.title=`Program year ${state.startYear}–${state.startYear+1}`;
+  const my=document.getElementById('menuYr'); my.textContent=el.textContent; my.title=el.title;
 }
 document.getElementById('prevYr').addEventListener('click',()=>navStep(-1));
 document.getElementById('nextYr').addEventListener('click',()=>navStep(1));
-document.getElementById('addBtn').addEventListener('click',()=>openNewEventForm(newEventOn(inProgramYear(todayStr)?todayStr:firstOfProgramYear())));
+function addEvent(){ openNewEventForm(newEventOn(inProgramYear(todayStr)?todayStr:firstOfProgramYear())); }
+document.getElementById('addBtn').addEventListener('click', addEvent);
+document.getElementById('fabAdd').addEventListener('click', addEvent);
 function firstOfProgramYear(){ return ymd(state.startYear,8,1); }
 function inProgramYear(ds){ return ds>=ymd(state.startYear,8,1) && ds<=ymd(state.startYear+1,7,31); }
 
@@ -2259,7 +2334,7 @@ function jwtClaims(t){ try{ return JSON.parse(atob(String(t).split('.')[1].repla
 function initials(name){ return (String(name||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('')||'?').toUpperCase(); }
 function roleLabel(id){ return id.canApprove ? 'Tribal Council' : (id.canWrite ? 'Program Lead' : (id.matched ? 'Member' : 'Not a recognized lead')); }
 function renderAuth(){
-  const el = document.getElementById('authSlot'); if(!el) return;
+  const el = document.getElementById('authSlot'), menu = document.getElementById('menuAcct'); if(!el) return;
   const id = state.identity;
   if(id && id.signedIn){
     const claims = jwtClaims(state.idToken);
@@ -2276,19 +2351,32 @@ function renderAuth(){
     el.querySelector('#avatarBtn').addEventListener('click', e=>{ e.stopPropagation(); acctMenu(); });
     el.querySelector('#signOut').addEventListener('click', signOut);
     const rp=el.querySelector('#refreshPeople');
-    if(rp) rp.addEventListener('click', async ()=>{
-      rp.disabled=true; const prev=rp.textContent; rp.textContent='Refreshing…';
-      try{ const j=await DB.refreshPeople(); toast(`Roles refreshed (${j.people} people)`,'ok'); loadPeople(); }
-      catch(err){ toast(err.message||'Refresh failed','err'); }
-      finally{ rp.disabled=false; rp.textContent=prev; acctMenu(false); }
-    });
+    if(rp) rp.addEventListener('click', ()=>refreshRoles(rp));
+    // the phone ☰ menu shows the same account, flat (no avatar pop-up)
+    menu.innerHTML = `<div class="menu-acct">
+        <span class="avatar" aria-hidden="true">${pic ? `<img src="${esc(pic)}" alt="" referrerpolicy="no-referrer">` : esc(initials(name))}</span>
+        <div class="acct-who"><b>${esc(name)}</b><span class="role">${esc(roleLabel(id))}</span></div>
+      </div>
+      <div class="menu-acct-acts">
+        ${id.canApprove?`<button class="btn sm" id="menuRefreshPeople" type="button">Refresh roles &amp; people</button>`:''}
+        <button class="btn sm" id="menuSignOut" type="button">Sign out</button>
+      </div>`;
+    menu.querySelector('#menuSignOut').addEventListener('click', ()=>{ phoneMenu(false); signOut(); });
+    const mrp=menu.querySelector('#menuRefreshPeople');
+    if(mrp) mrp.addEventListener('click', ()=>refreshRoles(mrp));
   } else if(state.authPending){
     // Gap between returning from Google and /me resolving — show progress.
-    el.innerHTML = `<span class="signingin"><span class="ndoc-spin"></span> Signing in…</span>`;
+    el.innerHTML = menu.innerHTML = `<span class="signingin"><span class="ndoc-spin"></span> Signing in…</span>`;
   } else {
-    el.innerHTML = '';   // signed out: the full-screen gate is the sign-in surface
+    el.innerHTML = menu.innerHTML = '';   // signed out: the full-screen gate is the sign-in surface
   }
   updateGate();
+}
+async function refreshRoles(btn){
+  btn.disabled=true; const prev=btn.textContent; btn.textContent='Refreshing…';
+  try{ const j=await DB.refreshPeople(); toast(`Roles refreshed (${j.people} people)`,'ok'); loadPeople(); }
+  catch(err){ toast(err.message||'Refresh failed','err'); }
+  finally{ btn.disabled=false; btn.textContent=prev; acctMenu(false); }
 }
 // The app surface is members-only: a full-screen gate covers it until Firebase
 // yields a signed-in identity (any verified account — roles still gate writes).
@@ -2341,11 +2429,32 @@ function acctMenu(open){
   m.hidden = !willOpen; b.setAttribute('aria-expanded', String(willOpen));
 }
 
-/* ---- calendar settings (⚙): the layer toggles, in a pop-over at every width ---- */
+/* ---- calendar settings (⚙): the layer toggles, in a pop-over above phone width ---- */
 function ovfMenu(open){
   const p=document.getElementById('ovfPanel'), b=document.getElementById('ovfBtn'); if(!p||!b) return;
   const willOpen = open!==undefined ? open : p.hidden;
   p.hidden=!willOpen; b.setAttribute('aria-expanded', String(willOpen));
+}
+
+/* ---- phone menu (☰ #menuBtn → #menuPanel): account, Help, Feedback, program year, layers ---- */
+function phoneMenu(open){
+  const p=document.getElementById('menuPanel'), b=document.getElementById('menuBtn');
+  const willOpen = open!==undefined ? open : p.hidden;
+  if(willOpen===!p.hidden) return;
+  p.hidden=!willOpen; document.getElementById('menuScrim').hidden=!willOpen;
+  b.setAttribute('aria-expanded', String(willOpen));
+  document.body.classList.toggle('menu-open', willOpen);   // the page behind doesn't scroll
+  if(willOpen) p.focus({ preventScroll:true });
+}
+function wirePhoneMenu(){
+  const back=()=>{ phoneMenu(false); document.getElementById('menuBtn').focus({ preventScroll:true }); };
+  document.getElementById('menuBtn').addEventListener('click', ()=>phoneMenu());
+  document.getElementById('menuClose').addEventListener('click', back);
+  document.getElementById('menuScrim').addEventListener('click', back);
+  // Help and Feedback replace the menu (focus returns to ☰ when they close); year and layers keep it open
+  document.getElementById('menuHelp').addEventListener('click', ()=>{ phoneMenu(false); openHelp('', document.getElementById('menuBtn')); });
+  document.getElementById('menuFeedback').addEventListener('click', ()=>{ phoneMenu(false); openFeedback(); });
+  document.querySelector('.menu-year').addEventListener('click', e=>{ const b=e.target.closest('[data-yr]'); if(b) navStep(Number(b.dataset.yr)); });
 }
 async function fetchMe(){
   if(!PROXY_BASE || !state.idToken){ state.identity=null; state.authPending=false; renderAuth(); return; }
@@ -2384,6 +2493,7 @@ async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
   { const hp=new URL(location.href).searchParams.get('help'); if(hp!==null) openHelp(hp); }   // ?help=<id> opens that guide (works signed out)
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
+  wirePhoneMenu();
   layoutSticky();
   // Wire refresh/focus/poll up front so they work immediately (never dead while loading).
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
@@ -2408,7 +2518,9 @@ async function init(){
   openFromUrl();                 // deep-link: ?event=<id>&section=<id> opens that event
   setTimeout(()=>{
     const t=new Date();
-    if(state.view==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
+    const v=curView();
+    if(v==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
+    else if(v==='list'){ const el=document.querySelector('.lday.lnow'); if(el) el.scrollIntoView({block:'start'}); }   // scroll-margin clears the sticky header + month name
     else { const el=document.querySelector('.cell.today'); if(el) el.scrollIntoView({block:'center'}); }
   },60);
 }
@@ -2459,6 +2571,9 @@ function paintHelpDot(){
   const unseen=newsUnseen();
   b.classList.toggle('has-news', unseen);
   b.setAttribute('aria-label', unseen ? 'Help (new updates)' : 'Help');
+  const mb=document.getElementById('menuBtn');   // phones: the dot rides on ☰ and on the menu's Help
+  mb.classList.toggle('has-news', unseen); mb.setAttribute('aria-label', unseen ? 'Menu (new in Help)' : 'Menu');
+  document.querySelector('#menuHelp .help-dot').hidden=!unseen;
 }
 
 function setHelpUrl(id){

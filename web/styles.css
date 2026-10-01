@@ -46,6 +46,7 @@
     padding:12px 0 10px;margin-bottom:0;
   }
   .bar-inner{max-width:1180px;margin:0 auto;padding:0 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .bar-inner.row1{flex-wrap:nowrap}          /* account stays on the title row; the title truncates instead */
   .bar-inner.row2{margin-top:9px}
   .grow-sp{flex:1 1 20px}
   .brand{display:flex;flex-direction:column;gap:1px;min-width:0}
@@ -111,7 +112,6 @@
   .acct-who .role{font-size:11px;color:var(--muted)}
   .acct-menu .btn{text-align:left}
 
-  .sub-short{display:none}
   /* calendar settings pop-over (⚙ #ovfBtn → #ovfPanel): the layer toggles, anchored to the ⚙ */
   .ovf{position:relative;display:inline-flex}
   .ovf-panel{
@@ -150,7 +150,6 @@
   .lyr[data-on="false"]{opacity:.45}
   .lyr[data-on="false"] .name{text-decoration:line-through}
   .btn.icon svg{display:block}
-  .add-short{display:none}
 
   /* ---- weekday header (sticky) ---- */
   .weekhead{
@@ -230,7 +229,6 @@
     .cell-add,.zone-add{width:24px;height:24px;top:1px;right:1px}
     .qzone > :not(.zone-add):first-child{margin-right:26px}
   }
-  @media (max-width:600px){ .cell-add{display:none} }   /* phone day cells are too narrow for a + beside the date — add from Overview's lanes or + at the top */
 
   /* chips */
   .chips{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -457,30 +455,77 @@
     .mbody > .fld.full,.mbody > .meta,.mbody > .locknote{grid-column:1}   /* collapse the spanning top-level fields; leaves nested grids (timerow) alone */
   }
 
-  /* mobile: slim two-row bar */
+  /* ---- phones (≤600px; JS uses the same breakpoint — PHONE_MQ): one header row,
+     "EST Planning" + ☰. Everything else in the two desktop rows lives in the ☰ menu;
+     the list is the only view and the floating + adds. ---- */
+  .phonebar{display:none}
+  .pb-title{font-family:Fraunces,serif;font-weight:600;font-size:17px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #menuBtn{position:relative;padding:6px 8px;color:var(--ink)}
+  #menuBtn.has-news::after{content:"";position:absolute;top:1px;right:1px;width:8px;height:8px;border-radius:50%;background:var(--today);border:2px solid var(--paper)}
+  .fab{display:none}
   @media (max-width:600px){
-    .bar{padding:10px 0 8px}
-    .bar-inner{padding:0 14px;gap:8px}
-    .bar-inner.row1{flex-wrap:nowrap}          /* keep sign-in/avatar on the title row; title truncates instead */
-    .bar-inner.row2{margin-top:8px}
-    .brand h1{font-size:16px}
-    .sub-full{display:none}
-    .sub-short{display:block}
-    .help-btn{width:26px;height:26px;font-size:13px}
-    .controls{gap:6px}
-    /* row 2 fits one line at 375px: view switch, year picker, ↻ ⚙ + */
-    .bar-inner.row2{gap:6px}
-    .row2 .grow-sp{flex:1 1 0}
-    .seg button{padding:6px 7px}
-    .yearnav{gap:2px}
-    .yearnav .btn.icon{padding:6px 6px}
-    .yearnav .yr{min-width:46px;font-size:14px}
-    #refreshBtn,#ovfBtn{padding:6px 7px}
-    #addBtn .add-long{display:none}
-    #addBtn .add-short{display:inline}
-    #addBtn{padding:5px 9px;font-size:16px;line-height:1}
+    .bar{padding:9px 0}
+    .bar-inner.row1,.bar-inner.row2{display:none}
+    .bar-inner.phonebar{display:flex;flex-wrap:nowrap;padding:0 8px 0 14px;gap:8px}
+    .wrap{padding:0 12px 100px}                /* room under the last row for the floating + */
+    .fab{display:flex;align-items:center;justify-content:center;position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:35;
+      width:54px;height:54px;padding:0 0 3px;border:0;border-radius:50%;background:var(--accent);color:#fff;font:inherit;font-size:30px;line-height:1;box-shadow:var(--shadow);cursor:pointer}
+    .fab:active{background:var(--accent-dk)}
+    .toast{bottom:calc(86px + env(safe-area-inset-bottom))}   /* clear of the floating + */
   }
-  @media (max-width:374px){ .bar-inner{padding:0 10px} }   /* 360px phones: still one line (narrower ones wrap the buttons under) */
+
+  /* phone menu: a sheet from the right over a dim scrim */
+  .menu-scrim{position:fixed;inset:0;z-index:64;background:rgba(28,27,34,.34)}
+  .menu-panel{position:fixed;top:0;right:0;bottom:0;z-index:65;width:min(300px,calc(100vw - 40px));overflow-y:auto;
+    background:var(--surface);border-left:1px solid var(--hair-strong);box-shadow:var(--shadow);padding-bottom:env(safe-area-inset-bottom)}
+  .menu-panel:focus{outline:none}
+  body.menu-open{overflow:hidden}
+  .menu-head{display:flex;align-items:center;gap:8px;padding:10px 10px 10px 16px;border-bottom:1px solid var(--hair)}
+  .menu-sec{display:flex;flex-direction:column;gap:8px;padding:12px 16px;border-bottom:1px solid var(--hair)}
+  .menu-sec:last-child{border-bottom:0}
+  .menu-sec:empty{display:none}
+  .menu-sec .ovf-h{padding:0}
+  .menu-acct{display:flex;align-items:center;gap:10px;min-width:0}
+  .menu-acct .avatar{width:36px;height:36px;font-size:13px;cursor:default}
+  .menu-acct .avatar:hover{box-shadow:none}
+  .menu-acct .acct-who{border:0;padding:0;min-width:0}
+  .menu-acct-acts{display:flex;gap:8px;flex-wrap:wrap}
+  .menu-links{gap:0;padding-top:4px;padding-bottom:4px}
+  .menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:11px 0;border:0;background:transparent;font:inherit;font-size:14px;font-weight:500;color:var(--ink);text-align:left;cursor:pointer}
+  .menu-item:hover{color:var(--accent)}
+  .menu-year .yr{flex:1}
+  .menu-year .btn.icon{padding:8px 12px}
+  .menu-panel .lyr{font-size:13.5px;padding:8px 6px}
+
+  /* ---- list view (#listView, renderList) ---- */
+  #listView{display:none;max-width:720px;margin:0 auto}
+  #listView.on{display:block}
+  .lmhead{position:sticky;top:var(--bar-h,56px);z-index:20;margin:0;padding:16px 4px 6px;background:var(--paper);border-bottom:1px solid var(--hair-strong);
+    font-family:Fraunces,serif;font-weight:600;font-size:17px;display:flex;justify-content:space-between;align-items:baseline}
+  .lmhead .ly{font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;color:var(--faint)}
+  .lday{display:flex;gap:12px;padding:10px 4px;border-bottom:1px solid var(--hair);scroll-margin-top:calc(var(--bar-h,56px) + 50px)}
+  .lday.past{opacity:.6}
+  .ldate{flex:0 0 34px;display:flex;flex-direction:column;align-items:center;line-height:1.1;padding-top:3px}
+  .lwd{font-size:10.5px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
+  .ldn{font-family:Fraunces,serif;font-size:19px;font-weight:600}
+  .ltbd .ldn{font-family:Inter,sans-serif;font-size:11px;color:var(--muted);padding-top:3px}
+  .lday.today .lwd,.lday.today .ldn{color:var(--today)}
+  .litems{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+  .lev{display:flex;flex-direction:column;gap:2px;width:100%;padding:6px 9px 7px;border:0;border-left:3px solid var(--c);border-radius:0 6px 6px 0;
+    background:transparent;font:inherit;color:var(--ink);text-align:left;cursor:pointer}
+  .lev.draft{border-left-style:dashed}
+  .lev.proposed,.lev.confirmed{background:color-mix(in srgb,var(--c) 9%,var(--mixbase))}
+  .lev.approved{background:color-mix(in srgb,var(--c) 18%,var(--mixbase))}
+  .lev.cancelled{border-left-color:var(--faint)}
+  .lev.cancelled .lt{color:var(--faint);text-decoration:line-through}
+  .lev:hover{background:color-mix(in srgb,var(--c) 24%,var(--mixbase))}
+  .lt{font-size:14px;font-weight:600;line-height:1.3}
+  .lm{font-size:12px;color:var(--muted)}
+  .lrefs{display:flex;flex-wrap:wrap;gap:2px 12px}
+  .lref{position:relative;padding:2px 0 2px 11px;border:0;background:transparent;font:inherit;font-size:12px;color:var(--muted);text-align:left;cursor:pointer}
+  .lref::before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:50%;background:var(--c)}
+  .lref:hover{color:var(--ink)}
+  .lempty{margin:0;padding:12px 4px;color:var(--faint);font-size:12px}
 
   /* phone: the editor modal becomes a full-screen sheet */
   @media (max-width:600px){
@@ -710,7 +755,7 @@
       --today:#E0654F;
       --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.5);
     }
-    .btn.primary,.btn.primary:hover,.seg button[aria-pressed="true"],.whenseg button[aria-pressed="true"],
+    .btn.primary,.btn.primary:hover,.seg button[aria-pressed="true"],.whenseg button[aria-pressed="true"],.fab,
     .badge.b-approved,.cell.today .dnum{color:#101020}          /* solid accent is light in dark mode */
     .gchip.approved,.chip.approved{color:#fff}                   /* program hues stay saturated — white holds */
     .badge.b-idea,.badge.b-past,.badge.b-cancelled,.badge.b-ref{background:#2E2D3A;color:#A3A1B0}

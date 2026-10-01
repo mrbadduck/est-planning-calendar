@@ -55,22 +55,25 @@ Every event follows the same path:
 - **Program Leads** add, edit, propose and cancel events, set up potluck and volunteer sign-ups, and see who's coming.
 - **Tribal Council** does all that too, and also approves, publishes, reopens and deletes events, and can edit them after approval.
 
-To check your role, click your picture or initials at the top of the page.
+To check your role, click your picture or initials at the top of the page (on a phone, tap **☰**).
 
-> **Tip:** Click [[?]] at the top of the page anytime to come back to these guides. In an open event, its [[?]] opens the guide for the tab you're on.
+> **Tip:** Click [[?]] at the top of the page anytime to come back to these guides (on a phone, tap **☰**, then [[Help]]). In an open event, its [[?]] opens the guide for the tab you're on.
 
 ## Get around the calendar {#getting-around}
 
 The calendar shows one **program year**, September through August. Use the arrows beside the year (like '26–'27) to move between years.
 
-There are two views:
+There are three views:
 
 - [[Overview]]: the whole year at a glance. Each week has two lanes: weeknights (Monday–Thursday), then weekends (Friday–Sunday). Ideas without a firm date sit at the bottom of their month, under **date TBD**.
 - [[Calendar]]: a full grid for each month. Ideas without a firm date sit in the [[Ideas]] column.
+- [[List]]: every day that has something on it, in order. Holidays and other reference dates share one line under their day. Ideas without a firm date close out their month under **Date TBD**.
 
-**Layers.** Click **⚙** at the top to choose what the calendar shows: [[Planning events]] (your plans), plus reference calendars such as Jewish holidays and partner organizations. A hidden layer looks faded and crossed out. Reference events are read-only.
+**On a phone**, you always get the list. Tap **☰** at the top for everything else: your account, [[Help]], [[Feedback / Ideas]], the program year, and which calendars to show.
 
-Click any event to open it. The calendar refreshes itself every minute; click **↻** to refresh right away.
+**Layers.** Click **⚙** at the top (on a phone, **☰**) to choose what the calendar shows: [[Planning events]] (your plans), plus reference calendars such as Jewish holidays and partner organizations. A hidden layer looks faded and crossed out. Reference events are read-only.
+
+Click any event to open it. The calendar refreshes itself every minute and whenever you come back to it; on a computer, click **↻** to refresh right away.
 
 ## Read the calendar {#reading-the-calendar}
 
@@ -91,7 +94,7 @@ A few more things you'll see:
 
 Program Leads and Tribal Council can add events.
 
-1. Click [[+ New event]] (just **+** on a phone), or point at a day in Calendar view, or a weeknight or weekend lane in Overview, and click the **+** that appears. On a phone, Overview's lanes always show their **+**. In Calendar view, the **+** at the top of a month's [[Ideas]] column adds a whole-month idea.
+1. Click [[+ New event]] (on a phone, tap the round **+** button that floats over the list), or point at a day in Calendar view, or a weeknight or weekend lane in Overview, and click the **+** that appears. On a touch screen, those **+** buttons always show. In Calendar view, the **+** at the top of a month's [[Ideas]] column adds a whole-month idea.
 2. Give it a [[Title]].
 3. Under **When**, pick [[Exact date]], [[Date range]] (sometime in a window) or [[Whole month]]. A new exact-date event starts at 6:30–8:00 pm, so check the times.
 4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, set **Venue type** to [[Any]] to search every venue, or type its name and choose **＋ New venue**.
@@ -210,11 +213,11 @@ The app never sends email itself. It comes from your own account.
 
 **I can't sign in.** If [[Continue with Google]] opens no window, allow pop-ups for this site. With [[Email me a link]], open the email on the same device, and check spam too. Still stuck? Click [[Email us]] on the sign-in screen.
 
-**I can see the calendar but can't add or edit.** You need the Program Lead role; click your picture or initials to see yours. **Member**: ask Tribal Council to make you a Program Lead. **Not a recognized lead**: we don't know that email, so [[Sign out]] and use the one East Side Tribe emails you at, or ask Tribal Council to add it, then reload the page.
+**I can see the calendar but can't add or edit.** You need the Program Lead role; click your picture or initials (on a phone, tap **☰**) to see yours. **Member**: ask Tribal Council to make you a Program Lead. **Not a recognized lead**: we don't know that email, so [[Sign out]] and use the one East Side Tribe emails you at, or ask Tribal Council to add it, then reload the page.
 
-**Tribal Council:** after giving someone a role, click [[Refresh roles & people]] under your picture or initials; it takes effect within a minute.
+**Tribal Council:** after giving someone a role, click [[Refresh roles & people]] under your picture or initials (on a phone, in the **☰** menu); it takes effect within a minute.
 
-**I can't find an event.** Check the program year, make sure [[Planning events]] isn't crossed out under **⚙**, and click **↻** to refresh. Undated ideas sit under **date TBD** (Overview) or in the [[Ideas]] column (Calendar).
+**I can't find an event.** Check the program year, and make sure [[Planning events]] isn't crossed out under **⚙** (on a phone, both are in the **☰** menu). Click **↻** to refresh, or on a phone, reload the page. Undated ideas sit under **date TBD** (Overview and List) or in the [[Ideas]] column (Calendar).
 
 **My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you closed the event, make the change again.
 
@@ -226,7 +229,7 @@ The app never sends email itself. It comes from your own account.
 
 Something confusing, or an idea that would help? Tell us.
 
-1. Click [[Feedback / Ideas]] at the top of the page.
+1. Click [[Feedback / Ideas]] at the top of the page (on a phone, tap **☰** first).
 2. Type your idea and click [[Submit]], or click **▲** to add your vote to someone else's.
 
 Each idea shows where it stands: **New**, **Planned**, **Shipped** or **Declined**.

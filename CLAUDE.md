@@ -134,9 +134,12 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 - **Event model**: normalized event with `scheduling ∈ {exact, range, month}`.
   Undated "ideas" render in the left gutter (Calendar) / month footer (Overview),
   anchored to their rough week/month.
-- **Two views**: `renderOverview()` (default — whole year, months as cards, weeks
-  bucketed **weeknight Mon–Thu / weekend Fri–Sun**) and `renderMonths()`
-  (detailed month grids with a left "Ideas" gutter). `applyView()` toggles them.
+- **Three views**: `renderOverview()` (default — whole year, months as cards, weeks
+  bucketed **weeknight Mon–Thu / weekend Fri–Sun**), `renderMonths()`
+  (detailed month grids with a left "Ideas" gutter) and `renderList()` (an agenda:
+  one row per day with anything on it, refs collapsed to one muted line, undated
+  ideas closing out their month). `applyView()` shows `curView()`, which is
+  `state.view` — except **phones (≤600px, `PHONE_MQ`) always get the list**.
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
   live sections **Details** (a transforming surface — a stable **Event**
   subsection of draft/internal fields on top, and a stage-aware
@@ -237,9 +240,15 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 - **Tooltips**: any element with `data-tip` gets the shared bubble (`showTip`/
   `hideTip`) on hover and keyboard focus — use it, not `title=`, for icon buttons.
 - **Header + calendar settings (⚙)**: row 2 is view switch + year picker, then ↻,
-  ⚙ (`#ovfBtn`) and **+ New event** at the far right (just **+** on phones). ⚙
-  opens `#ovfPanel`, which holds the layer toggles (`#layers`, `renderLayers`) at
-  every width; the year picker always stays in the header.
+  ⚙ (`#ovfBtn`) and **+ New event** at the far right. ⚙ opens `#ovfPanel`, which
+  holds the layer toggles (`#layers`, `renderLayers`).
+- **Phones (≤600px)**: both header rows hide; `.phonebar` is one row — "EST
+  Planning" + ☰ (`#menuBtn`). ☰ opens `#menuPanel` (`phoneMenu`/`wirePhoneMenu`):
+  account (rendered by `renderAuth` alongside the desktop avatar menu), Help,
+  Feedback / Ideas (`openFeedback`), program year (`#menuYr`), and a second copy of
+  the layer toggles (`#menuLayers` — `renderLayers`/`syncLayerToggles` keep both
+  copies in step). A floating **+** (`#fabAdd`, `addEvent`) replaces + New event.
+  The CSS breakpoint and `PHONE_MQ` must stay the same width.
 - **Adding from the calendar**: only the revealed **+** buttons add — `.cell-add`
   (days), `.gadd` (Ideas column), `.zone-add` (Overview lanes); clicking the rest of
   a day or lane does nothing.
