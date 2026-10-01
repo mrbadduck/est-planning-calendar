@@ -2534,6 +2534,7 @@ function openHelp(id, opener){
   if(d.hidden || opener) help.opener=opener||document.activeElement;   // an explicit opener (editor ?, status badge) takes over even when already open
   help.view=id?'guide':'index'; help.id=id||'';
   d.hidden=false; document.body.classList.add('help-open'); setHelpExpanded(true);
+  layoutSticky();   // the header narrows (or widens), so its height can change
   renderHelp();
   d.focus({ preventScroll:true });
 }
@@ -2541,6 +2542,7 @@ function closeHelp(){
   const d=document.getElementById('helpDrawer'); if(!d || d.hidden) return;
   const ae=document.activeElement, hadFocus=!ae || ae===document.body || d.contains(ae);
   d.hidden=true; document.body.classList.remove('help-open'); setHelpExpanded(false); setHelpUrl('');
+  layoutSticky();
   let o=help.opener; help.opener=null;
   if(!hadFocus) return;                                                     // the user moved on (e.g. into the editor)
   const scrim=document.getElementById('scrim');
