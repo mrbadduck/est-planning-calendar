@@ -164,7 +164,9 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   transitions left / save-status right (`statusInfo`, `footerActionsHTML`,
   `transitionTo`, `cancelEvent`). **Cancel** tears down the
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
-  +notify) then sets Status=Cancelled. Design:
+  +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
+  or Live, date gone by) locks its **Details** tab and drops Cancel/Delete; Notes,
+  Potluck & Volunteers and Attendees are unaffected. Design:
   `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
 - **Save model (create-then-workspace + on-blur autosave):** a NEW event opens a
   one-shot compact Planning modal (`openNewEventForm`, Cancel/Create) — not the
@@ -226,10 +228,21 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   once-per-device Welcome on first sign-in (`est-help-welcomed`); a What's-new dot
   (`est-help-seen`). The calendar key is the guide's live `{{legend}}` embed
   (`legendEmbedHTML`). App code names a guide ONLY via `openHelp('<id>')`,
-  `help:'<id>'` or `data-help="<id>"` — the forms the guard checks.
+  `help:'<id>'` or `data-help="<id>"` — the forms the guard checks. On wide screens
+  (≥1000px) the open drawer pushes the page aside (`body.help-open` padding) rather
+  than covering it.
+- **Tooltips**: any element with `data-tip` gets the shared bubble (`showTip`/
+  `hideTip`) on hover and keyboard focus — use it, not `title=`, for icon buttons.
+- **Header + calendar settings (⚙)**: row 2 is view switch + year picker, then ↻,
+  ⚙ (`#ovfBtn`) and **+ New event** at the far right (just **+** on phones). ⚙
+  opens `#ovfPanel`, which holds the layer toggles (`#layers`, `renderLayers`) at
+  every width; the year picker always stays in the header.
+- **Adding from the calendar**: only the revealed **+** buttons add — `.cell-add`
+  (days), `.gadd` (Ideas column), `.zone-add` (Overview lanes); clicking the rest of
+  a day or lane does nothing.
 - **`layoutSticky()`**: measures header heights into `--bar-h`/`--wh-h` so the
   sticky weekday row + month headers stack correctly; self-corrects on load,
-  resize, and view switch.
+  resize, view switch, and Help opening/closing.
 
 ### App gotchas (things that already bit us)
 

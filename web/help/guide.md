@@ -68,9 +68,7 @@ There are two views:
 - [[Overview]]: the whole year at a glance. Each week has two lanes: weeknights (Monday–Thursday), then weekends (Friday–Sunday). Ideas without a firm date sit at the bottom of their month, under **date TBD**.
 - [[Calendar]]: a full grid for each month. Ideas without a firm date sit in the [[Ideas]] column.
 
-**Layers.** Click a layer's name to show or hide it: [[Planning events]] (your plans), plus reference calendars such as Jewish holidays and partner organizations. A hidden layer looks faded and crossed out. Reference events are read-only.
-
-On a phone, the year arrows and the layers are in the **⋯** menu.
+**Layers.** Click **⚙** at the top to choose what the calendar shows: [[Planning events]] (your plans), plus reference calendars such as Jewish holidays and partner organizations. A hidden layer looks faded and crossed out. Reference events are read-only.
 
 Click any event to open it. The calendar refreshes itself every minute; click **↻** to refresh right away.
 
@@ -85,7 +83,7 @@ A few more things you'll see:
 - In Calendar view, a time before a title is the start time, on a 24-hour clock (18:30 is 6:30 pm).
 - **+1** (or +2…) after a title means the event belongs to more than one program.
 - After an idea's title, a range like **12–18** means sometime in that window, and **month** means sometime that month. (In Overview, the numbers at the start of each week are just that week's dates.)
-- In an open event, a **Live** badge means it's published on Eventbrite, and **Past** means its date has gone by.
+- In an open event, a **Live** badge means it's published on Eventbrite, and **Past** means its date has gone by. Once an approved event is past, its details lock.
 
 # Planning an event
 
@@ -93,10 +91,10 @@ A few more things you'll see:
 
 Program Leads and Tribal Council can add events.
 
-1. Click [[+ New event]], or click an empty spot on the calendar: a day in Calendar view, or a weeknight or weekend lane in Overview. In Calendar view, clicking empty space in a month's [[Ideas]] column adds a whole-month idea.
+1. Click [[+ New event]] (just **+** on a phone), or point at a day in Calendar view, or a weeknight or weekend lane in Overview, and click the **+** that appears. In Calendar view, the **+** in a month's [[Ideas]] column adds a whole-month idea.
 2. Give it a [[Title]].
 3. Under **When**, pick [[Exact date]], [[Date range]] (sometime in a window) or [[Whole month]]. A new exact-date event starts at 6:30–8:00 pm, so check the times.
-4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, pick [[Any]] to search every venue, or type its name and choose **＋ New venue**.
+4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, set **Venue type** to [[Any]] to search every venue, or type its name and choose **＋ New venue**.
 5. Click [[Create]].
 
 The event opens in full as a **Draft**. Nothing is public yet, so keep adding details whenever you like.
@@ -130,9 +128,11 @@ Every event has a status, and the buttons in an open event change with it:
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.
 
-**To call an event off**, click [[Cancel event]] and confirm. Program Leads and Tribal Council can do this at any stage, even after it's live. If it's on Eventbrite, the listing comes down too, so if people have registered, email them from [[Attendees]] before you cancel. Only Tribal Council can bring it back to planning, with [[Reopen]], and that doesn't put it back on Eventbrite.
+**To call an event off**, click [[Cancel event]] and confirm. Program Leads and Tribal Council can do this at any stage, even after it's live, until its date has passed. If it's on Eventbrite, the listing comes down too, so if people have registered, email them from [[Attendees]] before you cancel. Only Tribal Council can bring it back to planning, with [[Reopen]], and that doesn't put it back on Eventbrite.
 
 Only Tribal Council sees [[Delete]]. It removes the event right away, with no undo, and doesn't touch Eventbrite, so use [[Cancel event]] for anything that's been published.
+
+**After the date,** an approved event is history: its **Details** lock and it can't be cancelled or deleted. Its [[Planning Notes]], sign-ups and [[Attendees]] still work.
 
 > **Tip:** Click the status label at the top of an open event to come back to this guide.
 
@@ -208,19 +208,19 @@ The app never sends email itself. It comes from your own account.
 
 ## Common problems {#troubleshooting}
 
-**I can't sign in.** Try [[Continue with Google]]; if no Google window opens, allow pop-ups for this site. If you use [[Email me a link]], open the email on the same device, and check your spam or junk folder. Still stuck? Click [[Email us]] on the sign-in screen.
+**I can't sign in.** If [[Continue with Google]] opens no window, allow pop-ups for this site. With [[Email me a link]], open the email on the same device, and check spam too. Still stuck? Click [[Email us]] on the sign-in screen.
 
-**I can see the calendar but can't add or edit.** You need the Program Lead role. Click your picture or initials to see your role. If it says **Member**, ask Tribal Council to make you a Program Lead. If it says **Not a recognized lead**, we don't have the email you signed in with: [[Sign out]] and sign in with the one East Side Tribe uses to reach you, or ask Tribal Council to add this one. Reload the page once they have.
+**I can see the calendar but can't add or edit.** You need the Program Lead role; click your picture or initials to see yours. **Member**: ask Tribal Council to make you a Program Lead. **Not a recognized lead**: we don't know that email, so [[Sign out]] and use the one East Side Tribe emails you at, or ask Tribal Council to add it, then reload the page.
 
-**Tribal Council:** after giving someone a role, click [[Refresh roles & people]] in the menu under your picture or initials. It takes effect within about a minute.
+**Tribal Council:** after giving someone a role, click [[Refresh roles & people]] under your picture or initials; it takes effect within a minute.
 
-**I can't find an event.** Check the program year, make sure [[Planning events]] isn't crossed out, and click **↻** to refresh. Undated ideas sit under **date TBD** (Overview) or in the [[Ideas]] column (Calendar).
+**I can't find an event.** Check the program year, make sure [[Planning events]] isn't crossed out under **⚙**, and click **↻** to refresh. Undated ideas sit under **date TBD** (Overview) or in the [[Ideas]] column (Calendar).
 
-**My change didn't stick.** Look for **Saved** in the open event. If it says [[Save failed — retry]], click it. If a message says a change didn't save after you closed the event, open the event and make the change again.
+**My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you closed the event, make the change again.
 
-**Everything is grayed out.** The event is approved (only Tribal Council can change it), it's cancelled (Tribal Council can reopen it), or your account doesn't have the Program Lead role yet (see above).
+**Everything is grayed out.** The event is approved (only Tribal Council can change it) or approved and past (no one can), it's cancelled (Tribal Council can reopen it), or you don't have the Program Lead role yet (see above).
 
-**Only Program(s), Leads and Where are grayed out.** Their lists haven't loaded yet. Close and reopen the event in a moment, or reload the page.
+**Only Program(s), Leads and Where are grayed out.** Their lists haven't loaded yet: close and reopen the event in a moment, or reload the page.
 
 ## Suggest an improvement {#feedback}
 

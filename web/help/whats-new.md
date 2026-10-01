@@ -5,6 +5,12 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-10-01
+- **Calendar settings.** Showing or hiding planning events and reference calendars moved into **⚙** at the top, next to **↻**. **+ New event** is now at the far right.
+- **Adding from the calendar.** Point at a day or lane and click its **+**. Clicking elsewhere no longer starts a new event.
+- **Past events lock.** Once an approved event's date has passed, its details can't be changed and it can't be cancelled or deleted. Notes, sign-ups and Attendees still work.
+- **Smaller fixes.** Venue type is a dropdown, the new-event form fits its content, icons name themselves when you point at them, and on wide screens Help sits beside the calendar instead of covering it.
+
 ## 2026-09-30
 - **Safer saving.** A save now changes only what you changed. Before, editing an event right after opening the planner could clear its program, leads or venue, an edit could undo an approval made at the same moment, and closing an event mid-approval could stop saving until you reloaded.
 - **Leaving mid-save asks first.** On a computer, reloading or closing the page while a change is still saving (or couldn't save) asks before you go.
