@@ -27,7 +27,7 @@ let REF = {};
 function rebuildRefs(layers){
   REF_LAYERS = layers.map(l=>({ id:l.id, name:l.name, color:l.color, on:!!l.defaultOn }));
   REF = Object.fromEntries(REF_LAYERS.map(r=>[r.id,r]));
-  for(const l of REF_LAYERS){ if(!(l.id in state.layers)) state.layers[l.id] = l.on; }
+  for(const l of REF_LAYERS){ if(!(l.id in state.layers)) state.layers[l.id] = savedLayer(l.id) ?? l.on; }
 }
 
 let progIdByName = Object.fromEntries(PROGRAMS.map(p=>[p.name,p.id]));
@@ -405,15 +405,25 @@ const DB = CodaSource;
 /* =========================================================================
    STATE + RENDER
    ========================================================================= */
+// Per-device view settings — the calendar layers and (above phone width) the view —
+// so a lead's choices survive reloads. Only layers someone has switched are stored:
+// a reference calendar they never touched keeps following its Coda `Default on`.
+// (Layer ids are slugs of the calendar's name, so renaming one resets it to default.)
+const PREFS_KEY = 'est-view-prefs';
+const prefs = (()=>{ try{ const p=JSON.parse(localStorage.getItem(PREFS_KEY)||'null'); return (p && typeof p==='object') ? p : {}; }catch(_){ return {}; } })();
+if(!prefs.layers || typeof prefs.layers!=='object') prefs.layers={};
+function savePrefs(){ try{ localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }catch(_){} }
+function savedLayer(id){ const v=prefs.layers[id]; return typeof v==='boolean' ? v : undefined; }
+
 const state = {
   startYear: 2026,           // program year = Sep(startYear) .. Aug(startYear+1)
-  view: 'overview',          // 'overview' (default) | 'year' (Calendar) | 'list' — phones always get 'list' (curView)
+  view: ['overview','year','list'].includes(prefs.view) ? prefs.view : 'overview',   // 'overview' (default) | 'year' (Calendar) | 'list' — phones always get 'list' (curView)
   role: 'vp',                // legacy; superseded by identity from /me
   currentUser: 'Eric',
   idToken: null,
   identity: null,            // { signedIn, matched, name, canWrite, canApprove }
   authResolved: false,       // has Firebase yielded its first token / signed-out signal?
-  layers: { planning:true },   // ref-layer keys added dynamically from /references
+  layers: { planning: savedLayer('planning') ?? true },   // ref-layer keys added dynamically from /references
   events: [],
 };
 
@@ -2269,7 +2279,7 @@ function applyView(){
 PHONE_MQ.addEventListener('change', ()=>{ phoneMenu(false); applyView(); });   // rotated, or a window resized across 600px
 document.getElementById('viewSeg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
-  state.view=b.dataset.view;
+  state.view=b.dataset.view; prefs.view=state.view; savePrefs();
   [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
   applyView();
 });
@@ -2306,6 +2316,7 @@ for(const id of LAYER_BOXES) document.getElementById(id).addEventListener('click
   const lab=e.target.closest('.lyr'); if(!lab) return;
   const layer=lab.dataset.layer;               // 'planning' or a reference layer id
   state.layers[layer]=!state.layers[layer];
+  prefs.layers[layer]=state.layers[layer]; savePrefs();
   syncLayerToggles();
   rerender();
 });
@@ -2491,6 +2502,7 @@ async function refresh(){
 }
 async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
+  document.querySelectorAll('#viewSeg button').forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.view===state.view)));   // the saved view
   { const hp=new URL(location.href).searchParams.get('help'); if(hp!==null) openHelp(hp); }   // ?help=<id> opens that guide (works signed out)
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
   wirePhoneMenu();

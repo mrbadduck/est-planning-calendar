@@ -71,7 +71,7 @@ There are three views:
 
 **On a phone**, you always get the list. Tap **☰** at the top for everything else: your account, [[Help]], [[Feedback / Ideas]], the program year, and which calendars to show.
 
-**Layers.** Click **⚙** at the top (on a phone, **☰**) to choose what the calendar shows: [[Planning events]] (your plans), plus reference calendars such as Jewish holidays and partner organizations. A hidden layer looks faded and crossed out. Reference events are read-only.
+**Layers.** Click **⚙** at the top (on a phone, **☰**) to choose what the calendar shows: [[Planning events]] (your plans), plus reference calendars such as Jewish holidays and partner organizations. A hidden layer looks faded and crossed out. Reference events are read-only. Your choices are remembered on this device, and so is the view you last picked on a computer.
 
 Click any event to open it. The calendar refreshes itself every minute and whenever you come back to it; on a computer, click **↻** to refresh right away.
 

@@ -265,8 +265,10 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 - Coloring is intentional: planning events by **program** (hue), **status** by
   chip treatment (dashed→tint→solid→filled+lock); reference calendars muted.
 - `localStorage` holds only caches (`est-cache-*`) and per-device UI state (the
-  help drawer's `est-help-welcomed` / `est-help-seen`); real persistence comes from
-  the Coda backing, never browser storage.
+  help drawer's `est-help-welcomed` / `est-help-seen`, and `est-view-prefs` — the
+  layer toggles someone has switched + their view above phone width; untouched
+  layers follow Coda's `Default on`); real persistence comes from the Coda
+  backing, never browser storage.
 - After any JS edit, sanity-check by extracting the `<script>` and running
   `node --check` on it.
 - **The Worker caches Coda reads in KV (stale-while-revalidate).** Coda calls run
