@@ -556,7 +556,7 @@ function renderMonths(){
     for(let w=0; w<rows; w++){
       const ideas=(byWeek[w]||[]);
       const ghint = w===0 ? `<span class="ghint">date TBD</span>` : '';
-      body += `<div class="gcell" data-newidea="${mk}">${ghint}<span class="gadd">＋</span>${ideas.map(e=>gchipHTML(e,mk)).join('')}</div>`;
+      body += `<div class="gcell">${ghint}<button type="button" class="gadd" data-newidea="${mk}" aria-label="Add an idea for ${MONTHS[Number(mk.slice(5,7))-1]}" data-tip="Add an idea for this month">+</button>${ideas.map(e=>gchipHTML(e,mk)).join('')}</div>`;
       for(let k=0;k<7;k++){
         const dayNum=w*7+k-startWd+1;
         let cy=y,cm=m,dn=dayNum,other=false;
@@ -566,7 +566,7 @@ function renderMonths(){
         const isToday=ds===todayStr;
         const evs=(byDate[ds]||[]).slice().sort(sortEv);
         body += `<div class="cell ${other?'other':''} ${k===0||k===6?'we':''} ${isToday?'today':''}" data-date="${ds}" ${other?'data-other="1"':''}>
-          <span class="add-hint">+</span>
+          <button type="button" class="cell-add" data-add-date="${ds}" aria-label="Add an event on ${fmtDate(ds)}" data-tip="Add an event">+</button>
           <span class="dnum">${dn}</span>
           <div class="chips">${evs.map(chipHTML).join('')}</div>
         </div>`;
@@ -616,10 +616,11 @@ function renderOverview(){
       }
       wkn.sort(cmp); wknd.sort(cmp);
       const lbl = dayNums[0]===dayNums[dayNums.length-1] ? `${dayNums[0]}` : `${dayNums[0]}–${dayNums[dayNums.length-1]}`;
+      const zone = (kind, list) => `<div class="qzone ${kind}">${list.map(qchipHTML).join('')||'<span class="zlbl">·</span>'}<button type="button" class="zone-add" data-add="${weekAddDate(y,m,dayNums,kind)}" aria-label="Add a ${kind==='wkn'?'weeknight':'weekend'} event, ${MONTHS[m]} ${lbl}" data-tip="Add an event">+</button></div>`;
       weeks += `<div class="qweek">
         <div class="qwk">${lbl}</div>
-        <div class="qzone wkn" data-add="${weekAddDate(y,m,dayNums,'wkn')}">${wkn.map(qchipHTML).join('')||'<span class="zlbl">·</span>'}</div>
-        <div class="qzone wknd" data-add="${weekAddDate(y,m,dayNums,'wknd')}">${wknd.map(qchipHTML).join('')||'<span class="zlbl">·</span>'}</div>
+        ${zone('wkn', wkn)}
+        ${zone('wknd', wknd)}
       </div>`;
     }
     const rough=(roughMap[mk]||[]);
@@ -2136,14 +2137,13 @@ document.getElementById('months').addEventListener('click',e=>{
     if(ev) openEditor(ev);
     return;
   }
-  const cell=e.target.closest('.cell'); if(!cell) return;
-  openNewEventForm(newEventOn(cell.dataset.date));
+  const add=e.target.closest('[data-add-date]'); if(add) openNewEventForm(newEventOn(add.dataset.addDate));   // only the + adds — the rest of the day does nothing
 });
 
 document.getElementById('quarter').addEventListener('click',e=>{
   const chip=e.target.closest('.qchip');
   if(chip){ const ev=state.events.find(x=>x.id===chip.dataset.id); if(ev) openEditor(ev); return; }
-  const z=e.target.closest('.qzone'); if(z && z.dataset.add) openNewEventForm(newEventOn(z.dataset.add));
+  const z=e.target.closest('.zone-add'); if(z) openNewEventForm(newEventOn(z.dataset.add));   // only the + adds
 });
 
 function newEventOn(date){
