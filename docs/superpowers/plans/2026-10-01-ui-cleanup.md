@@ -372,7 +372,7 @@ git add web/styles.css && git commit -m "fix(web): the new-event form sizes to i
 **Files:**
 - Modify: `web/app.js`:
   - add `isHistory` after `isPastEvent`
-  - `openEditor`: the history flag, footer, save label, `_form` binding, loading gate
+  - `openEditor`: the `pastLocked` flag, footer, save label, `_form` binding, loading gate
   - `renderSection`: the Details lock
   - `renderPlanning`: the lock note
 
@@ -395,12 +395,12 @@ function isHistory(ev){ return isPastEvent(ev) && ev.status==='approved'; }
 - [ ] **Step 3: `openEditor`.**
   - After `const locked = …;`, add:
 ```js
-  const history = !isRef && isHistory(ev);   // Details only — see renderSection
+  const pastLocked = !isRef && isHistory(ev);   // Details only — see renderSection (not `history`: that would shadow window.history)
 ```
-  - Change the loading-gate condition to `if(!isRef && canEdit && !locked && !history && !relationsReady(ev) && !_refsSettled){`.
-  - Change `let acts = footerActionsHTML(ev, canEdit, canApprove);` to `let acts = history ? '' : footerActionsHTML(ev, canEdit, canApprove);`.
-  - Change the save-label condition to `if(ev.id && canEdit && !locked && !history)`.
-  - Change the `_form` binding condition to `if(canEdit && !locked && !history && ev.id){`.
+  - Change the loading-gate condition to `if(!isRef && canEdit && !locked && !pastLocked && !relationsReady(ev) && !_refsSettled){`.
+  - Change `let acts = footerActionsHTML(ev, canEdit, canApprove);` to `let acts = pastLocked ? '' : footerActionsHTML(ev, canEdit, canApprove);`.
+  - Change the save-label condition to `if(ev.id && canEdit && !locked && !pastLocked)`.
+  - Change the `_form` binding condition to `if(canEdit && !locked && !pastLocked && ev.id){`.
 
 - [ ] **Step 4: `renderSection`.** Replace the last line (the Details render) with:
 ```js

@@ -56,7 +56,7 @@ clipped by the modal. Applies to:
 
 - the event header's **?** (Help for this tab), **View in gather**, **Copy link**
   and **×** (Close);
-- the page header's **?** (Help), **↻**, **⚙**, and the phone-width **+**.
+- the page header's **?** (Help), **↻** and **⚙**.
 
 These elements drop their `title` (no double tooltip) and keep `aria-label`. Touch
 screens get no tooltip (no hover); the labels still serve screen readers.
@@ -76,8 +76,8 @@ narrow a page. Phones (≤600px) keep the full-screen drawer.
 ## 6. Tooltip text
 
 - **↻**: "Refresh event data" (was "Refresh from Coda").
-- The **Planning events** toggle: "Show or hide your planning events" (was "Your
-  planning events (always shown)", which was wrong).
+- The **Planning events** toggle loses its wrong "Your planning events (always
+  shown)" title. In the settings panel, the **Show on calendar** heading says it.
 
 Both are items in #26.
 
