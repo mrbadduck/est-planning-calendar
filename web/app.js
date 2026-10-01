@@ -1025,9 +1025,9 @@ function openEditor(ev, section){
   let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;
   if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
   document.getElementById('mBadges').innerHTML = badges;
-  let head = `<button type="button" class="mhead-ico q" data-act="help" title="Help for this tab" aria-label="Help for this tab">?</button>`;
-  if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" title="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
-  if(ev.id) head += `<button class="mhead-ico" data-act="copylink" title="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
+  let head = `<button type="button" class="mhead-ico q" data-act="help" data-tip="Help for this tab" aria-label="Help for this tab">?</button>`;
+  if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" data-tip="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
+  if(ev.id) head += `<button class="mhead-ico" data-act="copylink" data-tip="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
 
   // footer: transition actions on the LEFT (Propose/Approve/Cancel/Reopen +
@@ -1091,7 +1091,7 @@ function openNewEventForm(seed){
   document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
   document.getElementById('mTitle').textContent = 'New event';
   document.getElementById('mBadges').innerHTML='';   // no status/approve until the row exists
-  document.getElementById('mActions').innerHTML = `<button type="button" class="mhead-ico q" data-help="add-event" title="Help: adding an event" aria-label="Help: adding an event">?</button>`;
+  document.getElementById('mActions').innerHTML = `<button type="button" class="mhead-ico q" data-help="add-event" data-tip="Help: adding an event" aria-label="Help: adding an event">?</button>`;
   document.getElementById('modal').classList.remove('ws'); document.getElementById('modal').classList.add('create');   // fixed shell = same height as the workspace
   const body=document.getElementById('mBody'); body.classList.remove('ws');
   body.innerHTML = renderPlanning(seed, true, false, false);
@@ -1835,6 +1835,32 @@ function toast(msg, kind){
   clearTimeout(_toastT);
   if(kind!=='busy') _toastT=setTimeout(()=>{ if(_toastEl) _toastEl.className='toast'; }, 2200);
 }
+/* ---- tooltips: any element with data-tip gets one shared bubble, shown at once
+   on hover or keyboard focus (title= is slow and never shows for keyboards).
+   Fixed-position so a modal can't clip it; touch gets none (there's no hover). */
+const _tip=document.createElement('div'); _tip.className='tip'; _tip.setAttribute('role','tooltip'); _tip.hidden=true;
+document.body.appendChild(_tip);
+let _tipFor=null;
+function showTip(el){
+  const text=el.dataset.tip; if(!text) return;
+  _tipFor=el; _tip.textContent=text; _tip.hidden=false;
+  const r=el.getBoundingClientRect(), w=_tip.offsetWidth, h=_tip.offsetHeight;
+  const left=Math.max(6, Math.min(r.left + r.width/2 - w/2, innerWidth - w - 6));
+  const top=(r.bottom + 6 + h > innerHeight - 6) ? r.top - h - 6 : r.bottom + 6;   // flip above near the bottom edge
+  _tip.style.left=left+'px'; _tip.style.top=top+'px';
+}
+function hideTip(){ _tipFor=null; _tip.hidden=true; }
+document.addEventListener('pointerover', e=>{
+  if(e.pointerType==='touch') return;
+  const el=e.target.closest('[data-tip]');
+  if(el){ if(el!==_tipFor) showTip(el); } else if(_tipFor) hideTip();
+});
+document.addEventListener('pointerout', e=>{ if(!e.relatedTarget) hideTip(); });   // left the window
+document.addEventListener('focusin', e=>{ const el=e.target.closest('[data-tip]'); if(el && el.matches(':focus-visible')) showTip(el); });
+document.addEventListener('focusout', hideTip);
+document.addEventListener('pointerdown', hideTip);
+document.addEventListener('scroll', hideTip, true);
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') hideTip(); });
 let _reconcileT=null;
 function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(()=>refresh(), 2500); }  // let Coda index, then pull server truth (recent guard prevents flicker)
 
