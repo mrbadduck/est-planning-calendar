@@ -644,10 +644,11 @@ function renderLayers(){
   // remove any previously injected ref toggles
   box.querySelectorAll('[data-ref-toggle]').forEach(n=>n.remove());
   for(const r of REF_LAYERS){
-    const on=state.layers[r.id];
-    const el=document.createElement('label');
-    el.className='lyr'; el.dataset.on=on; el.dataset.refToggle='1'; el.dataset.layer=r.id;
-    el.innerHTML=`<span class="swatch-ref" style="background:${r.color}"></span><span class="name">${r.name}</span>`;
+    const on=!!state.layers[r.id];
+    const el=document.createElement('button');
+    el.type='button'; el.className='lyr'; el.dataset.on=on; el.setAttribute('aria-pressed', String(on));
+    el.dataset.refToggle='1'; el.dataset.layer=r.id;
+    el.innerHTML=`<span class="swatch-ref" style="background:${cssColor(r.color,'var(--faint)')}"></span><span class="name">${esc(r.name)}</span>`;
     box.appendChild(el);
   }
 }
@@ -1013,7 +1014,7 @@ function openEditor(ev, section){
       ${ev.description ? `<div class="fld full"><label>Description</label><div class="refdesc">${linkify(ev.description)}</div></div>` : ''}
       ${ev.url ? `<div class="fld full"><a class="reflink" href="${esc(ev.url)}" target="_blank" rel="noopener">Open event ↗</a></div>` : ''}
       <div class="fld full"><label>Calendar</label><input value="${esc(R.name)}" disabled></div>
-      <div class="locknote">Read-only reference calendar. Toggle it off in the top strip to hide this layer.</div>`;
+      <div class="locknote">Read-only reference calendar. To hide this layer, turn it off under ⚙ at the top.</div>`;
     document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
     show(); return;
   }
@@ -2212,8 +2213,9 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ acctMenu(false);
 /* layer toggles */
 document.getElementById('layers').addEventListener('click',e=>{
   const lab=e.target.closest('.lyr'); if(!lab) return;
-  const id=lab.dataset.layer; if(id==='planning'){ state.layers.planning=!state.layers.planning; lab.dataset.on=state.layers.planning; }
-  else { state.layers[id]=!state.layers[id]; lab.dataset.on=state.layers[id]; }
+  const id=lab.dataset.layer;                  // 'planning' or a reference layer id
+  state.layers[id]=!state.layers[id];
+  lab.dataset.on=state.layers[id]; lab.setAttribute('aria-pressed', String(state.layers[id]));
   rerender();
 });
 
@@ -2320,28 +2322,11 @@ function acctMenu(open){
   m.hidden = !willOpen; b.setAttribute('aria-expanded', String(willOpen));
 }
 
-/* ---- mobile overflow (⋯): relocate year-nav + filters into a dropdown ---- */
-const headerMQ = window.matchMedia('(max-width:600px)');
+/* ---- calendar settings (⚙): the layer toggles, in a pop-over at every width ---- */
 function ovfMenu(open){
   const p=document.getElementById('ovfPanel'), b=document.getElementById('ovfBtn'); if(!p||!b) return;
   const willOpen = open!==undefined ? open : p.hidden;
   p.hidden=!willOpen; b.setAttribute('aria-expanded', String(willOpen));
-}
-function applyHeaderMode(){
-  const panel=document.getElementById('ovfPanel'), ovfBtn=document.getElementById('ovfBtn');
-  const yearnav=document.querySelector('.yearnav'), layers=document.getElementById('layers');
-  const controls=document.querySelector('.controls'), bar=document.querySelector('.bar');
-  if(!panel||!ovfBtn) return;
-  if(headerMQ.matches){                                   // mobile: tuck year-nav + filters into the ⋯ panel
-    if(yearnav && yearnav.parentElement!==panel) panel.appendChild(yearnav);
-    if(layers && layers.parentElement!==panel) panel.appendChild(layers);
-    ovfBtn.hidden=false;
-  } else {                                                // desktop: restore to their inline homes
-    if(yearnav && controls && yearnav.parentElement===panel) controls.appendChild(yearnav);
-    if(layers && bar && layers.parentElement===panel) bar.after(layers);
-    ovfBtn.hidden=true; ovfMenu(false);
-  }
-  layoutSticky();
 }
 async function fetchMe(){
   if(!PROXY_BASE || !state.idToken){ state.identity=null; state.authPending=false; renderAuth(); return; }
@@ -2380,8 +2365,7 @@ async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
   { const hp=new URL(location.href).searchParams.get('help'); if(hp!==null) openHelp(hp); }   // ?help=<id> opens that guide (works signed out)
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
-  headerMQ.addEventListener('change', applyHeaderMode);
-  applyHeaderMode();
+  layoutSticky();
   // Wire refresh/focus/poll up front so they work immediately (never dead while loading).
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
   document.addEventListener('visibilitychange', () => { if(!document.hidden){ refresh(); } }); // refetch on tab focus
