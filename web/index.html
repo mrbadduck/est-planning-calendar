@@ -17,8 +17,7 @@
       <div class="brandline">
         <h1>Programming — Planning Calendar</h1>
       </div>
-      <span class="sub sub-full">East Side Tribe · plan the year's programming together</span>
-      <span class="sub sub-short">East Side Tribe</span>
+      <span class="sub">East Side Tribe · plan the year's programming together</span>
     </div>
     <span class="grow-sp"></span>
     <button class="btn ghost" id="feedbackBtn">Feedback / Ideas</button>
@@ -30,6 +29,7 @@
       <div class="seg" id="viewSeg">
         <button data-view="overview" aria-pressed="true">Overview</button>
         <button data-view="year" aria-pressed="false">Calendar</button>
+        <button data-view="list" aria-pressed="false">List</button>
       </div>
       <div class="yearnav">
         <button class="btn icon" id="prevYr" aria-label="Previous program year">‹</button>
@@ -52,7 +52,12 @@
         </div>
       </div>
     </span>
-    <button class="btn primary" id="addBtn" type="button" aria-label="New event"><span class="add-long">+ New event</span><span class="add-short" aria-hidden="true">+</span></button>
+    <button class="btn primary" id="addBtn" type="button">+ New event</button>
+  </div>
+  <!-- phones (≤600px): this one row replaces the two above; everything else lives in the ☰ menu -->
+  <div class="bar-inner phonebar">
+    <span class="pb-title">EST Planning</span>
+    <button class="btn ghost icon" id="menuBtn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menuPanel"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
   </div>
 </div>
 
@@ -63,6 +68,42 @@
     <div id="months"></div>
   </div>
   <div id="quarter"></div>
+  <div id="listView"></div>
+</div>
+
+<!-- phones: the floating + (same as + New event) -->
+<button class="fab" id="fabAdd" type="button" aria-label="New event">+</button>
+
+<!-- ---- phone menu (☰): account, help, feedback, program year, layers ---- -->
+<div class="menu-scrim" id="menuScrim" hidden></div>
+<div class="menu-panel" id="menuPanel" role="dialog" aria-modal="true" aria-labelledby="menuTitle" tabindex="-1" hidden>
+  <div class="menu-head">
+    <span class="pb-title" id="menuTitle">EST Planning</span>
+    <button class="mhead-close" id="menuClose" type="button" aria-label="Close menu">×</button>
+  </div>
+  <div class="menu-sec" id="menuAcct"></div>
+  <div class="menu-sec menu-links">
+    <button class="menu-item" id="menuHelp" type="button">Help<span class="help-dot" hidden></span></button>
+    <button class="menu-item" id="menuFeedback" type="button">Feedback / Ideas</button>
+  </div>
+  <div class="menu-sec">
+    <div class="ovf-h">Program year</div>
+    <div class="yearnav menu-year">
+      <button class="btn icon" type="button" data-yr="-1" aria-label="Previous program year">‹</button>
+      <span class="yr" id="menuYr">'26–'27</span>
+      <button class="btn icon" type="button" data-yr="1" aria-label="Next program year">›</button>
+    </div>
+  </div>
+  <div class="menu-sec">
+    <div class="ovf-h" id="menuLayersH">Show on calendar</div>
+    <div class="layers" id="menuLayers" role="group" aria-labelledby="menuLayersH">
+      <button type="button" class="lyr" data-on="true" aria-pressed="true" data-layer="planning">
+        <span class="dot" style="background:linear-gradient(135deg,var(--p-kab),var(--p-tot))"></span>
+        <span class="name">Planning events</span>
+      </button>
+      <!-- reference toggles injected by renderLayers -->
+    </div>
+  </div>
 </div>
 
 <!-- ---- auth gate: the app surface is members-only (mirrors gather's gate) ---- -->

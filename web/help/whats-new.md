@@ -6,6 +6,9 @@
 -->
 
 ## 2026-10-01
+- **Built for phones.** On a phone, the calendar is now a simple list of what's coming up, and the top of the page is a single line. Tap **☰** for your account, Help, Feedback / Ideas, the program year and which calendars to show, and the round **+** to add an event.
+- **New: List view.** On a computer, **List** sits beside Overview and Calendar: the whole year as an agenda, day by day.
+- **Your settings stick.** The calendars you show or hide, and on a computer the view you picked, are remembered on that device instead of resetting every visit.
 - **Calendar settings.** Showing or hiding planning events and reference calendars moved into **⚙** at the top of the page, next to **↻** and **+ New event**.
 - **Adding from the calendar.** Point at a day or lane and click its **+**. Clicking elsewhere no longer starts a new event.
 - **Past events lock.** Once an approved event's date has passed, its details can't be changed and it can't be cancelled or deleted. Notes, sign-ups and Attendees still work.
