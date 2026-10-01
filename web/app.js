@@ -956,6 +956,9 @@ function statusInfo(ev){
   return {label:'Draft', cls:'draft'};
 }
 function isPastEvent(ev){ return ev.scheduling==='exact' && ev.date && ev.date < todayStr && ev.status!=='cancelled'; }
+// An approved (or live) event whose date has passed: it happened, so its Details lock
+// and it can't be cancelled or deleted (Notes, sign-ups and Attendees keep working).
+function isHistory(ev){ return isPastEvent(ev) && ev.status==='approved'; }
 const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
 const EXT_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
 const GATHER_BASE = 'https://gather.eastsidetribe.org/';   // member app; #/event/<rowId> deep-links (auth is per-origin, so no session hand-off)
@@ -989,10 +992,11 @@ function openEditor(ev, section){
   const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
   // Fields are read-only when Cancelled (reopen to edit) or Approved-and-not-Council.
   const locked = (!isRef) && (ev.status==='cancelled' || (ev.status==='approved' && !canApprove));
+  const pastLocked = !isRef && isHistory(ev);   // Details only — see renderSection (not `history`: that would shadow window.history)
   // First visit: the reference lists may still be loading. Wait for them rather than
   // offer relation pickers that could save a partial Program(s)/Leads/Venue.
   if(!isRef && ev._lossy) mapRelations(ev);
-  if(!isRef && canEdit && !locked && !relationsReady(ev) && !_refsSettled){
+  if(!isRef && canEdit && !locked && !pastLocked && !relationsReady(ev) && !_refsSettled){
     showModalLoading(ev.title||'Untitled', progColor(ev.program));
     afterRefs(()=>{ if(editing===ev) openEditor(ev, section); });   // try again as each list lands
     return;
@@ -1035,9 +1039,9 @@ function openEditor(ev, section){
   // footer: transition actions on the LEFT (Propose/Approve/Cancel/Reopen +
   // council Delete), save-status on the RIGHT. Dismissal is the header ✕/Esc/scrim.
   const foot=document.getElementById('mFoot');
-  let acts = footerActionsHTML(ev, canEdit, canApprove);
+  let acts = pastLocked ? '' : footerActionsHTML(ev, canEdit, canApprove);   // a past approved event has no Cancel/Delete
   acts += `<span class="push"></span>`;
-  if(ev.id && canEdit && !locked) acts += `<span class="savestat clean" id="saveStatus">Saved</span>`;
+  if(ev.id && canEdit && !locked && !pastLocked) acts += `<span class="savestat clean" id="saveStatus">Saved</span>`;
   foot.innerHTML=acts;
 
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
@@ -1058,7 +1062,7 @@ function openEditor(ev, section){
 
   show();
   if(ev.id) syncUrl(ev, activeSection);
-  if(canEdit && !locked && ev.id){
+  if(canEdit && !locked && !pastLocked && ev.id){
     _form = { ev, base: formCells(readForm()) };   // what's saved or already queued — autosave sends only what differs from it
     guardUnload();
     paintSaveStatus();                   // reopened mid-save: Saving… / Save failed — retry
@@ -1169,7 +1173,8 @@ function renderSection(id, ev, canEdit, locked, canApprove){
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
-  panel.innerHTML=renderDetails(ev, canEdit, locked, canApprove); wireDetails(panel, ev, canEdit, locked, canApprove);
+  const detailsLocked = locked || isHistory(ev);   // a past approved event's Details are history; other tabs don't take this lock
+  panel.innerHTML=renderDetails(ev, canEdit, detailsLocked, canApprove); wireDetails(panel, ev, canEdit, detailsLocked, canApprove);
 }
 
 /* Planning section — every planning field EXCEPT capacity / address-visibility /
@@ -1215,7 +1220,8 @@ function renderPlanning(ev, canEdit, locked, canApprove){
     </div>
     ${(!relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
-    ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}`;
+    ${locked ? (isHistory(ev) ? `<div class="locknote">🔒 This event has happened, so its details are locked.</div>`
+      : `<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`) : ''}`;
 }
 
 function wirePlanning(panel, ev, canEdit, locked, canApprove){
