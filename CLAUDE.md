@@ -171,18 +171,44 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   workspace, so no premature empty rows; on Create it persists once and
   transitions into the workspace via `openEditor(saved)`. An EXISTING event's
   workspace **autosaves every field on blur** (`autosaveEditor`, debounced 800ms,
-  in place — modal stays open; reuses the `applyLocal`/`markRecent`/`_recent`/
-  `scheduleReconcile` optimistic stack; no-op saves skipped via a `readForm()`
-  snapshot diff). Footer = **Delete** + a **save-status pill** (`#saveStatus`:
-  Saved/Unsaved/Saving…/failed-retry); the global Save/Cancel is gone. `close()`
-  flushes a pending edit so a fast Done/Esc/✕ can't drop the last change.
-  Typeahead/venue pickers take an `onChange` (guarded against initial seeding) so
-  chip/segment mutations schedule a save. **Approve** stays deliberate
-  (`saveEditor(true)`, header). Publish push (`Create draft`/`Publish`) calls
-  `flushAutosave()` first (Worker reads the freshest Coda copy); a session-local
-  `_ebDirty` flag is set on public-field edits but not yet shown (the push button is
-  gated only on the listing fields — title/date/time/venue edits don't reveal it). Design/
-  plan: `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*`.
+  in place — modal stays open) and **writes only the columns whose form value
+  changed**: `formCells(readForm())` vs `_form.base` (the form as last queued;
+  `_form` = `{ev, base}`, bound to its event), diffed by `SaveQueue.changedCells`.
+  That's normally just the user's edits — the one deliberate exception is
+  `seedLiveFields` syncing the public-listing fields from the live Eventbrite
+  listing. It never writes Status (only `transitionTo`/`cancelEvent` do) — a
+  whole-row write once blanked relations and undid approvals (#24). Writes go
+  through **`saveQueue`** (`web/save-queue.js`, node-tested in
+  `proxy/test/save-queue.test.js`): per event, one write in flight, later edits
+  coalesce, a failed write rides along with the next one; no global saving flag.
+  `_unsaved` (`id → {ev, before}`) keeps an edited event's local copy through
+  re-fetches until it saves (then the `_recent` guard; `scheduleReconcile` pulls
+  server truth). A failed save stays retryable only while its editor is open; when
+  the editor goes (`leaveForm`/`close`, after one more try) `dropFailedEdits` puts
+  back only the fields the failed edits changed — what did save (a create, a status
+  change) stays, re-guarded by `_recent` against Coda's list lag — and toasts. A
+  stale local copy must never linger (one once let a Propose undo an approval). A
+  401 retries after sign-in (`_authRetry`); a 404 is an ordinary failure (Coda can
+  404 a row created seconds ago). Relations arrive as names and `mapRelations` maps them to row ids; an
+  event stays `_lossy` until every reference list is loaded and its names all
+  map, and meanwhile the editor waits ("Loading…", first visit) or shows
+  Program(s)/Leads/Where read-only (`relationsReady`) — a picker seeded from a
+  partial map would save a partial list. Footer = transitions + a **save-status
+  pill** (`#saveStatus`: Saved/Unsaved/Saving…/failed-retry, click to retry).
+  `close()` — and every opener that replaces the modal, via `leaveForm()` —
+  queues a pending edit so a fast Done/Esc/✕ can't drop the last change;
+  `beforeunload` (listened for only while an editor is open or a save is pending —
+  `guardUnload`) queues the form and asks. Typeahead/venue pickers take an
+  `onChange` (guarded against initial seeding) so chip/segment mutations schedule
+  a save. Transitions/Cancel/Delete hold the event they started on (never
+  `editing`, which can change mid-await; `_busy` per event) and wait for its queue
+  first; a still-creating (`tmp-`) event doesn't open. Publish push (`Create draft`/`Publish`) calls
+  `flushAutosave()` first and stops if the save fails (the Worker reads Coda); a
+  session-local `_ebDirty` flag is set on public-field edits but not yet shown (the
+  push button is gated only on the listing fields — title/date/time/venue edits
+  don't reveal it). Design/plan:
+  `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*` (the queue and
+  partial writes replaced its snapshot-and-rewrite save in #24).
 - **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
   `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
 - **Feedback/Ideas board** (`feedbackBoardHTML`/`wireFeedback`): a votable roadmap
