@@ -181,7 +181,7 @@ function initVenuePicker(container, ev, opts){
   const disabled = input.disabled;
   let ready = false;
   const fire = () => { if(ready && opts.onChange) opts.onChange(); };   // user edits only (not initial state)
-  const selTypeId = () => { const b=document.querySelector('#f_vtype_seg button[aria-pressed="true"]'); return b?b.dataset.vtype:''; };
+  const selTypeId = () => { const s=document.getElementById('f_vtype'); return s ? s.value : ''; };
   const typeName = () => (VENUE_TYPES.find(x=>x.id===selTypeId())||{}).name;
   const pool = () => { const tn=typeName(); return VENUES.filter(v=>!v.closed && (!tn || v.type===tn)).slice().sort((a,b)=>a.name.localeCompare(b.name)); };
   let active = -1;
@@ -189,8 +189,8 @@ function initVenuePicker(container, ev, opts){
   function showSelect(){ container.dataset.venueId=''; clearPill(); otherWrap.hidden=true; otherInput.value=''; input.hidden=false; input.value=''; menu.hidden=true; if(!disabled) input.focus(); fire(); }
   function selectVenue(v){
     container.dataset.venueId=v.id; clearPill(); otherWrap.hidden=true; input.hidden=true; menu.hidden=true;
-    const tid=venueTypeIdByName[v.type], seg=document.getElementById('f_vtype_seg');   // sync the type switcher to the venue
-    if(seg && tid) [...seg.children].forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.vtype===tid)));
+    const tid=venueTypeIdByName[v.type], sel=document.getElementById('f_vtype');   // sync the type picker to the venue
+    if(sel && tid) sel.value=tid;
     const chip=document.createElement('span'); chip.className='ta-chip venue-pick';
     chip.innerHTML=esc(v.name)+(disabled?'':' <button type="button" aria-label="Clear" tabindex="-1">×</button>');
     if(!disabled) chip.querySelector('button').addEventListener('click', showSelect);
@@ -508,7 +508,7 @@ function progNames(e){ return (e.programs&&e.programs.length?e.programs:[e.progr
 function xMark(e){ return (e.programs&&e.programs.length>1) ? ` <span style="font-size:9px;font-weight:700;opacity:.65" title="${esc(progNames(e).join(' + '))}">+${e.programs.length-1}</span>` : ''; }
 function chipHTML(e){
   if(e.source==='ref'){
-    const c=REF[e.refLayer].color;
+    const c=cssColor(REF[e.refLayer].color, 'var(--faint)');
     return `<div class="chip ref" style="--c:${c}" data-id="${e.id}" data-ref="1" title="${esc(e.title)}"><span class="t">${esc(e.title)}</span></div>`;
   }
   const c=progColor(e.program);
@@ -555,8 +555,8 @@ function renderMonths(){
     let body='';
     for(let w=0; w<rows; w++){
       const ideas=(byWeek[w]||[]);
-      const ghint = w===0 ? `<span class="ghint">date TBD</span>` : '';
-      body += `<div class="gcell" data-newidea="${mk}">${ghint}<span class="gadd">＋</span>${ideas.map(e=>gchipHTML(e,mk)).join('')}</div>`;
+      const ghead = w===0 ? `<div class="ghead"><span class="ghint">date TBD</span><button type="button" class="gadd" data-newidea="${mk}" aria-label="Add an idea for ${MONTHS[Number(mk.slice(5,7))-1]}" data-tip="Add an idea for this month">+</button></div>` : '';   // one + per month
+      body += `<div class="gcell">${ghead}${ideas.map(e=>gchipHTML(e,mk)).join('')}</div>`;
       for(let k=0;k<7;k++){
         const dayNum=w*7+k-startWd+1;
         let cy=y,cm=m,dn=dayNum,other=false;
@@ -566,7 +566,7 @@ function renderMonths(){
         const isToday=ds===todayStr;
         const evs=(byDate[ds]||[]).slice().sort(sortEv);
         body += `<div class="cell ${other?'other':''} ${k===0||k===6?'we':''} ${isToday?'today':''}" data-date="${ds}" ${other?'data-other="1"':''}>
-          <span class="add-hint">+</span>
+          ${other ? '' : `<button type="button" class="cell-add" data-add-date="${ds}" aria-label="Add an event on ${fmtDate(ds)}" data-tip="Add an event">+</button>`}
           <span class="dnum">${dn}</span>
           <div class="chips">${evs.map(chipHTML).join('')}</div>
         </div>`;
@@ -586,7 +586,7 @@ function renderMonths(){
    undated ideas sit in a card footer
    ========================================================================= */
 function qchipHTML(e){
-  if(e.source==='ref') return `<div class="qchip ref" style="--c:${REF[e.refLayer].color}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}</div>`;
+  if(e.source==='ref') return `<div class="qchip ref" style="--c:${cssColor(REF[e.refLayer].color, 'var(--faint)')}" data-id="${e.id}" title="${esc(e.title)}">${esc(e.title)}</div>`;
   const c=progColor(e.program);
   return `<div class="qchip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${esc(e.title)}${xMark(e)}</div>`;
 }
@@ -616,10 +616,11 @@ function renderOverview(){
       }
       wkn.sort(cmp); wknd.sort(cmp);
       const lbl = dayNums[0]===dayNums[dayNums.length-1] ? `${dayNums[0]}` : `${dayNums[0]}–${dayNums[dayNums.length-1]}`;
+      const zone = (kind, list) => `<div class="qzone ${kind}">${list.map(qchipHTML).join('')||'<span class="zlbl">·</span>'}<button type="button" class="zone-add" data-add="${weekAddDate(y,m,dayNums,kind)}" aria-label="Add a ${kind==='wkn'?'weeknight':'weekend'} event, ${MONTHS[m]} ${lbl}" data-tip="Add an event">+</button></div>`;
       weeks += `<div class="qweek">
         <div class="qwk">${lbl}</div>
-        <div class="qzone wkn" data-add="${weekAddDate(y,m,dayNums,'wkn')}">${wkn.map(qchipHTML).join('')||'<span class="zlbl">·</span>'}</div>
-        <div class="qzone wknd" data-add="${weekAddDate(y,m,dayNums,'wknd')}">${wknd.map(qchipHTML).join('')||'<span class="zlbl">·</span>'}</div>
+        ${zone('wkn', wkn)}
+        ${zone('wknd', wknd)}
       </div>`;
     }
     const rough=(roughMap[mk]||[]);
@@ -630,7 +631,7 @@ function renderOverview(){
     cols += `<div class="qcol" data-mk="${mk}"><div class="qhead"><span>${MONTHS[m]}</span><span class="qy">${y}</span></div><div>${weeks}</div>${ftr}</div>`;
   }
   cont.innerHTML=`<div class="qgrid">${cols}</div>
-    <div class="legend" style="margin-top:14px"><span class="k" style="color:var(--faint)">Each week splits into <b style="color:var(--muted)">weeknight</b> (Mon–Thu) and <b style="color:var(--muted)">weekend</b> (Fri–Sun). Undated ideas sit in each month's footer. Click a lane to add.</span></div>`;
+    <div class="legend" style="margin-top:14px"><span class="k" style="color:var(--faint)">Each week splits into <b style="color:var(--muted)">weeknight</b> (Mon–Thu) and <b style="color:var(--muted)">weekend</b> (Fri–Sun). Undated ideas sit in each month's footer. Point at a lane and click its + to add.</span></div>`;
 }
 
 function sortEv(a,b){
@@ -641,13 +642,22 @@ function sortEv(a,b){
 
 function renderLayers(){
   const box=document.getElementById('layers');
+  // Same layers as last time (every refresh calls this)? Just sync on/off in place,
+  // so a toggle focused from the keyboard keeps its focus.
+  const sig=REF_LAYERS.map(r=>[r.id,r.name,r.color].join('\u0001')).join('\u0002');
+  if(box.dataset.sig===sig){
+    box.querySelectorAll('[data-ref-toggle]').forEach(el=>{ const on=!!state.layers[el.dataset.layer]; el.dataset.on=on; el.setAttribute('aria-pressed', String(on)); });
+    return;
+  }
+  box.dataset.sig=sig;
   // remove any previously injected ref toggles
   box.querySelectorAll('[data-ref-toggle]').forEach(n=>n.remove());
   for(const r of REF_LAYERS){
-    const on=state.layers[r.id];
-    const el=document.createElement('label');
-    el.className='lyr'; el.dataset.on=on; el.dataset.refToggle='1'; el.dataset.layer=r.id;
-    el.innerHTML=`<span class="swatch-ref" style="background:${r.color}"></span><span class="name">${r.name}</span>`;
+    const on=!!state.layers[r.id];
+    const el=document.createElement('button');
+    el.type='button'; el.className='lyr'; el.dataset.on=on; el.setAttribute('aria-pressed', String(on));
+    el.dataset.refToggle='1'; el.dataset.layer=r.id;
+    el.innerHTML=`<span class="swatch-ref" style="background:${cssColor(r.color,'var(--faint)')}"></span><span class="name">${esc(r.name)}</span>`;
     box.appendChild(el);
   }
 }
@@ -954,6 +964,9 @@ function statusInfo(ev){
   return {label:'Draft', cls:'draft'};
 }
 function isPastEvent(ev){ return ev.scheduling==='exact' && ev.date && ev.date < todayStr && ev.status!=='cancelled'; }
+// An approved (or live) event whose date has passed: it happened, so its Details lock
+// and it can't be cancelled or deleted (Notes, sign-ups and Attendees keep working).
+function isHistory(ev){ return isPastEvent(ev) && ev.status==='approved'; }
 const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
 const EXT_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
 const GATHER_BASE = 'https://gather.eastsidetribe.org/';   // member app; #/event/<rowId> deep-links (auth is per-origin, so no session hand-off)
@@ -987,15 +1000,16 @@ function openEditor(ev, section){
   const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
   // Fields are read-only when Cancelled (reopen to edit) or Approved-and-not-Council.
   const locked = (!isRef) && (ev.status==='cancelled' || (ev.status==='approved' && !canApprove));
+  const pastLocked = !isRef && isHistory(ev);   // Details only — see renderSection (not `history`: that would shadow window.history)
   // First visit: the reference lists may still be loading. Wait for them rather than
   // offer relation pickers that could save a partial Program(s)/Leads/Venue.
   if(!isRef && ev._lossy) mapRelations(ev);
-  if(!isRef && canEdit && !locked && !relationsReady(ev) && !_refsSettled){
+  if(!isRef && canEdit && !locked && !pastLocked && !relationsReady(ev) && !_refsSettled){
     showModalLoading(ev.title||'Untitled', progColor(ev.program));
     afterRefs(()=>{ if(editing===ev) openEditor(ev, section); });   // try again as each list lands
     return;
   }
-  const c = isRef ? REF[ev.refLayer].color : progColor(ev.program);
+  const c = isRef ? cssColor(REF[ev.refLayer].color, 'var(--faint)') : progColor(ev.program);
   document.getElementById('mStripe').style.setProperty('--c',c);
   document.getElementById('mTitle').textContent = isRef ? 'Reference event' : (ev.id ? (ev.title||'Untitled') : 'New event');
   const actions=document.getElementById('mActions');
@@ -1013,7 +1027,7 @@ function openEditor(ev, section){
       ${ev.description ? `<div class="fld full"><label>Description</label><div class="refdesc">${linkify(ev.description)}</div></div>` : ''}
       ${ev.url ? `<div class="fld full"><a class="reflink" href="${esc(ev.url)}" target="_blank" rel="noopener">Open event ↗</a></div>` : ''}
       <div class="fld full"><label>Calendar</label><input value="${esc(R.name)}" disabled></div>
-      <div class="locknote">Read-only reference calendar. Toggle it off in the top strip to hide this layer.</div>`;
+      <div class="locknote">Read-only reference calendar. To hide this layer, turn it off under ⚙ at the top.</div>`;
     document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
     show(); return;
   }
@@ -1025,29 +1039,29 @@ function openEditor(ev, section){
   let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;
   if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
   document.getElementById('mBadges').innerHTML = badges;
-  let head = `<button type="button" class="mhead-ico q" data-act="help" title="Help for this tab" aria-label="Help for this tab">?</button>`;
-  if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" title="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
-  if(ev.id) head += `<button class="mhead-ico" data-act="copylink" title="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
+  let head = `<button type="button" class="mhead-ico q" data-act="help" data-tip="Help for this tab" aria-label="Help for this tab">?</button>`;
+  if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" data-tip="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
+  if(ev.id) head += `<button class="mhead-ico" data-act="copylink" data-tip="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
 
   // footer: transition actions on the LEFT (Propose/Approve/Cancel/Reopen +
   // council Delete), save-status on the RIGHT. Dismissal is the header ✕/Esc/scrim.
   const foot=document.getElementById('mFoot');
-  let acts = footerActionsHTML(ev, canEdit, canApprove);
+  let acts = pastLocked ? '' : footerActionsHTML(ev, canEdit, canApprove);   // a past approved event has no Cancel/Delete
   acts += `<span class="push"></span>`;
-  if(ev.id && canEdit && !locked) acts += `<span class="savestat clean" id="saveStatus">Saved</span>`;
+  if(ev.id && canEdit && !locked && !pastLocked) acts += `<span class="savestat clean" id="saveStatus">Saved</span>`;
   foot.innerHTML=acts;
 
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
   document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
   body.innerHTML = `<div class="wsplit"><nav class="wrail" id="wrail">${railHTML()}</nav><div class="wpanel" id="wpanel"></div></div>`;
   wireScrollFade(document.getElementById('wrail'));   // edge-fade hint when tabs overflow (mobile horizontal rail)
-  renderSection(activeSection, ev, canEdit, locked, canApprove);
+  renderSection(activeSection, ev, canEdit, locked, canApprove, pastLocked);
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
     const id=b.dataset.sect; if(id===activeSection) return;
     if(_form) autosaveEditor();   // save the outgoing section's edits before its fields leave the DOM
-    setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove);
+    setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove, pastLocked);
     // The new section can render stored values in a normalized form (e.g. program
     // order) — that isn't an edit, so it becomes the baseline.
     if(_form && _form.ev===ev) _form.base = formCells(readForm());
@@ -1056,7 +1070,7 @@ function openEditor(ev, section){
 
   show();
   if(ev.id) syncUrl(ev, activeSection);
-  if(canEdit && !locked && ev.id){
+  if(canEdit && !locked && !pastLocked && ev.id){
     _form = { ev, base: formCells(readForm()) };   // what's saved or already queued — autosave sends only what differs from it
     guardUnload();
     paintSaveStatus();                   // reopened mid-save: Saving… / Save failed — retry
@@ -1091,7 +1105,7 @@ function openNewEventForm(seed){
   document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
   document.getElementById('mTitle').textContent = 'New event';
   document.getElementById('mBadges').innerHTML='';   // no status/approve until the row exists
-  document.getElementById('mActions').innerHTML = `<button type="button" class="mhead-ico q" data-help="add-event" title="Help: adding an event" aria-label="Help: adding an event">?</button>`;
+  document.getElementById('mActions').innerHTML = `<button type="button" class="mhead-ico q" data-help="add-event" data-tip="Help: adding an event" aria-label="Help: adding an event">?</button>`;
   document.getElementById('modal').classList.remove('ws'); document.getElementById('modal').classList.add('create');   // fixed shell = same height as the workspace
   const body=document.getElementById('mBody'); body.classList.remove('ws');
   body.innerHTML = renderPlanning(seed, true, false, false);
@@ -1160,14 +1174,15 @@ function railHTML(){
 }
 function setActiveRail(id){ activeSection=id; document.querySelectorAll('#wrail .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
 
-function renderSection(id, ev, canEdit, locked, canApprove){
+function renderSection(id, ev, canEdit, locked, canApprove, pastLocked){
   const panel=document.getElementById('wpanel'); if(!panel) return;
   const sec=SECTIONS.find(s=>s.id===id);
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
-  panel.innerHTML=renderDetails(ev, canEdit, locked, canApprove); wireDetails(panel, ev, canEdit, locked, canApprove);
+  const detailsLocked = locked || !!pastLocked;   // a past approved event's Details are history (decided when it opened); other tabs don't take this lock
+  panel.innerHTML=renderDetails(ev, canEdit, detailsLocked, canApprove); wireDetails(panel, ev, canEdit, detailsLocked, canApprove);
 }
 
 /* Planning section — every planning field EXCEPT capacity / address-visibility /
@@ -1204,16 +1219,17 @@ function renderPlanning(ev, canEdit, locked, canApprove){
     </div>
     <div class="fieldgroup">
       <div class="fieldgroup-h">Where</div>
-      ${relOK ? `<div class="whenseg vtype-seg" id="f_vtype_seg">
-        <button type="button" data-vtype="" aria-pressed="${!ev.venueType}" ${dis}>Any</button>
-        ${VENUE_TYPES.map(t=>`<button type="button" data-vtype="${t.id}" aria-pressed="${t.id===ev.venueType}" ${dis}>${esc(t.name)}</button>`).join('')}
-      </div>
+      ${relOK ? `<div class="fld full"><label for="f_vtype">Venue type</label><select id="f_vtype" ${dis}>
+        <option value="" ${!ev.venueType?'selected':''}>Any</option>
+        ${VENUE_TYPES.map(t=>`<option value="${esc(t.id)}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}
+      </select></div>
       <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>`
       : `<div class="fld full">${roText([ev.venueTypeName, ev.venueName||ev.venueOther].filter(Boolean).join(' · '))}</div>`}
     </div>
     ${(!relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
-    ${locked?`<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`:''}`;
+    ${locked ? (isHistory(ev) ? `<div class="locknote">🔒 This event has happened, so its details are locked.</div>`
+      : `<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`) : ''}`;
 }
 
 function wirePlanning(panel, ev, canEdit, locked, canApprove){
@@ -1243,15 +1259,9 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
     }
   }
 
-  const vtSeg=document.getElementById('f_vtype_seg');   // absent while the relations show read-only (relationsReady)
-  if(vtSeg && canEdit && !locked){
-    // Where: venue-type switcher (single-select) — filters the venue typeahead pool
-    vtSeg.addEventListener('click', e=>{
-      const b=e.target.closest('button[data-vtype]'); if(!b) return;
-      [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
-      scheduleAutosave();
-    });
-  }
+  // Where: venue type — filters the venue search; saves like any field
+  const vtSel=document.getElementById('f_vtype');   // absent while the relations show read-only (relationsReady)
+  if(vtSel && canEdit && !locked) vtSel.addEventListener('change', scheduleAutosave);
 
   // when control: mode switch + all-day toggle both re-render the time fields
   whenType = sched;
@@ -1792,8 +1802,8 @@ function readForm(){
   const venBox=g('f_venue_box'), venOther=venBox && venBox.querySelector('.venue-other-wrap');
   const venue=venBox ? (venBox.dataset.venueId||'') : ((editing&&editing.venue)||'');
   const venueOther=venBox ? ((venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '') : ((editing&&editing.venueOther)||'');
-  const vtBtn=document.querySelector('#f_vtype_seg button[aria-pressed="true"]');
-  const venueType=g('f_vtype_seg') ? (vtBtn ? (vtBtn.dataset.vtype||'') : '') : ((editing&&editing.venueType)||'');
+  const vtSel=g('f_vtype');
+  const venueType=vtSel ? (vtSel.value||'') : ((editing&&editing.venueType)||'');
   const whenRendered=!!g('f_when');
   const wt=whenRendered ? whenType : ((editing&&editing.scheduling)||'exact');
   const w=whenRendered ? collectWhen() : {};
@@ -1835,6 +1845,36 @@ function toast(msg, kind){
   clearTimeout(_toastT);
   if(kind!=='busy') _toastT=setTimeout(()=>{ if(_toastEl) _toastEl.className='toast'; }, 2200);
 }
+/* ---- tooltips: any element with data-tip gets one shared bubble, shown at once
+   on hover or keyboard focus (title= is slow and never shows for keyboards).
+   Fixed-position so a modal can't clip it; touch gets none (there's no hover). */
+const _tip=document.createElement('div'); _tip.className='tip'; _tip.setAttribute('role','tooltip'); _tip.hidden=true;
+document.body.appendChild(_tip);
+let _tipFor=null;
+let _tipMuted=null;   // the element just clicked — no bubble again until the pointer leaves it
+function showTip(el){
+  const text=el.dataset.tip; if(!text) return;
+  _tipFor=el; _tip.textContent=text; _tip.hidden=false;
+  const r=el.getBoundingClientRect(), w=_tip.offsetWidth, h=_tip.offsetHeight, vw=document.documentElement.clientWidth;   // (not innerWidth: that includes a scrollbar)
+  const left=Math.max(6, Math.min(r.left + r.width/2 - w/2, vw - w - 6));
+  const top=(r.bottom + 6 + h > innerHeight - 6) ? r.top - h - 6 : r.bottom + 6;   // flip above near the bottom edge
+  _tip.style.left=left+'px'; _tip.style.top=top+'px';
+}
+function hideTip(){ _tipFor=null; _tip.hidden=true; }
+document.addEventListener('pointerover', e=>{
+  if(e.pointerType==='touch') return;
+  if(_tipFor && !_tipFor.isConnected) hideTip();   // its element was re-rendered away
+  const el=e.target.closest('[data-tip]');
+  if(el && el===_tipMuted) return;
+  _tipMuted=null;
+  if(el){ if(el!==_tipFor) showTip(el); } else if(_tipFor) hideTip();
+});
+document.addEventListener('pointerout', e=>{ if(!e.relatedTarget) hideTip(); });   // left the window
+document.addEventListener('focusin', e=>{ const el=e.target.closest('[data-tip]'); if(el && el.matches(':focus-visible')) showTip(el); });
+document.addEventListener('focusout', hideTip);
+document.addEventListener('pointerdown', e=>{ _tipMuted=e.target.closest('[data-tip]'); hideTip(); });
+document.addEventListener('scroll', hideTip, true);
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') hideTip(); });
 let _reconcileT=null;
 function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(()=>refresh(), 2500); }  // let Coda index, then pull server truth (recent guard prevents flicker)
 
@@ -1982,6 +2022,7 @@ function applyLocal(e, remove){
 async function transitionTo(status){
   const ev=editing;
   if(!ev || !ev.id || _busy.has(ev.id)) return;
+  if(status==='approved' && isPastEvent(ev) && !confirm('This event’s date has passed. Once it’s approved, its details lock and it can’t be cancelled or deleted. Approve anyway?')) return;
   autosaveEditor();                            // queue any field edit still in the form
   _busy.add(ev.id);
   const prev=ev.status;
@@ -2061,6 +2102,7 @@ function close(){
   // change — including a field still being typed in (Esc closes without its blur).
   // The queue writes it after the editor is gone.
   const id=editing && editing.id;
+  hideTip();
   leaveForm();   // (retries the open form's failed save once)
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
@@ -2109,14 +2151,13 @@ document.getElementById('months').addEventListener('click',e=>{
     if(ev) openEditor(ev);
     return;
   }
-  const cell=e.target.closest('.cell'); if(!cell) return;
-  openNewEventForm(newEventOn(cell.dataset.date));
+  const add=e.target.closest('[data-add-date]'); if(add) openNewEventForm(newEventOn(add.dataset.addDate));   // only the + adds — the rest of the day does nothing
 });
 
 document.getElementById('quarter').addEventListener('click',e=>{
   const chip=e.target.closest('.qchip');
   if(chip){ const ev=state.events.find(x=>x.id===chip.dataset.id); if(ev) openEditor(ev); return; }
-  const z=e.target.closest('.qzone'); if(z && z.dataset.add) openNewEventForm(newEventOn(z.dataset.add));
+  const z=e.target.closest('.zone-add'); if(z) openNewEventForm(newEventOn(z.dataset.add));   // only the + adds
 });
 
 function newEventOn(date){
@@ -2181,13 +2222,19 @@ document.addEventListener('click', e=>{
   if(!e.target.closest('#ovfPanel') && !e.target.closest('#ovfBtn')) ovfMenu(false);
   if(!e.target.closest('.msel')) document.querySelectorAll('.msel-menu').forEach(m=>{ m.hidden=true; const b=m.parentElement.querySelector('.msel-btn'); if(b) b.setAttribute('aria-expanded','false'); });
 });
-document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ acctMenu(false); ovfMenu(false); } });
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape') return;
+  acctMenu(false);
+  const p=document.getElementById('ovfPanel');
+  if(p && !p.hidden){ const back=p.contains(document.activeElement); ovfMenu(false); if(back) document.getElementById('ovfBtn').focus(); }
+});
 
 /* layer toggles */
 document.getElementById('layers').addEventListener('click',e=>{
   const lab=e.target.closest('.lyr'); if(!lab) return;
-  const id=lab.dataset.layer; if(id==='planning'){ state.layers.planning=!state.layers.planning; lab.dataset.on=state.layers.planning; }
-  else { state.layers[id]=!state.layers[id]; lab.dataset.on=state.layers[id]; }
+  const id=lab.dataset.layer;                  // 'planning' or a reference layer id
+  state.layers[id]=!state.layers[id];
+  lab.dataset.on=state.layers[id]; lab.setAttribute('aria-pressed', String(state.layers[id]));
   rerender();
 });
 
@@ -2294,28 +2341,11 @@ function acctMenu(open){
   m.hidden = !willOpen; b.setAttribute('aria-expanded', String(willOpen));
 }
 
-/* ---- mobile overflow (⋯): relocate year-nav + filters into a dropdown ---- */
-const headerMQ = window.matchMedia('(max-width:600px)');
+/* ---- calendar settings (⚙): the layer toggles, in a pop-over at every width ---- */
 function ovfMenu(open){
   const p=document.getElementById('ovfPanel'), b=document.getElementById('ovfBtn'); if(!p||!b) return;
   const willOpen = open!==undefined ? open : p.hidden;
   p.hidden=!willOpen; b.setAttribute('aria-expanded', String(willOpen));
-}
-function applyHeaderMode(){
-  const panel=document.getElementById('ovfPanel'), ovfBtn=document.getElementById('ovfBtn');
-  const yearnav=document.querySelector('.yearnav'), layers=document.getElementById('layers');
-  const controls=document.querySelector('.controls'), bar=document.querySelector('.bar');
-  if(!panel||!ovfBtn) return;
-  if(headerMQ.matches){                                   // mobile: tuck year-nav + filters into the ⋯ panel
-    if(yearnav && yearnav.parentElement!==panel) panel.appendChild(yearnav);
-    if(layers && layers.parentElement!==panel) panel.appendChild(layers);
-    ovfBtn.hidden=false;
-  } else {                                                // desktop: restore to their inline homes
-    if(yearnav && controls && yearnav.parentElement===panel) controls.appendChild(yearnav);
-    if(layers && bar && layers.parentElement===panel) bar.after(layers);
-    ovfBtn.hidden=true; ovfMenu(false);
-  }
-  layoutSticky();
 }
 async function fetchMe(){
   if(!PROXY_BASE || !state.idToken){ state.identity=null; state.authPending=false; renderAuth(); return; }
@@ -2354,8 +2384,7 @@ async function init(){
   buildWeekHead(); renderLayers(); updateNavLabel(); initAuth();
   { const hp=new URL(location.href).searchParams.get('help'); if(hp!==null) openHelp(hp); }   // ?help=<id> opens that guide (works signed out)
   document.getElementById('ovfBtn').addEventListener('click', e=>{ e.stopPropagation(); ovfMenu(); });
-  headerMQ.addEventListener('change', applyHeaderMode);
-  applyHeaderMode();
+  layoutSticky();
   // Wire refresh/focus/poll up front so they work immediately (never dead while loading).
   const rb = document.getElementById('refreshBtn'); if(rb) rb.addEventListener('click', refresh);
   document.addEventListener('visibilitychange', () => { if(!document.hidden){ refresh(); } }); // refetch on tab focus
@@ -2524,13 +2553,15 @@ function openHelp(id, opener){
   if(d.hidden || opener) help.opener=opener||document.activeElement;   // an explicit opener (editor ?, status badge) takes over even when already open
   help.view=id?'guide':'index'; help.id=id||'';
   d.hidden=false; document.body.classList.add('help-open'); setHelpExpanded(true);
+  layoutSticky();   // the header narrows (or widens), so its height can change
   renderHelp();
   d.focus({ preventScroll:true });
 }
 function closeHelp(){
   const d=document.getElementById('helpDrawer'); if(!d || d.hidden) return;
   const ae=document.activeElement, hadFocus=!ae || ae===document.body || d.contains(ae);
-  d.hidden=true; document.body.classList.remove('help-open'); setHelpExpanded(false); setHelpUrl('');
+  d.hidden=true; document.body.classList.remove('help-open'); setHelpExpanded(false); setHelpUrl(''); hideTip();
+  layoutSticky();
   let o=help.opener; help.opener=null;
   if(!hadFocus) return;                                                     // the user moved on (e.g. into the editor)
   const scrim=document.getElementById('scrim');

@@ -22,7 +22,7 @@
     </div>
     <span class="grow-sp"></span>
     <button class="btn ghost" id="feedbackBtn">Feedback / Ideas</button>
-    <button class="help-btn" id="helpBtn" type="button" data-help="" aria-label="Help" aria-expanded="false" aria-controls="helpDrawer" title="Help">?</button>
+    <button class="help-btn" id="helpBtn" type="button" data-help="" aria-label="Help" aria-expanded="false" aria-controls="helpDrawer" data-tip="Help">?</button>
     <span id="authSlot" class="authslot"></span>
   </div>
   <div class="bar-inner row2">
@@ -38,22 +38,22 @@
       </div>
     </div>
     <span class="grow-sp"></span>
-    <button class="btn primary" id="addBtn">+ New event</button>
-    <button class="btn ghost icon" id="refreshBtn" title="Refresh from Coda" aria-label="Refresh">↻</button>
-    <button class="btn icon ovf-btn" id="ovfBtn" aria-label="More options" aria-expanded="false" aria-haspopup="menu" hidden>⋯</button>
+    <button class="btn ghost icon" id="refreshBtn" type="button" aria-label="Refresh event data" data-tip="Refresh event data">↻</button>
+    <span class="ovf">
+      <button class="btn ghost icon" id="ovfBtn" type="button" aria-label="Calendar settings" data-tip="Calendar settings" aria-expanded="false" aria-controls="ovfPanel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      <div class="ovf-panel" id="ovfPanel" hidden>
+        <div class="ovf-h" id="ovfH">Show on calendar</div>
+        <div class="layers" id="layers" role="group" aria-labelledby="ovfH">
+          <button type="button" class="lyr" data-on="true" aria-pressed="true" data-layer="planning">
+            <span class="dot" style="background:linear-gradient(135deg,var(--p-kab),var(--p-tot))"></span>
+            <span class="name">Planning events</span>
+          </button>
+          <!-- reference toggles injected by renderLayers -->
+        </div>
+      </div>
+    </span>
+    <button class="btn primary" id="addBtn" type="button" aria-label="New event"><span class="add-long">+ New event</span><span class="add-short" aria-hidden="true">+</span></button>
   </div>
-  <div class="ovf-panel" id="ovfPanel" role="menu" hidden></div>
-</div>
-
-<div class="layers" id="layers">
-  <span class="grp-label">Your plans</span>
-  <label class="lyr" data-on="true" data-layer="planning" title="Your planning events (always shown)">
-    <span class="dot" style="background:linear-gradient(135deg,var(--p-kab),var(--p-tot))"></span>
-    <span class="name">Planning events</span>
-  </label>
-  <span class="spacer"></span>
-  <span class="grp-label">Reference</span>
-  <!-- reference toggles injected -->
 </div>
 
 <div class="wrap">
@@ -94,7 +94,7 @@
       <div class="stripe" id="mStripe"></div>
       <div class="mhead-title"><h2 id="mTitle">Event</h2><span class="mhead-badges" id="mBadges"></span></div>
       <div class="mhead-actions" id="mActions"></div>
-      <button class="mhead-close" id="mClose" type="button" aria-label="Close" title="Close">×</button>
+      <button class="mhead-close" id="mClose" type="button" aria-label="Close" data-tip="Close">×</button>
     </div>
     <div class="mbody" id="mBody"></div>
     <div class="mfoot" id="mFoot"></div>
@@ -106,7 +106,7 @@
   <div class="help-head">
     <button class="help-back" id="helpBack" type="button" hidden>← All guides</button>
     <h2 class="help-title" id="helpTitle">Help</h2>
-    <button class="mhead-close" id="helpClose" type="button" aria-label="Close help" title="Close">×</button>
+    <button class="mhead-close" id="helpClose" type="button" aria-label="Close help" data-tip="Close help">×</button>
   </div>
   <div class="help-body" id="helpBody"></div>
   <div class="help-foot">Still stuck? <a href="mailto:eastsidetribenashville@gmail.com">Email us</a></div>

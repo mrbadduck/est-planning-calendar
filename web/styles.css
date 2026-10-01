@@ -111,21 +111,17 @@
   .acct-who .role{font-size:11px;color:var(--muted)}
   .acct-menu .btn{text-align:left}
 
-  /* mobile overflow menu (⋯) — hidden until the mobile breakpoint */
   .sub-short{display:none}
+  /* calendar settings pop-over (⚙ #ovfBtn → #ovfPanel): the layer toggles, anchored to the ⚙ */
+  .ovf{position:relative;display:inline-flex}
   .ovf-panel{
-    position:absolute;right:14px;top:100%;margin-top:6px;z-index:55;
-    width:min(320px, calc(100vw - 28px));
+    position:absolute;right:0;top:100%;margin-top:6px;z-index:55;
+    width:min(280px, calc(100vw - 28px));
     background:var(--surface);border:1px solid var(--hair-strong);border-radius:12px;box-shadow:var(--shadow);
-    padding:12px;display:flex;flex-direction:column;gap:12px;
+    padding:10px;display:flex;flex-direction:column;gap:6px;
   }
   .ovf-panel[hidden]{display:none}
-  .ovf-panel .yearnav{width:100%}
-  .ovf-panel .layers{
-    display:flex;flex-direction:column;align-items:flex-start;gap:9px;
-    margin:0;padding:11px 0 0;border:0;border-top:1px solid var(--hair);max-width:none;
-  }
-  .ovf-panel .layers .spacer{display:none}
+  .ovf-h{font-size:10.5px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.7px;padding:2px 6px}
   .yearnav{display:flex;align-items:center;gap:4px}
   .yearnav .yr{font-family:Fraunces,serif;font-weight:600;font-size:15px;min-width:52px;text-align:center;white-space:nowrap}
   .btn{
@@ -145,19 +141,16 @@
   .roleline{display:flex;align-items:center;gap:7px}
   .roleline .lbl{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.6px}
 
-  /* ---- layers strip ---- */
-  .layers{
-    max-width:1180px;margin:0 auto;padding:9px 18px;display:flex;gap:8px 16px;
-    align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--hair);
-  }
-  .layers .grp-label{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.7px;margin-right:2px}
-  .lyr{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px;color:var(--muted)}
-  .lyr input{display:none}
+  /* ---- layer toggles (inside the ⚙ pop-over) ---- */
+  .layers{display:flex;flex-direction:column;gap:1px}
+  .lyr{display:flex;align-items:center;gap:8px;width:100%;padding:6px;border:0;border-radius:6px;background:transparent;font:inherit;font-size:12.5px;color:var(--muted);text-align:left;cursor:pointer;user-select:none}
+  .lyr:hover{background:var(--soft);color:var(--ink)}
   .lyr .dot{width:10px;height:10px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(0,0,0,.08)}
   .lyr .swatch-ref{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
-  .lyr[data-on="false"]{opacity:.4}
+  .lyr[data-on="false"]{opacity:.45}
   .lyr[data-on="false"] .name{text-decoration:line-through}
-  .spacer{flex:1 1 20px}
+  .btn.icon svg{display:block}
+  .add-short{display:none}
 
   /* ---- weekday header (sticky) ---- */
   .weekhead{
@@ -188,12 +181,10 @@
   .gcell{
     border-top:1px solid var(--hair);border-right:2px solid rgba(69,69,158,.30);
     padding:5px 5px 6px;display:flex;flex-direction:column;gap:3px;min-width:0;
-    background:rgba(69,69,158,.06);position:relative;cursor:pointer;
+    background:rgba(69,69,158,.06);position:relative;cursor:default;
   }
   .gcell:hover{background:rgba(69,69,158,.10)}
   .gcell .ghint{font-size:8.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);opacity:.7}
-  .gcell .gadd{position:absolute;right:5px;top:4px;font-size:12px;color:var(--accent);opacity:0}
-  .gcell:hover .gadd{opacity:.5}
   .gchip{
     font-size:10px;line-height:1.25;border-radius:5px;padding:2px 6px;cursor:pointer;
     border-left:3px solid var(--c);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
@@ -209,7 +200,7 @@
   .cell{
     min-width:0;overflow:hidden;
     min-height:var(--cell-min);border-left:1px solid var(--hair);border-top:1px solid var(--hair);
-    padding:3px 4px 5px;position:relative;cursor:pointer;transition:background .1s;
+    padding:3px 4px 5px;position:relative;cursor:default;transition:background .1s;
   }
   .cell:hover{background:var(--surface)}
   .cell.we{background:rgba(69,69,158,.022)}
@@ -222,11 +213,24 @@
     min-width:19px;height:19px;padding:0 5px;border-radius:11px;
     font-size:11px;font-weight:600;color:var(--muted);margin:1px 0 3px;
   }
-  .cell .add-hint{
-    position:absolute;top:4px;right:5px;font-size:14px;line-height:1;color:var(--accent);
-    opacity:0;transition:.1s;font-weight:500;
+
+  /* add buttons — the only way to add from the calendar; revealed on hover/focus (spec 2026-10-01 §7) */
+  .cell-add,.gadd,.zone-add{
+    position:absolute;top:3px;right:3px;width:20px;height:20px;padding:0;border:0;border-radius:5px;
+    background:var(--surface);color:var(--accent);font:inherit;font-size:15px;font-weight:500;line-height:1;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .1s,background .1s;
   }
-  .cell:hover .add-hint{opacity:.55}
+  .cell:hover .cell-add,.gcell:hover .gadd,.qzone:hover .zone-add,
+  .cell-add:focus-visible,.gadd:focus-visible,.zone-add:focus-visible{opacity:.8}
+  .cell-add:hover,.gadd:hover,.zone-add:hover{opacity:1;background:var(--accent-tint)}
+  .ghead{display:flex;align-items:center;justify-content:space-between;gap:4px;min-height:20px}
+  .gcell .gadd{position:static;flex:0 0 auto;width:18px;height:18px;font-size:14px}
+  @media (hover:none){   /* touch: no hover, so the + buttons show faintly — at a 24px target */
+    .cell-add,.gadd,.zone-add{opacity:.5}
+    .cell-add,.zone-add{width:24px;height:24px;top:1px;right:1px}
+    .qzone > :not(.zone-add):first-child{margin-right:26px}
+  }
+  @media (max-width:600px){ .cell-add{display:none} }   /* phone day cells are too narrow for a + beside the date — add from Overview's lanes or + at the top */
 
   /* chips */
   .chips{display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -359,6 +363,7 @@
   .meta{grid-column:1/3;font-size:11px;color:var(--faint);border-top:1px dashed var(--hair);padding-top:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
   .mfoot{padding:12px 18px 16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--hair);margin-top:8px;flex-shrink:0}
   .mfoot .push{flex:1}
+  .mfoot:not(:has(button, .savestat)){display:none}   /* nothing to act on (e.g. a past approved event) — no empty band */
   .danger{color:#B23B3B;border-color:#E7C9C9}
   .danger:hover{background:#FBEEEE;border-color:#B23B3B;color:#B23B3B}
   /* autosave status indicator (workspace footer) */
@@ -419,7 +424,9 @@
   .qtbd .lbl{font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint)}
   .qweek{display:grid;grid-template-columns:38px minmax(0,1fr) minmax(0,1fr);border-top:1px solid var(--hair);min-height:38px}
   .qwk{font-size:10px;color:var(--faint);padding:5px 3px 0 7px;line-height:1.15;border-right:1px solid var(--hair)}
-  .qzone{padding:4px;display:flex;flex-direction:column;gap:2px;min-width:0;cursor:pointer}
+  .qzone{padding:4px;display:flex;flex-direction:column;gap:2px;min-width:0;cursor:default;position:relative}
+  .qzone:hover,.qzone.wknd:hover{background:var(--accent-tint)}
+  .qzone > :not(.zone-add):first-child{margin-right:22px}   /* room for the + beside the lane's first chip — it never covers (or takes clicks from) a chip */
   .qzone.wknd{background:rgba(69,69,158,.035);border-left:1px solid var(--hair)}
   .qzone .zlbl{font-size:11px;color:#D3D0C8;text-align:center;padding-top:2px}
   .qchip{font-size:10px;line-height:1.25;border-radius:4px;padding:2px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-left:3px solid var(--c)}
@@ -450,7 +457,7 @@
     .mbody > .fld.full,.mbody > .meta,.mbody > .locknote{grid-column:1}   /* collapse the spanning top-level fields; leaves nested grids (timerow) alone */
   }
 
-  /* mobile: slim two-row bar; year-nav + filters live behind the ⋯ menu */
+  /* mobile: slim two-row bar */
   @media (max-width:600px){
     .bar{padding:10px 0 8px}
     .bar-inner{padding:0 14px;gap:8px}
@@ -460,8 +467,20 @@
     .sub-full{display:none}
     .sub-short{display:block}
     .help-btn{width:26px;height:26px;font-size:13px}
-    .controls{gap:8px}
+    .controls{gap:6px}
+    /* row 2 fits one line at 375px: view switch, year picker, ↻ ⚙ + */
+    .bar-inner.row2{gap:6px}
+    .row2 .grow-sp{flex:1 1 0}
+    .seg button{padding:6px 7px}
+    .yearnav{gap:2px}
+    .yearnav .btn.icon{padding:6px 6px}
+    .yearnav .yr{min-width:46px;font-size:14px}
+    #refreshBtn,#ovfBtn{padding:6px 7px}
+    #addBtn .add-long{display:none}
+    #addBtn .add-short{display:inline}
+    #addBtn{padding:5px 9px;font-size:16px;line-height:1}
   }
+  @media (max-width:374px){ .bar-inner{padding:0 10px} }   /* 360px phones: still one line (narrower ones wrap the buttons under) */
 
   /* phone: the editor modal becomes a full-screen sheet */
   @media (max-width:600px){
@@ -479,8 +498,8 @@
   /* workspace mode: modal is a fixed-height flex column; mbody is the rail+panel
      row (not the 2-col field grid); only the panel scrolls, the rail stays put. */
   .modal.ws{height:min(760px, calc(100dvh - 96px));max-width:740px}
-  /* create modal: same fixed shell as the workspace so Create→workspace doesn't jump */
-  .modal.create{height:min(760px, calc(100dvh - 96px));max-width:740px}
+  /* create modal: sizes to its form (the body scrolls past the cap); phones stay full-screen below */
+  .modal.create{height:auto;max-height:min(760px, calc(100dvh - 96px));max-width:740px}
   /* phone: these shells fill the screen (declared AFTER the desktop caps above so
      the equal-specificity mobile rule wins on source order, not just in @media). */
   @media (max-width:600px){ .modal.ws,.modal.create{height:100dvh;max-height:100dvh;max-width:none} }
@@ -667,12 +686,18 @@
   .badge-btn:hover{filter:brightness(.95)}
   .gate .gate-help{margin:16px 0 0;font-size:12.5px}
   .gate .gate-help a{color:var(--accent);font-weight:600}
+  @media (min-width:1000px){ body.help-open{padding-right:var(--help-w)} }
+  @media (min-width:1000px) and (max-width:1399px){ body.help-open .qgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }   /* the page is under 1000px wide then — three columns get cramped */   /* wide: Help sits beside the page — header and calendar narrow instead of hiding under it */
   @media (min-width:1000px){ body.help-open .scrim{padding-right:calc(var(--help-w) + 16px)} }       /* an open editor (≥568px) sits beside the drawer; narrower, the drawer overlays it */
   @media (min-width:780px){  body.help-open .gate-scrim{padding-right:calc(var(--help-w) + 20px)} }  /* the 340px sign-in card still fits beside it */
   @media (max-width:600px){
     .help-drawer{width:100%;border-left:0;box-shadow:none}
     body.help-open{overflow:hidden}
   }
+
+  /* ---- tooltips (data-tip — one shared bubble, see showTip in app.js) ---- */
+  .tip{position:fixed;z-index:90;pointer-events:none;padding:4px 8px;border-radius:6px;background:var(--ink);color:var(--surface);font-size:11.5px;font-weight:500;line-height:1.35;white-space:nowrap;box-shadow:var(--shadow)}
+  .tip[hidden]{display:none}
 
   @media (prefers-color-scheme:dark){
     :root{
