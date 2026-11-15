@@ -215,3 +215,25 @@ test('effectiveAddressVisibility: explicit choices and non-Home venues are kept'
   assert.equal(effectiveAddressVisibility('', { name: 'JCC', type: 'Partner' }), '');
   assert.equal(effectiveAddressVisibility('', null), '');
 });
+
+import { publishSuccessBody } from '../src/publish.js';
+
+test('publishSuccessBody: carries the pushed snapshot it wrote (R15)', () => {
+  const ev = rowToListingEvent(row);
+  const pushedJson = pushedValues(ev, { ticketClassId: 'tc9' });
+  const b = publishSuccessBody({ ebId: '123', url: 'https://www.eventbrite.com/e/123', draftOnly: true, pushedJson });
+  assert.deepEqual(b.pushed, JSON.parse(pushedJson));
+  assert.equal(b.ok, true);
+  assert.equal(b.eventbriteId, '123');
+  assert.equal(b.url, 'https://www.eventbrite.com/e/123');
+  assert.equal(b.draft, true);
+  assert.equal(b.publishStatus, 'Draft');
+  assert.equal('ticketNote' in b, false);
+});
+test('publishSuccessBody: publish step + ticket note', () => {
+  const b = publishSuccessBody({ ebId: '9', url: 'u', draftOnly: false, ticketNote: 'n', pushedJson: '{"title":"T"}' });
+  assert.equal(b.draft, false);
+  assert.equal(b.publishStatus, 'Published');
+  assert.equal(b.ticketNote, 'n');
+  assert.deepEqual(b.pushed, { title: 'T' });
+});

@@ -59,6 +59,19 @@ export function pushedValues(ev, { ticketClassId } = {}) {
   });
 }
 
+// The publish route's 200 body. `pushed` is the snapshot just written to Last EB
+// pushed values (R15): the app adopts it as-is rather than recomputing it.
+export function publishSuccessBody({ ebId, url, draftOnly, ticketNote, pushedJson }) {
+  let pushed = null;
+  try { pushed = JSON.parse(pushedJson); } catch (_) {}
+  return {
+    ok: true, eventbriteId: ebId, url, draft: !!draftOnly,
+    publishStatus: draftOnly ? 'Draft' : 'Published',
+    pushed,
+    ...(ticketNote ? { ticketNote } : {}),
+  };
+}
+
 // Public description to write to Eventbrite's structured content, or null to skip
 // the write: blank, or unchanged since the last push (whitespace-insensitive).
 // Never falls back to the internal description (decision 7).

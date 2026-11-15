@@ -211,8 +211,12 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   `onChange` (guarded against initial seeding) so chip/segment mutations schedule
   a save. Transitions/Cancel/Delete hold the event they started on (never
   `editing`, which can change mid-await; `_busy` per event) and wait for its queue
-  first; a still-creating (`tmp-`) event doesn't open. Publish push (`Create draft`/`Publish`) calls
-  `flushAutosave()` first and stops if the save fails (the Worker reads Coda).
+  first; a still-creating (`tmp-`) event doesn't open. The Eventbrite push
+  (`pushToEventbrite`: Add to Eventbrite / Update draft / Publish / Update listing)
+  calls `flushAutosave()`, then waits until `pendingFor` is false (every edit
+  applied), and stops if a save fails (the Worker reads Coda). It adopts the
+  `pushed` snapshot the Worker returns (never recomputed); `refreshEbStatus` reads
+  registrants + edited-on-Eventbrite for display only.
   Design/plan:
   `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*` (the queue and
   partial writes replaced its snapshot-and-rewrite save in #24).

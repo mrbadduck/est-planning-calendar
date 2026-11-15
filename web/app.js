@@ -398,7 +398,7 @@ const CodaSource = {
   },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
-  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; throw e; } return j; },
+  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; throw e; } return j; },
   async ebPreview(rowId){ const r=await fetch(`${this.base}/eventbrite/preview?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(r.status===404 && j && j.linked===false) return null; if(!r.ok){ const e=new Error(j.error||`preview failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async refreshPeople(){ const r=await fetch(`${this.base}/admin/refresh-people`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`refresh failed (${r.status})`); e.status=r.status; throw e; } return j; },
@@ -942,18 +942,25 @@ function formKeyHTML(m){
     + (m.linked && m.pushed ? fmkIcon('ok', ICON_MATCH, TIP_MATCH, 'In sync') + 'Matches Eventbrite' + sp : '')
     + fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private') + 'Private: planning team only';
 }
-// The listing card (linked events). Registration counts come in Task 14 (live
-// status); until then the "X of Y registered" part is left out. The tickets line
-// shows what was pushed (what Eventbrite has), never the form's Capacity.
+// The listing card (linked events; empty, and hidden, before that). The registered
+// count comes from the live status (refreshEbStatus) and is left out until it
+// loads. Counts and the tickets line show what was pushed (what Eventbrite has),
+// never the form's Capacity. The conflict notice (D8) shows when Eventbrite was
+// edited since our last push; once it has been shown, the next push overwrites.
 function listingCardHTML(ev){
+  if(!ev.eventbriteId) return '';
   const pub = ev.publishStatus==='Published';
   const pill = pub ? `<span class="ftag ok lg">Public</span>` : `<span class="ftag chg lg">Private draft</span>`;
-  const line = pub ? 'Registration open' : 'Nobody can see this listing or register yet.';
+  const st = _ebStatus.get(ev.id), sold = st && st.sold!=null ? Number(st.sold) : null;
+  const cap = ebCapacity(ev);
+  const count = sold==null ? '' : cap ? ` · ${sold} of ${cap} registered` : ` · ${sold} registered`;
+  const line = pub ? 'Registration open' + count : 'Nobody can see this listing or register yet.';
   const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="ebview" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
   const qty = ev.pushed && Number(ev.pushed.capacity) > 0 ? ` · ${Number(ev.pushed.capacity)}` : '';
   const err = ev.publishStatus==='Error' && ev.lastPublishError ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
+  const conflict = ebConflict(ev.id) ? `<div class="ndoc-warn">${esc(EB_CONFLICT_NOTICE)}</div>` : '';
   return `<div class="ebrow">${pill}<b>${esc(line)}</b>${view}</div>
-    <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span><span class="ftag mgd">Paid tickets and discount codes: coming later</span></div>${err}`;
+    <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span><span class="ftag mgd">Paid tickets and discount codes: coming later</span></div>${conflict}${err}`;
 }
 // Repaint every marker, hint, the key and the card from the open editor's event.
 // Called with the footer (open, tab switch, every save-state change), so markers
@@ -972,7 +979,13 @@ function paintFieldMarks(){
   });
   panel.querySelectorAll('[data-fhint]').forEach(el=>paintInner(el, fieldHintHTML(el.dataset.fhint, m)));
   const k=document.getElementById('f_key'); if(k) paintInner(k, formKeyHTML(m));
-  const c=document.getElementById('listingCard'); if(c) paintInner(c, listingCardHTML(editing));
+  const c=document.getElementById('listingCard');
+  if(c){
+    paintInner(c, listingCardHTML(editing));
+    if(editing.eventbriteId && ebConflict(editing.id)) _conflictShown.add(editing.id);   // the next push may overwrite (D8)
+  }
+  const lh=document.getElementById('listingHead'); if(lh) paintInner(lh, listingHeadHTML(editing));
+  const dh=document.getElementById('f_pubdeschint'); if(dh) paintInner(dh, esc(pubDescHintText(!!editing.eventbriteId)));
 }
 
 /* ---- listing preview (act 'preview-eb'; board E2) ---------------------------
@@ -1232,6 +1245,7 @@ function openEditor(ev, section){
     applyListingAddressDefault();
   }
   renderEditorFooter();
+  if(canEdit && ev.eventbriteId) refreshEbStatus(ev);   // registrants + edited-on-Eventbrite, for the footer and card
 }
 // Placeholder while the reference lists load (a first visit only — see relationsReady).
 function showModalLoading(title, color){
@@ -1457,11 +1471,14 @@ function publishFieldsHTML(vals, dis, linked, fm){
   return `
     <div class="fld full"><label>${lab('publicSummary','Public summary')} <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(vals.summary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
     <div class="fld full"><label>${lab('publicDescription','Public description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea>${fieldHintSlot('publicDescription')}
-      <span class="hint">${linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
-        : 'If you copy the internal description, take out planning notes first. This text goes public.'}</span></div>
+      <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>
     <div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>
     <div class="fld"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span><span class="hint warn" id="f_addrwarn" hidden>${esc(ADDR_HOME_PUBLIC_WARN)}</span></div>`;
 }
+const listingHeadHTML = ev => ev.eventbriteId ? 'Eventbrite listing'
+  : 'Public listing <span class="wsub-h-sub">· what people see on Eventbrite</span>';
+const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
+  : 'If you copy the internal description, take out planning notes first. This text goes public.';
 function renderListingSection(ev, canEdit, locked){
   const linked=!!ev.eventbriteId;
   if(ev.status!=='approved')
@@ -1469,9 +1486,10 @@ function renderListingSection(ev, canEdit, locked){
   const dis=(!canEdit||locked)?'disabled':'';
   const fm=fieldMarkModel(ev);
   const vals={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
-  const h = linked ? `<div class="wsub-h">Eventbrite listing</div>`
-    : `<div class="wsub-h">Public listing <span class="wsub-h-sub">· what people see on Eventbrite</span></div>`;
-  const card = linked ? `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>` : '';
+  // Stable containers (D1): the heading, card and description hint change when the
+  // event gets linked (Add to Eventbrite) while the editor stays open.
+  const h = `<div class="wsub-h" id="listingHead">${listingHeadHTML(ev)}</div>`;
+  const card = `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>`;
   return `<div class="wsub">${h}${card}${publishFieldsHTML(vals, dis, linked, fm)}</div>`;
 }
 function wireListingSection(panel, ev, canEdit, locked){
@@ -2213,20 +2231,30 @@ const KEBAB_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="curren
 const SPIN_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>`;
 let _menuOpen=false;
 function editorFooterModel(ev, ctx){
-  const R=ListingRules;
-  return R.footerModel({
+  const R=ListingRules, st=_ebStatus.get(ev.id), wc=_pushChecks.get(ev.id);
+  const local=R.readiness(ev, { venue: venueRecord(ev), todayISO: todayStr });
+  const input={
     stage: R.stageOf(ev),          // live: publish status can change while the editor is open
     past: ctx.past,
     role: ctx.role,
-    checks: R.readiness(ev, { venue: venueRecord(ev), todayISO: todayStr }),
-    pending: pendingFor(ev.id),
+    checks: mergePushChecks(local, wc),
+    pending: pendingFor(ev.id) || _pushing.has(ev.id),   // a push in flight holds the primary at Saving… too
     unpushed: R.unpushedFields(ev, ev.pushed || null),
-    ebEditedElsewhere: false,      // Task 14 reads the live listing
-    registrants: null,             // Task 14
-    capacity: ev.capacity,
+    ebEditedElsewhere: ebConflict(ev.id),
+    registrants: st && st.sold!=null ? Number(st.sold) : null,   // null until the live status loads
+    capacity: ebCapacity(ev),
     proposedBy: null,              // the row doesn't record who proposed it (Edited by changes on every edit)
-    justChanged: null,             // Task 16
-  });
+    justChanged: _justChanged.get(ev.id) || null,
+  };
+  const m=R.footerModel(input);
+  // The Worker's "needs X" (a 409) shows as links and field tags until the next
+  // edit, but doesn't lock the button: after a stale read the same click can
+  // succeed, and there may be nothing left to edit.
+  if(wc && m.primary && m.primary.act){
+    const ml=R.footerModel(Object.assign({}, input, { checks: local }));
+    if(ml.primary && ml.primary.act===m.primary.act) m.primary.enabled=ml.primary.enabled;
+  }
+  return m;
 }
 function footerMsgHTML(m){
   const cur=m.steps.findIndex(s=>s.state==='current');
@@ -2321,6 +2349,7 @@ function autosaveEditor(){
     Object.assign(ev, f);
     ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
     _form.base=cells;
+    _pushChecks.delete(ev.id);                 // the Worker's last "needs X" answer is stale after an edit
     saveQueue.stage(ev.id, changes);           // queue first: a render error must not lose the edit
     applyLocal(ev); rerender();                // reflect in the calendar behind the modal
   }
@@ -2434,6 +2463,141 @@ async function deleteEditor(){
   }finally{ _busy.delete(id); guardUnload(); }
 }
 
+/* ---- Eventbrite push: Add to Eventbrite / Update draft / Publish / Update listing
+   (spec 5.3–5.6, D8). The Worker builds the listing from what Coda has, so every
+   edit must be applied first; it re-checks readiness and answers 409 {error,
+   checks} or 409 {conflict} (Eventbrite edited since our last push). On success
+   it returns the snapshot it stored (`pushed`, R15), which the app adopts as-is.
+   Nothing from the live status is ever put into the form or written (D4). */
+const PUSH_ACTS = {
+  'add-eb':         { draftOnly:true,  ok:'Added to Eventbrite as a private draft' },
+  'update-eb':      { draftOnly:true,  ok:'Eventbrite draft updated' },
+  'publish-eb':     { draftOnly:false, ok:'Published. Registration is open' },
+  'update-listing': { draftOnly:false, ok:'Eventbrite listing updated' },
+};
+const EB_CONFLICT_NOTICE = 'Someone changed this listing on Eventbrite since your last update. Updating will replace their changes.';
+const _ebStatus=new Map();      // event id → { editedSincePush, sold, liveStatus } from GET /eventbrite/status (session-local)
+const _ebStatusSeq=new Map();   // event id → latest request number (an older answer never overwrites a newer one)
+const _pushChecks=new Map();    // event id → { draftOnly, checks } the Worker's last readiness 409, until the next edit
+const _ebConflict=new Set();    // event ids whose last push got the conflict 409
+const _conflictShown=new Set(); // event ids whose conflict notice has been shown: the next push sends force
+const _pushing=new Set();       // event ids with a push in flight
+const _justChanged=new Map();   // event id → { fields, registrants } after an Update listing that moved date/time/venue
+const ebConflict = id => !!((_ebStatus.get(id)||{}).editedSincePush || _ebConflict.has(id));
+// The capacity Eventbrite has (the pushed one), else the form's.
+const ebCapacity = ev => ev.pushed && Number(ev.pushed.capacity) > 0 ? Number(ev.pushed.capacity) : ev.capacity;
+// The Worker's failed checks override the app's own for the step it was asked for
+// (a publish-step answer leaves the add checks alone), so the footer links and
+// field tags point at what the server found missing.
+function mergePushChecks(local, wc){
+  if(!wc || !wc.checks || !wc.checks.length) return local;
+  const over = list => {
+    const out = list.map(c => { const w=wc.checks.find(x=>x.key===c.key); return w ? Object.assign({}, c, w, { ok:false }) : c; });
+    for(const w of wc.checks) if(!out.some(c=>c.key===w.key)) out.push(Object.assign({}, w, { ok:false }));
+    return out;
+  };
+  return { add: wc.draftOnly ? over(local.add) : local.add, publish: over(local.publish) };
+}
+// Live Eventbrite status for a linked event: registrants and whether someone edited
+// the listing on Eventbrite since our last push. Display only.
+async function refreshEbStatus(ev){
+  if(!ev || !ev.id || !ev.eventbriteId) return;
+  const id=ev.id, seq=(_ebStatusSeq.get(id)||0)+1;
+  _ebStatusSeq.set(id, seq);
+  let r=null;
+  try{ r=await DB.ebStatus(id); }catch(_){ r=null; }
+  if(_ebStatusSeq.get(id)!==seq || !r || !r.linked || !r.live) return;   // superseded, or nothing to show
+  _ebStatus.set(id, { editedSincePush: !!r.editedSincePush, sold: r.live.sold!=null ? Number(r.live.sold) : null, liveStatus: r.live.status || '' });
+  if(editing && editing.id===id) renderEditorFooter();   // footer + card; another open event ignores it
+}
+function dismissChangeNotice(){
+  if(!editing) return;
+  _justChanged.delete(editing.id); renderEditorFooter();
+}
+// Wait until nothing for this event is queued, in flight or unapplied. Resolves
+// false when an edit failed or a create was never confirmed (nothing to wait for).
+async function settledForPush(id){
+  const deadline=Date.now()+150000;            // waitApplied gives up at 120 s
+  while(pendingFor(id)){
+    if(_unconfirmed.has(id) || Date.now()>deadline) return false;
+    await saveQueue.settle(id).catch(()=>{});
+    await afterCreate(id);
+    if(pendingFor(id)) await new Promise(r=>setTimeout(r, 300));
+  }
+  return saveQueue.status(id)!=='error' && !_unconfirmed.has(id);
+}
+function pushedChangeText(n, after){
+  const F=ListingRules, parts=[];
+  for(const k of n.fields){
+    const v = k==='date' ? F.fmtDate(after.date) : k==='venue' ? (after.venueName || 'Online') : F.fmtTime(after[k]);
+    parts.push(`${(F.FIELDS[k] ? F.FIELDS[k].label : k).toLowerCase()} ${v}`);
+  }
+  return parts.join(', ');
+}
+async function pushToEventbrite(act){
+  const spec=PUSH_ACTS[act], ev=editing;
+  if(!spec || !ev || !ev.id || !_ctx || _ctx.ev!==ev || _busy.has(ev.id)) return;
+  const m=editorFooterModel(ev, _ctx);
+  if(!m.primary || m.primary.act!==act || !m.primary.enabled) return;   // only the action the footer offers right now
+  const id=ev.id, force=_conflictShown.has(id);
+  _busy.add(id); _pushing.add(id); guardUnload();
+  if(editing===ev) renderEditorFooter();
+  try{
+    try{ await flushAutosave(); }
+    catch(err){
+      if(err && err.status===401) sessionExpired();
+      else toast('Your changes didn’t save, so nothing was sent to Eventbrite. Try again.','err');
+      return;
+    }
+    if(!(await settledForPush(id))){
+      toast('Your changes didn’t save, so nothing was sent to Eventbrite. Try again.','err');
+      return;
+    }
+    toast(spec.draftOnly ? 'Sending to Eventbrite…' : 'Publishing…','busy');
+    let res;
+    try{ res=await DB.publishEventbrite(id, spec.draftOnly, force); }
+    catch(err){
+      if(err && err.status===401){ sessionExpired(); return; }
+      if(err && err.status===409 && err.checks && err.checks.length){
+        _pushChecks.set(id, { draftOnly: spec.draftOnly, checks: err.checks });
+        toast(err.checks[0].message || err.message,'err');
+      } else if(err && err.status===409 && err.conflict){
+        _ebConflict.add(id);
+        toast(EB_CONFLICT_NOTICE,'err');
+      } else {
+        toast((err && err.message) || 'Couldn’t reach Eventbrite. Try again.','err');
+        scheduleReconcile();                   // the Worker may have recorded the error on the row
+      }
+      return;
+    }
+    const prevPushed=ev.pushed || null;
+    if(res.eventbriteId) ev.eventbriteId=String(res.eventbriteId);
+    if(res.url) ev.eventbriteUrl=res.url;
+    ev.publishStatus = res.publishStatus || (spec.draftOnly ? 'Draft' : 'Published');
+    ev.lastPublishError='';
+    if(res.pushed && typeof res.pushed==='object') ev.pushed=res.pushed;   // R15: the Worker's own snapshot
+    _pushChecks.delete(id); _ebConflict.delete(id); _conflictShown.delete(id);
+    const st=_ebStatus.get(id); if(st) st.editedSincePush=false;
+    applyLocal(ev); rerender();
+    markRecent(id, {e:ev}); scheduleReconcile();
+    let msg=spec.ok;
+    if(act==='update-listing' && prevPushed && ev.pushed){
+      const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);
+      if(n.fields.length){
+        msg += ': ' + pushedChangeText(n, ev.pushed);
+        const sold = st && st.sold!=null ? Number(st.sold) : 0;
+        if(sold > 0) _justChanged.set(id, { fields:n.fields, registrants:sold });
+      }
+    }
+    if(res.ticketNote) msg += '. ' + res.ticketNote;
+    toast(msg,'ok');
+    refreshEbStatus(ev);
+  }finally{
+    _busy.delete(id); _pushing.delete(id); guardUnload();
+    if(editing===ev) renderEditorFooter();     // footer + card only (D1); the form keeps focus and values
+  }
+}
+
 /* =========================================================================
    WIRING
    ========================================================================= */
@@ -2526,9 +2690,11 @@ function footerAct(act){
   else if(act==='reopen') transitionTo('draft');
   else if(act==='delete') deleteEditor();
   else if(act==='preview-eb') openPreview();
-  else if(FOOTER_STUB_ACTS.includes(act)) toast('Coming in this branch');   // Tasks 14–16 wire these
+  else if(PUSH_ACTS[act]) pushToEventbrite(act);
+  else if(act==='dismiss-notice') dismissChangeNotice();
+  else if(FOOTER_STUB_ACTS.includes(act)) toast('Coming in this branch');   // Tasks 15–16 wire these
 }
-const FOOTER_STUB_ACTS=['add-eb','update-eb','publish-eb','update-listing','email-registrants','dismiss-notice','unpublish'];
+const FOOTER_STUB_ACTS=['email-registrants','unpublish'];
 // ⋮ menu: closes on an outside click or Esc (before Esc closes the modal); arrow keys
 // move between its items.
 document.addEventListener('click', e=>{ if(_menuOpen && !e.target.closest('#edMenu')) kebabMenu(false); });

@@ -797,6 +797,7 @@
   .fkey-sp{width:8px}
   .wsub-h-sub{text-transform:none;letter-spacing:0;font-weight:500}
   .ebcard{display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:9px}
+  .ebcard:empty{display:none}
   .ebrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px}
   .ebrow.hint{font-size:12px;color:var(--muted)}
   .ebview{margin-left:auto;color:var(--accent);font-weight:500;text-decoration:none}
