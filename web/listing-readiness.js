@@ -218,7 +218,7 @@
           } else out.primary = savedText;
           if (registrants == null || registrants === 0)
             out.menu.push({ act: 'unpublish', label: 'Unpublish (back to private)', sub: 'Only possible while nobody has registered', tone: 'normal' });
-          out.menu.push({ act: 'cancel', label: 'Cancel event…', sub: 'Cancels the listing and notifies registrants', tone: 'danger' });
+          out.menu.push({ act: 'cancel', label: 'Cancel event…', sub: 'Takes the listing down. Not possible once people register.', tone: 'danger' });
         }
         break;
       case 'cancelled':

@@ -303,3 +303,10 @@ test('footerModel legacy row (pushed null): offers the update, not compared yet'
   assert.equal(fm({ stage: 'published', ev, pushed: null, role: { canEdit: false } }).primary, null);
   assert.equal(fm({ stage: 'published', ev, pushed: null, past: true }).primary, null);
 });
+
+test('footerModel published: Cancel event… says it takes the listing down', () => {
+  const m = fm({ stage: 'published', ev: { ...ready(), publicDescription: 'x' }, registrants: 0 });
+  const c = m.menu.find(x => x.act === 'cancel');
+  assert.equal(c.label, 'Cancel event…');
+  assert.equal(c.sub, 'Takes the listing down. Not possible once people register.');
+});
