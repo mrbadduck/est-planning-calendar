@@ -45,15 +45,15 @@ This is where East Side Tribe leaders plan the whole program year together, befo
 Every event follows the same path:
 
 1. Add it with [[+ New event]]. It starts as a **Draft**, a working plan. It can be a rough idea without an exact date.
-2. When it's ready, open it and click [[Propose]].
+2. When it's ready, open it and click [[Propose to council]].
 3. Tribal Council reviews it and clicks [[Approve]].
-4. Tribal Council publishes it to Eventbrite, where anyone can register.
+4. You add it to Eventbrite as a private draft, check it, then publish it so anyone can register.
 
 **Who can do what**
 
 - Anyone who signs in can look at the calendar.
-- **Program Leads** add, edit, propose and cancel events, set up potluck and volunteer sign-ups, and see who's coming.
-- **Tribal Council** does all that too, and also approves, publishes, reopens and deletes events, and can edit them after approval.
+- **Program Leads** add, edit, propose and delete events, put them on Eventbrite and publish them, cancel published events, set up potluck and volunteer sign-ups, and see who's coming. They can keep editing after approval.
+- **Tribal Council** does all that too, and also approves and reopens events.
 
 To check your role, click your picture or initials at the top of the page (on a phone, tap **☰**).
 
@@ -108,34 +108,53 @@ The event opens in full as a **Draft**. Nothing is public yet, so keep adding de
 
 Click an event to open it. It has these tabs:
 
-- [[Details]]: the plan itself. Title, internal description, programs, leads, when and where. Below it, **Public listing** holds the Eventbrite listing, which Tribal Council fills in after approval; see [Publish to Eventbrite](#publish).
+- [[Details]]: the plan itself. Title, internal description, programs, leads, when and where. Below it, **Public listing** holds what goes on Eventbrite once the event is approved; see [Put an event on Eventbrite](#publish).
 - [[Planning Notes]]: a Google Doc for your team's notes.
 - [[Potluck & Volunteers]]: sign-up slots for members.
 - [[Attendees]]: who's coming.
 
-**Changes save by themselves** when you move out of a field. A small label shows **Saved**, **Saving…** or **Unsaved changes**. If it says [[Save failed — retry]], click it to try again.
+**At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. On [[Details]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, only **⋮** shows.
 
-Close the event with **×** or the Esc key. Your last change is saved on the way out.
+**Changes save by themselves** when you move out of a field. A small label shows **Saved**, **Saving…** or **Unsaved changes**. **Saving…** can take up to half a minute, and says **Still saving** when it's slow; the next-step button waits until everything has saved. If it says [[Save failed — retry]], click it to try again.
 
-Once an event is approved, only Tribal Council can change its details, but Program Leads can still manage its potluck and volunteer sign-ups. See [From draft to approved](#lifecycle).
+**The icons beside each field name** show what's private, what goes on Eventbrite, and what's missing; see [Field icons](#field-markers).
 
-## From draft to approved {#lifecycle}
+You can keep editing after approval, and the event doesn't need approving again. Close it with **×** or the Esc key; your last change is saved on the way out.
 
-Every event has a status, and the buttons in an open event change with it:
+## Field icons {#field-markers}
 
-- **Draft**: being planned. Click [[Propose]] when it's ready for Tribal Council.
-- **Proposed**: waiting for review. You can still edit it. Tribal Council clicks [[Approve]].
-- **Approved** 🔒: confirmed. Program Leads can no longer change the details; Tribal Council still can. Next: [Publish to Eventbrite](#publish).
-- **Live**: approved and published on Eventbrite.
-- **Cancelled**: not happening. Tribal Council can click [[Reopen]] to make it a Draft again.
+In [[Details]], the icons beside each field name show where it goes. A key at the top of the form explains them:
+
+- A crossed-out eye: private. Only the planning team sees it; it never goes to Eventbrite.
+- A globe: public. It becomes part of the Eventbrite listing.
+- A check after the globe: it matches what Eventbrite has.
+
+Two tags can appear too:
+
+- **Needed for Eventbrite**: the next step is waiting on this field. See [What Eventbrite needs](#publish).
+- **● Not on Eventbrite yet**: you changed it since the last update. What Eventbrite still has shows under the field, until you click [[Update draft]] or [[Update listing]].
+
+The icons and tags update once the field has saved.
+
+## From draft to published {#lifecycle}
+
+The steps at the bottom of an open event show where it is:
+
+- **Draft**: being planned. Click [[Propose to council]] when it's ready.
+- **Proposed**: waiting for Tribal Council. You can keep editing. Tribal Council clicks [[Approve]].
+- **Approved**: you can still edit it, with no need to approve it again. Next: [[Add to Eventbrite]].
+- **On Eventbrite**: a private draft listing. Nobody can see it or register yet. Next: [[Publish]].
+- **Published**: public on Eventbrite, and registration is open. The label at the top of the event says **Live**.
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.
 
-**To call an event off**, click [[Cancel event]] and confirm. Program Leads and Tribal Council can do this at any stage, even after it's live, until its date has passed. If it's on Eventbrite, the listing comes down too, so if people have registered, email them from [[Attendees]] before you cancel. Only Tribal Council can bring it back to planning, with [[Reopen]], and that doesn't put it back on Eventbrite.
+**Delete or cancel, never both.** Both are in **⋮**.
 
-Only Tribal Council sees [[Delete]]. It removes the event right away, with no undo, and doesn't touch Eventbrite, so use [[Cancel event]] for anything that's been published.
+- **Before it's published**, use [[Delete event]]. It removes the event right away, with no undo. Program Leads and Tribal Council can do this. If the event is on Eventbrite as a private draft, that draft is deleted too.
+- **Once it's published**, Delete is gone. Use [[Cancel event…]], which takes the listing down. If people have registered, see [Change or take down a listing](#publish-changes).
+- **A cancelled event** can be brought back to planning by Tribal Council with [[Reopen]], which doesn't put it back on Eventbrite. Tribal Council can also delete it.
 
-**After the date,** an approved event is history: its **Details** lock and it can't be cancelled or deleted. Its [[Planning Notes]], sign-ups and [[Attendees]] still work.
+**After the date,** an approved event is history: its **Details** lock and there's nothing left to do at the bottom. Its [[Planning Notes]], sign-ups and [[Attendees]] still work.
 
 > **Tip:** Click the status label at the top of an open event to come back to this guide.
 
@@ -147,7 +166,7 @@ Each event can have its own Google Doc for your team's notes: agenda, to-dos, co
 2. Click [[Create notes doc]]. It's made from our planning template and can take a minute or two to appear.
 3. When it's ready, a preview appears. Click [[Edit in Google Docs]] to write in it.
 
-The preview only shows if you're signed into Google with access to the doc. If it's blank, click [[Edit in Google Docs]] and request access there. Program Leads can create a notes doc until the event is approved.
+The preview only shows if you're signed into Google with access to the doc. If it's blank, click [[Edit in Google Docs]] and request access there. Program Leads and Tribal Council can create one at any stage except Cancelled.
 
 ## Potluck & volunteer sign-ups {#signups}
 
@@ -163,28 +182,50 @@ To sign someone up yourself, click [[+ Add sign-up]] under a slot, pick their na
 
 # After approval
 
-## Publish to Eventbrite {#publish}
+## Put an event on Eventbrite {#publish}
 
-Once an event is approved, Tribal Council publishes it. Program Leads can see the listing but can't change it.
+Once an event is approved, Program Leads and Tribal Council can put it on Eventbrite, in two steps:
 
-### Before you publish
+- [[Add to Eventbrite]] creates a **private draft**. Nobody can see it or register.
+- [[Publish]] makes it public and opens registration.
 
-- It needs an exact date and a start time. Whole-month, date-range and all-day events can't go on Eventbrite.
-- Pick its venue from the list. With no venue, a **＋ New venue** name, or a venue with no street address on file, Eventbrite lists it as online. After you create the Eventbrite draft, check it doesn't say **Online**; if it does, fix the location on Eventbrite.
+### What Eventbrite needs
 
-### Publish
+Until these are done, the button can't be clicked. The bottom of the event lists what's left; click an item to jump to its field.
 
-1. In [[Details]], go down to **Public listing**.
-2. Fill in [[Public summary]] (one line), [[Public description]] (or click [[Copy from internal]] to start from the internal description) and [[Capacity]].
-3. Under [[Address on listing]], pick [[Public]] or [[Registrants only]]. Registrants only shows just the city, so send the address yourself from [[Attendees]].
-4. Click [[Create Eventbrite draft]], then [[Open in Eventbrite]] to check it (you'll need East Side Tribe's Eventbrite login).
-5. Click [[Publish]]. The event is now **Live**, and anyone can register.
+- Approval from Tribal Council, and a title.
+- An exact date that hasn't passed, with a start time and a later end time. Date ranges, whole months and all-day events can't go on Eventbrite.
+- A [[Capacity]] of at least 1: how many free tickets Eventbrite offers.
+- A venue picked from the list, not a new name you typed in (ask Tribal Council to add it to the list). With no venue, Eventbrite lists the event as online.
+- A street address saved on the venue, unless [[Address on listing]] is [[Registrants only]].
+- To publish, a [[Public description]] too. [[Public summary]] is optional.
 
-**To change a live listing,** edit the **Published listing** fields and click [[Update published event]] when it appears; it also sends the event's current title, date, time and venue. For an Eventbrite draft that isn't live yet, click [[Update draft]]. If someone changed the listing directly on Eventbrite, you'll be asked before your version replaces theirs.
+**At a private home,** [[Address on listing]] starts as [[Registrants only]], so the public sees just the city; send the address yourself from [[Attendees]]. Choosing [[Public]] there shows a warning.
 
-> **Heads-up:** changing only the title, date, time or venue doesn't show that button yet, so make the same change on Eventbrite too.
+### Steps
 
-Cancelling an event takes its listing down.
+1. In [[Details]], fill in **Public listing**: [[Public summary]], [[Public description]] and [[Capacity]]. [[Copy internal description]] starts you off from the internal one, but take out planning notes first: this text goes public.
+2. Click [[Add to Eventbrite]].
+3. Click [[Preview listing]] to see exactly what Eventbrite has.
+4. Click [[Publish]]. Anyone can now register.
+
+Every listing has free General Admission tickets. Paid tickets and discount codes are coming later.
+
+## Change or take down a listing {#publish-changes}
+
+**To change it,** edit the fields as usual. Each changed field says **Not on Eventbrite yet** until you click [[Update draft]] (private draft) or [[Update listing]] (published). If you close the event first, you're asked; [[Close anyway]] leaves the changes off Eventbrite.
+
+- If someone edited the listing directly on Eventbrite, a notice says updating will replace their changes.
+- Editing [[Public description]] here turns it into plain text on Eventbrite: any bold, links or lists added there are removed.
+
+**To tell registrants.** When [[Update listing]] changes the date, time or venue and people have registered, you're offered [[Email registrants]]. It opens a message in your email app with the changes written in and everyone in BCC. For a long list, it copies the emails instead: paste them into BCC. [[Not now]] skips it. The app never sends email itself.
+
+**To take it down,** use **⋮**:
+
+- [[Unpublish (back to private)]] makes it a private draft again. It only works while nobody has registered.
+- [[Cancel event…]] takes the listing down and cancels the event.
+
+Once people have registered, Eventbrite won't let the app unpublish or cancel it. Ask Tribal Council to cancel it on Eventbrite, which refunds and emails the registrants (it needs East Side Tribe's Eventbrite login). Then click [[Cancel event…]] here again.
 
 ## See who's coming {#attendees}
 
@@ -219,9 +260,13 @@ The app never sends email itself. It comes from your own account.
 
 **I can't find an event.** Check the program year, and make sure [[Planning events]] isn't crossed out under **⚙** (on a phone, both are in the **☰** menu). Click **↻** to refresh, or on a phone, reload the page. Undated ideas sit under **date TBD** (Overview and List) or in the [[Ideas]] column (Calendar).
 
+**It says Saving… for a long time.** A save can take up to half a minute, and the label says **Still saving** when it's slow. Wait for **Saved**: the button at the bottom of the event waits too. If it turns into [[Save failed — retry]], click it.
+
 **My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you closed the event, make the change again.
 
-**Everything is grayed out.** The event is approved (only Tribal Council can change it) or approved and past (no one can), it's cancelled (Tribal Council can reopen it), or you don't have the Program Lead role yet (see above).
+**I can't click Add to Eventbrite or Publish.** Something it needs is missing. The bottom of the event lists what, and the field says **Needed for Eventbrite**; see [What Eventbrite needs](#publish).
+
+**Everything is grayed out.** The event's date has passed (no one can change it), it's cancelled (Tribal Council can reopen it), or you don't have the Program Lead role yet (see above).
 
 **Only Program(s), Leads and Where are grayed out.** Their lists haven't loaded yet: close and reopen the event in a moment, or reload the page.
 

@@ -3251,7 +3251,7 @@ function legendEmbedHTML(){
   return `<div class="help-legend">
       ${row('draft','Draft','Being planned')}
       ${row('proposed','Proposed','Waiting for Tribal Council')}
-      ${row('approved','Approved','Confirmed and locked')}
+      ${row('approved','Approved','Confirmed by Tribal Council')}
       ${row('cancelled','Cancelled','Not happening')}
       <div class="help-legend-row"><div class="chip ref" style="--c:${cssColor(ref && ref.color, 'var(--faint)')}"><span class="t">${esc(ref?ref.name:'Holiday')}</span></div><span>Reference calendar (read-only)</span></div>
     </div>

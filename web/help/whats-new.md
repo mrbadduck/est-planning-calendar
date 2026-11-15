@@ -5,6 +5,13 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-11-15
+- **One next step at a time.** The bottom of an open event shows its five stages, from Draft to Published, with one button for what's next. Everything else is under **⋮**.
+- **Leads take it to Eventbrite.** After approval, Program Leads can keep editing and put the event on Eventbrite themselves: **Add to Eventbrite** makes a private draft, **Preview listing** shows what Eventbrite has, and **Publish** opens registration. If anything is missing, the app says what.
+- **Honest saving.** **Saved** now means the change has really landed. It can take up to half a minute, and the next-step button waits for it.
+- **Field icons.** Each field shows whether it's private or public, matches Eventbrite, is needed for Eventbrite, or isn't on Eventbrite yet. Private homes start with the address for registrants only.
+- **Delete before publishing, cancel after.** Leads can now delete an unpublished event (its Eventbrite draft goes too). After an update changes the date, time or venue, you're offered to email the registrants.
+
 ## 2026-10-01
 - **Built for phones.** On a phone, the calendar is now a simple list of what's coming up, and the top of the page is a single line. Tap **☰** for your account, Help, Feedback / Ideas, the program year and which calendars to show, and the round **+** to add an event.
 - **New: List view.** On a computer, **List** sits beside Overview and Calendar: the whole year as an agenda, day by day.
