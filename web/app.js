@@ -383,7 +383,8 @@ const CodaSource = {
   // waitApplied retries it). 401/403 count as applied: the write was accepted with
   // valid auth seconds ago, and an expired token mid-poll mustn't fail the save.
   async mutationStatus(requestId){
-    const r=await fetch(`${this.base}/mutation/${encodeURIComponent(requestId)}`,{headers:this._wh()});
+    // A hung request throws on the timeout, and waitApplied retries it — so its overall deadline holds.
+    const r=await fetch(`${this.base}/mutation/${encodeURIComponent(requestId)}`,{headers:this._wh(), signal:AbortSignal.timeout(15000)});
     if(r.status===401 || r.status===403) return { status:404 };
     if(!r.ok) return { status:r.status };
     const j=await r.json().catch(()=>({}));
@@ -1059,37 +1060,40 @@ function isHistory(ev){ return isPastEvent(ev) && ev.status==='approved'; }
 const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
 const EXT_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
 const GATHER_BASE = 'https://gather.eastsidetribe.org/';   // member app; #/event/<rowId> deep-links (auth is per-origin, so no session hand-off)
-// Left-cluster footer transition buttons for an existing event, by state + role.
-// canWrite = Program Lead or Council; canApprove = Council. Leads never see Approve.
-function footerActionsHTML(ev, canWrite, canApprove){
-  if(!ev.id) return '';
-  const b=[];
-  if(ev.status==='draft'){
-    if(canWrite) b.push(`<button class="btn primary sm" data-act="propose">Propose</button>`);
-    if(canWrite) b.push(`<button class="btn sm" data-act="cancel">Cancel event</button>`);
-  } else if(ev.status==='proposed'){
-    if(canApprove) b.push(`<button class="btn primary sm" data-act="approve">Approve</button>`);
-    if(canWrite)   b.push(`<button class="btn sm" data-act="cancel">Cancel event</button>`);
-  } else if(ev.status==='approved'){
-    if(canWrite) b.push(`<button class="btn sm" data-act="cancel">Cancel event</button>`);
-  } else if(ev.status==='cancelled'){
-    if(canApprove) b.push(`<button class="btn primary sm" data-act="reopen">Reopen</button>`);
-  }
-  if(canApprove) b.push(`<button class="btn danger sm" data-act="delete">Delete</button>`);
-  return b.join('');
+// The venue record readiness checks against (Task 13 adds hasAddress from the venue's
+// address). null when the event has no listed venue.
+function venueRecord(ev){
+  const v = ev && ev.venueName ? VENUES.find(x=>x.name===ev.venueName) : null;
+  return v ? { name:v.name, type:v.type||'', hasAddress:false } : null;
 }
+// One context object per open editor (D2): who may do what, and where the event is.
+// `locked` = Cancelled only — leads keep editing after approval (decision 5); a past
+// approved event's Details lock separately through `past`.
+function editorCtx(ev){
+  const isRef = ev.source==='ref';
+  return {
+    ev,
+    role:{ canEdit: !isRef && !!(state.identity && state.identity.canWrite),
+           canApprove: !isRef && !!(state.identity && state.identity.canApprove) },
+    stage: ListingRules.stageOf(ev),
+    past: !isRef && isHistory(ev),
+    locked: !isRef && ev.status==='cancelled',
+  };
+}
+let _ctx=null;   // the open workspace editor's ctx (renderEditorFooter reads it)
 function openEditor(ev, section){
   if(String(ev.id||'').startsWith('tmp-')){ toast('Still creating this event — try again in a moment'); return; }   // no row to save into yet
   leaveForm();   // leaving an open editor (or rebuilding this one): queue its unsaved edits first
   editing = ev;
+  _menuOpen = false;
   section = sectionId(section);
   activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'details';   // reset per open; honor a deep-linked section
   const isRef = ev.source==='ref';
-  const canEdit = !isRef && !!(state.identity && state.identity.canWrite);
-  const canApprove = !isRef && !!(state.identity && state.identity.canApprove);
-  // Fields are read-only when Cancelled (reopen to edit) or Approved-and-not-Council.
-  const locked = (!isRef) && (ev.status==='cancelled' || (ev.status==='approved' && !canApprove));
-  const pastLocked = !isRef && isHistory(ev);   // Details only — see renderSection (not `history`: that would shadow window.history)
+  const ctx = editorCtx(ev);
+  const { canEdit } = ctx.role;
+  const locked = ctx.locked;        // Cancelled: read-only until Council reopens it
+  const pastLocked = ctx.past;      // Details only — see renderSection
+  _ctx = isRef ? null : ctx;
   // First visit: the reference lists may still be loading. Wait for them rather than
   // offer relation pickers that could save a partial Program(s)/Leads/Venue.
   if(!isRef && ev._lossy) mapRelations(ev);
@@ -1133,24 +1137,23 @@ function openEditor(ev, section){
   if(ev.id) head += `<button class="mhead-ico" data-act="copylink" data-tip="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
 
-  // footer: transition actions on the LEFT (Propose/Approve/Cancel/Reopen +
-  // council Delete), save-status on the RIGHT. Dismissal is the header ✕/Esc/scrim.
-  const foot=document.getElementById('mFoot');
-  let acts = pastLocked ? '' : footerActionsHTML(ev, canEdit, canApprove);   // a past approved event has no Cancel/Delete
-  acts += `<span class="push"></span>`;
-  if(ev.id && canEdit && !locked && !pastLocked) acts += `<span class="savestat clean" id="saveStatus">Saved</span>`;
-  foot.innerHTML=acts;
+  // footer wizard (spec 5.5): stable containers filled by renderEditorFooter (D1) —
+  // #edFoot = progress + what's next, then the save pill, then #edActs = the one
+  // primary action + ⋮. Dismissal is the header ✕/Esc/scrim.
+  const pill = (ev.id && canEdit && !locked && !pastLocked) ? `<span class="savestat clean" id="saveStatus">Saved</span>` : '';
+  document.getElementById('mFoot').innerHTML = `<div class="edmsg" id="edFoot"></div>${pill}<div class="edacts" id="edActs"></div>`;
 
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
   document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
   body.innerHTML = `<div class="wsplit"><nav class="wrail" id="wrail">${railHTML()}</nav><div class="wpanel" id="wpanel"></div></div>`;
   wireScrollFade(document.getElementById('wrail'));   // edge-fade hint when tabs overflow (mobile horizontal rail)
-  renderSection(activeSection, ev, canEdit, locked, canApprove, pastLocked);
+  renderSection(activeSection, ctx);
   document.getElementById('wrail').addEventListener('click', e=>{
     const b=e.target.closest('[data-sect]'); if(!b) return;
     const id=b.dataset.sect; if(id===activeSection) return;
     if(_form) autosaveEditor();   // save the outgoing section's edits before its fields leave the DOM
-    setActiveRail(id); renderSection(id, ev, canEdit, locked, canApprove, pastLocked);
+    setActiveRail(id); renderSection(id, ctx);
+    renderEditorFooter();         // the wizard shows on Details only; other tabs get ⋮
     // The new section can render stored values in a normalized form (e.g. program
     // order) — that isn't an edit, so it becomes the baseline.
     if(_form && _form.ev===ev) _form.base = formCells(readForm());
@@ -1165,6 +1168,7 @@ function openEditor(ev, section){
     paintSaveStatus();                   // reopened mid-save: Saving… / Save failed — retry
     document.getElementById('wpanel').addEventListener('focusout', ()=>scheduleAutosave());
   }
+  renderEditorFooter();
 }
 // Placeholder while the reference lists load (a first visit only — see relationsReady).
 function showModalLoading(title, color){
@@ -1266,8 +1270,10 @@ function railHTML(){
 }
 function setActiveRail(id){ activeSection=id; document.querySelectorAll('#wrail .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
 
-function renderSection(id, ev, canEdit, locked, canApprove, pastLocked){
+// Takes the editor's ctx (D2); the tabs still take positional args, adapted here.
+function renderSection(id, ctx){
   const panel=document.getElementById('wpanel'); if(!panel) return;
+  const { ev, locked, past:pastLocked } = ctx, { canEdit, canApprove } = ctx.role;
   const sec=SECTIONS.find(s=>s.id===id);
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
@@ -1321,7 +1327,7 @@ function renderPlanning(ev, canEdit, locked, canApprove){
     ${(!relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked ? (isHistory(ev) ? `<div class="locknote">🔒 This event has happened, so its details are locked.</div>`
-      : `<div class="locknote">🔒 Approved &amp; locked. Detailed edits (ticketing, banner, promotion) happen in Coda. <a href="#" data-act="coda">Open in Mission Control ↗</a></div>`) : ''}`;
+      : ev.status==='cancelled' ? `<div class="locknote">🔒 This event is cancelled, so its details are locked.</div>` : '') : ''}`;
 }
 
 function wirePlanning(panel, ev, canEdit, locked, canApprove){
@@ -2106,8 +2112,95 @@ function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' |
   }
   renderEditorFooter();                        // the footer's primary slot follows pendingFor too
 }
-// Task 12 fills this: repaint the editor footer's primary slot from pendingFor(editing.id).
-function renderEditorFooter(){}
+/* ---- footer wizard (spec 5.5; D1 stable containers, D6 pure model) ----------
+   ListingRules.footerModel decides everything; this only paints it. Called on open,
+   on a tab switch and whenever the save pill repaints, so the primary slot follows
+   pendingFor: "Saving…" (disabled) until every queued edit is applied. */
+const KEBAB_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>`;
+const SPIN_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>`;
+let _menuOpen=false;
+function editorFooterModel(ev, ctx){
+  const R=ListingRules;
+  return R.footerModel({
+    stage: R.stageOf(ev),          // live: publish status can change while the editor is open
+    past: ctx.past,
+    role: ctx.role,
+    checks: R.readiness(ev, { venue: venueRecord(ev), todayISO: todayStr }),
+    pending: pendingFor(ev.id),
+    unpushed: R.unpushedFields(ev, ev.pushed || null),
+    ebEditedElsewhere: false,      // Task 14 reads the live listing
+    registrants: null,             // Task 14
+    capacity: ev.capacity,
+    proposedBy: null,              // the row doesn't record who proposed it (Edited by changes on every edit)
+    justChanged: null,             // Task 16
+  });
+}
+function footerMsgHTML(m){
+  const cur=m.steps.findIndex(s=>s.state==='current');
+  let steps='';
+  if(cur>=0){
+    const last=m.steps.length-1;
+    const dots=m.steps.map((s,i)=>{
+      const ln = i ? `<span class="ln${s.state!=='todo'?' d':''}"></span>` : '';
+      const tone = s.state==='current' && i===last ? ' g' : '';
+      return `${ln}<span class="dot ${s.state}${tone}"></span><span class="${s.state==='current'?'cur'+tone:''}">${esc(s.label)}</span>`;
+    }).join('');
+    steps = `<div class="fsteps" aria-label="Step ${cur+1} of ${m.steps.length}: ${esc(m.steps[cur].label)}">${dots}</div>`
+      + `<div class="fsteps-ph" aria-hidden="true">Step ${cur+1} of ${m.steps.length} · ${esc(m.steps[cur].label)}</div>`;
+  }
+  const links = m.links.length ? `<span class="fsub flinks">${m.links.map(l=>
+    l.field ? `<a href="#" data-focus-field="${esc(l.field)}">${esc(l.label)}</a>` : esc(l.label)).join(' · ')}</span>` : '';
+  return `${steps}${m.title?`<b class="ftitle">${esc(m.title)}</b>`:''}${links}${m.sub?`<span class="fsub">${esc(m.sub)}</span>`:''}`;
+}
+function footerActsHTML(m, onDetails){
+  let h='';
+  if(onDetails){
+    if(m.secondary) h += `<button type="button" class="btn fbtn sec" data-act="${esc(m.secondary.act)}">${esc(m.secondary.label)}</button>`;
+    const p=m.primary;
+    if(p && p.tone==='quiet'){
+      // "✓ Saved" as text — the save pill already says it when it's showing
+      if(!document.getElementById('saveStatus')) h += `<span class="fquiet">${esc(p.label)}</span>`;
+    } else if(p){
+      const wait = !p.act && !p.enabled;   // the model's "Saving…"
+      h += `<button type="button" class="btn fbtn ${p.tone==='go'?'go':'primary'}${wait?' wait':''}"${p.act?` data-act="${esc(p.act)}"`:''}${p.enabled?'':' disabled'}>${wait?SPIN_ICON:''}${esc(p.label)}</button>`;
+    }
+  }
+  if(m.menu.length){
+    h += `<div class="kbwrap"><button type="button" class="kb${_menuOpen?' on':''}" data-act="menu" aria-label="More actions" data-tip="More actions" aria-haspopup="menu" aria-expanded="${_menuOpen}">${KEBAB_ICON}</button>`
+      + `<div class="kmenu" role="menu" aria-label="More actions"${_menuOpen?'':' hidden'}>${m.menu.map(it=>
+        `<button type="button" class="mi${it.tone==='danger'?' danger':''}" role="menuitem" tabindex="-1" data-act="${esc(it.act)}"><b>${esc(it.label)}</b>${it.sub?`<span>${esc(it.sub)}</span>`:''}</button>`).join('')}</div></div>`;
+  } else _menuOpen=false;
+  return h;
+}
+function renderEditorFooter(){
+  const msgEl=document.getElementById('edFoot'), actEl=document.getElementById('edActs');
+  if(!msgEl || !actEl || !_ctx || !editing || _ctx.ev!==editing) return;
+  const m=editorFooterModel(editing, _ctx), onDetails = activeSection==='details';
+  const msg = onDetails ? footerMsgHTML(m) : '', acts = footerActsHTML(m, onDetails);
+  // Only touch the DOM when something changed: the pill repaints often, and a rewrite
+  // would drop keyboard focus from the ⋮ menu.
+  if(msgEl.innerHTML!==msg) msgEl.innerHTML=msg;
+  if(actEl._html!==acts){ actEl.innerHTML=acts; actEl._html=acts; }
+}
+function kebabMenu(open, focusFirst){
+  const wrap=document.querySelector('#edActs .kbwrap'); if(!wrap){ _menuOpen=false; return; }
+  const btn=wrap.querySelector('.kb'), menu=wrap.querySelector('.kmenu');
+  _menuOpen=!!open;
+  menu.hidden=!open; btn.setAttribute('aria-expanded', String(!!open)); btn.classList.toggle('on', !!open);
+  document.getElementById('edActs')._html=null;   // the DOM no longer matches the last render string
+  if(open){ hideTip(); if(focusFirst){ const f=menu.querySelector('[role="menuitem"]'); if(f) f.focus(); } }
+}
+// Footer links name a field that blocks the next step: bring it into view and focus it.
+const FOCUS_FIELD_EL = { title:'f_title', description:'f_desc', programs:'f_progs', leads:'f_leads', date:'f_date', start:'f_start', end:'f_end',
+  venue:'f_venue_box', capacity:'f_capacity', publicSummary:'f_pubsummary', publicDescription:'f_pubdesc', addressVisibility:'f_addrvis' };
+function focusField(field){
+  let el=document.getElementById(FOCUS_FIELD_EL[field]||'');
+  if(!el && (field==='date' || field==='start' || field==='end')) el=document.getElementById('f_when');   // not an exact date yet
+  if(!el) return;
+  el.scrollIntoView({ block:'center', behavior:'smooth' });
+  const target = el.matches('input,select,textarea,button') ? el : el.querySelector('input:not([disabled]),select,textarea,button:not([disabled])');
+  if(target) target.focus({ preventScroll:true });
+}
 function paintSaveStatus(){
   if(!editing || !editing.id) return;
   const id=editing.id, q=saveQueue.status(id);
@@ -2116,8 +2209,8 @@ function paintSaveStatus(){
 }
 function scheduleAutosave(){
   if(!_form || _form.ev!==editing) return;     // create modal / read-only: nothing to auto-save into
-  setSaveStatus('dirty');
   clearTimeout(_autosaveT); _autosaveT=setTimeout(autosaveEditor, 800);
+  setSaveStatus('dirty');                      // after the timer is set: the footer's pendingFor counts it
 }
 // Queue whatever the open form changed since it was last queued. Synchronous, so
 // close() can call it on the way out — the queue writes it after the editor is gone.
@@ -2281,7 +2374,11 @@ document.getElementById('mFoot').addEventListener('click',e=>{
     if(!editing || saveQueue.status(editing.id)==='error' || !_unconfirmed.has(editing.id)) flushAutosave().catch(()=>{});
     return;
   }   // the label reports the outcome
+  const ff=e.target.closest('[data-focus-field]');
+  if(ff){ e.preventDefault(); focusField(ff.dataset.focusField); return; }
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
+  if(act==='menu'){ kebabMenu(!_menuOpen, true); return; }
+  if(e.target.closest('.kmenu')) kebabMenu(false);
   if(act==='close') close();
   else if(act==='create') createFromForm();
   else if(act==='propose') transitionTo('proposed');
@@ -2289,16 +2386,27 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   else if(act==='cancel') cancelEvent();
   else if(act==='reopen') transitionTo('draft');
   else if(act==='delete') deleteEditor();
+  else if(FOOTER_STUB_ACTS.includes(act)) toast('Coming in this branch');   // Tasks 14–16 wire these
 });
+const FOOTER_STUB_ACTS=['add-eb','update-eb','publish-eb','preview-eb','update-listing','email-registrants','dismiss-notice','unpublish'];
+// ⋮ menu: closes on an outside click or Esc (before Esc closes the modal); arrow keys
+// move between its items.
+document.addEventListener('click', e=>{ if(_menuOpen && !e.target.closest('#edActs .kbwrap')) kebabMenu(false); });
+document.addEventListener('keydown', e=>{
+  if(!_menuOpen) return;
+  const wrap=document.querySelector('#edActs .kbwrap'); if(!wrap){ _menuOpen=false; return; }
+  const items=[...wrap.querySelectorAll('[role="menuitem"]')], i=items.indexOf(document.activeElement);
+  if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); kebabMenu(false); wrap.querySelector('.kb').focus(); }
+  else if(e.key==='ArrowDown' || e.key==='ArrowUp'){ e.preventDefault(); const n=items.length; items[((i<0?(e.key==='ArrowDown'?-1:0):i)+(e.key==='ArrowDown'?1:-1)+n)%n].focus(); }
+  else if(e.key==='Home' || e.key==='End'){ e.preventDefault(); items[e.key==='Home'?0:items.length-1].focus(); }
+  else if(e.key==='Tab') kebabMenu(false);
+}, true);
 // header actions: ? (help for the active tab) + copy-link. The status badge opens
 // the lifecycle guide through data-help; transitions are in the footer.
 document.getElementById('mActions').addEventListener('click',e=>{
   const btn=e.target.closest('[data-act]'); const act=btn?.dataset.act; if(!act) return;
   if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it
   else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', btn); }
-});
-document.getElementById('mBody').addEventListener('click',e=>{
-  if(e.target.closest('[data-act="coda"]')){ e.preventDefault(); alert('Live version: deep-links to this row in the Mission Control Coda doc for full editing (ticketing, banner, promotion).'); }
 });
 
 document.getElementById('months').addEventListener('click',e=>{
