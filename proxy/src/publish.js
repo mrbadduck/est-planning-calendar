@@ -1,5 +1,6 @@
 // Pure helpers for the Eventbrite publish flow. No I/O — unit-tested.
 import { normText } from './eventbrite.js';
+import '../../web/listing-readiness.js';   // globalThis.ListingRules (the app's shared rules)
 
 // Map Coda's GET /mutationStatus/:id response to our route's response.
 export function mutationResult(status, body) {
@@ -162,4 +163,13 @@ export function venueRefItem(row) {
     values: { 'Venue Type': type == null ? '' : type, 'Closed/Unavailable?': v['Closed/Unavailable?'] === true },
     hasAddress: !!v['Address'],
   };
+}
+
+// Address visibility the Worker acts on (R14). A blank value at a private home
+// is treated as Registrants only — the same default the app applies — so a home's
+// street address never goes public because nobody picked a value. An explicit
+// choice (including Public) is kept.
+export function effectiveAddressVisibility(addressVisibility, venue) {
+  const v = String(addressVisibility == null ? '' : addressVisibility).trim();
+  return globalThis.ListingRules.addressVisibilityDefault(v, venue) || '';
 }

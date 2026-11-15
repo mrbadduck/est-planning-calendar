@@ -277,5 +277,5 @@
     };
   }
 
-  root.ListingRules = { stageOf, FIELDS, readiness, addressVisibilityDefault, syncStatus, unpushedFields, footerModel, changeNotice };
+  root.ListingRules = { stageOf, FIELDS, readiness, addressVisibilityDefault, syncStatus, unpushedFields, footerModel, changeNotice, fmtDate, fmtTime };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

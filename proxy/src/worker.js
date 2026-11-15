@@ -40,7 +40,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan, previewModel, venueRefItem, ebGone, cancelPlan, isPublishedCell, deleteGate } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, deleteGate } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 const ListingRules = globalThis.ListingRules;
 
@@ -401,6 +401,9 @@ export default {
           venue = venueRow ? { name: ev.venueName, type: vt || '', hasAddress: !!vv['Address'] }
                            : { name: ev.venueName, type: '', hasAddress: false };
         }
+        // R14: a blank Address visibility at a private home is Registrants only for
+        // everything below (readiness, the EB venue, the pushed snapshot).
+        ev.addressVisibility = effectiveAddressVisibility(ev.addressVisibility, venue);
 
         // Readiness: the same rules the app shows (web/listing-readiness.js).
         const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());

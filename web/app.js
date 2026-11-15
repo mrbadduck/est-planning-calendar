@@ -885,6 +885,7 @@ const TIP_PRIVATE = 'Private: only leads and council see this. Never sent to Eve
 const TIP_PUBLIC = 'Public: this becomes part of the Eventbrite listing.';
 const TIP_MATCH = 'Matches the Eventbrite listing: what you see here is what Eventbrite has.';
 const ADDR_DEFAULT_HINT = 'Set to Registrants only because this venue is a private home. The public sees just "Nashville, TN".';
+const ADDR_HOME_PUBLIC_WARN = 'This is a private home. Its full street address will be public on Eventbrite.';
 const fmkIcon = (cls, icon, tip, aria) => `<span class="fic${cls?' '+cls:''}" role="img" data-tip="${esc(tip)}" aria-label="${esc(aria)}">${icon}</span>`;
 // What the markers show for the open editor: sync status per public field (only
 // once the event is on Eventbrite) and the fields the next action is waiting on —
@@ -915,7 +916,7 @@ function fieldMarksHTML(key, m){
 function pushedText(key, v){
   const s = v==null ? '' : String(v).trim();
   if(key==='date') return s ? fmtDate(s) : '(no date)';
-  if(key==='start' || key==='end') return s ? hm12(s) : '(no time)';
+  if(key==='start' || key==='end') return s ? ListingRules.fmtTime(s) : '(no time)';   // "6:00 PM", as in changeNotice
   if(key==='venue') return s || 'Online';
   if(key==='addressVisibility') return s || 'Public';
   if(!s) return '(empty)';
@@ -948,7 +949,7 @@ function listingCardHTML(ev){
   const pub = ev.publishStatus==='Published';
   const pill = pub ? `<span class="ftag ok lg">Public</span>` : `<span class="ftag chg lg">Private draft</span>`;
   const line = pub ? 'Registration open' : 'Nobody can see this listing or register yet.';
-  const view = pub && ev.eventbriteUrl ? `<a class="ebview" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
+  const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="ebview" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
   const qty = ev.pushed && Number(ev.pushed.capacity) > 0 ? ` · ${Number(ev.pushed.capacity)}` : '';
   const err = ev.publishStatus==='Error' && ev.lastPublishError ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
   return `<div class="ebrow">${pill}<b>${esc(line)}</b>${view}</div>
@@ -1217,7 +1218,7 @@ function openEditor(ev, section){
     renderEditorFooter();         // the wizard shows on Details only; other tabs get ⋮
     // The new section can render stored values in a normalized form (e.g. program
     // order) — that isn't an edit, so it becomes the baseline.
-    if(_form && _form.ev===ev) _form.base = formCells(readForm());
+    if(_form && _form.ev===ev){ _form.base = formCells(readForm()); applyListingAddressDefault(); }
     const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live && typeof syncUrl==='function') syncUrl(ev, id);
   });
 
@@ -1228,6 +1229,7 @@ function openEditor(ev, section){
     guardUnload();
     paintSaveStatus();                   // reopened mid-save: Saving… / Save failed — retry
     document.getElementById('wpanel').addEventListener('focusout', ()=>scheduleAutosave());
+    applyListingAddressDefault();
   }
   renderEditorFooter();
 }
@@ -1458,7 +1460,7 @@ function publishFieldsHTML(vals, dis, linked, fm){
       <span class="hint">${linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
         : 'If you copy the internal description, take out planning notes first. This text goes public.'}</span></div>
     <div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>
-    <div class="fld"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span></div>`;
+    <div class="fld"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span><span class="hint warn" id="f_addrwarn" hidden>${esc(ADDR_HOME_PUBLIC_WARN)}</span></div>`;
 }
 function renderListingSection(ev, canEdit, locked){
   const linked=!!ev.eventbriteId;
@@ -1477,7 +1479,34 @@ function wireListingSection(panel, ev, canEdit, locked){
   const ci=panel.querySelector('[data-act="copy-internal"]');
   if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; t.dispatchEvent(new Event('input',{bubbles:true})); scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
-  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; setAddressVisibility(b.dataset.addrvis); const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=true; scheduleAutosave(); });
+  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; setAddressVisibility(b.dataset.addrvis); const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=true; paintAddrWarn(); scheduleAutosave(); });
+  paintAddrWarn();
+}
+// The venue the form currently names: the picker's pick, else the event's own.
+function formVenueRecord(){
+  const box=document.getElementById('f_venue_box');
+  if(!box) return venueRecord(editing);
+  const v=VENUES.find(x=>x.id===box.dataset.venueId);
+  return v ? { name:v.name, type:v.type||'', hasAddress:!!v.hasAddress } : null;
+}
+// R13: a private home with an explicit Public address visibility gets a warning,
+// never an override.
+function paintAddrWarn(){
+  const w=document.getElementById('f_addrwarn'), seg=document.getElementById('f_addrvis'); if(!w || !seg) return;
+  const pressed=seg.querySelector('button[aria-pressed="true"]'), venue=formVenueRecord();
+  w.hidden = !(pressed && pressed.dataset.addrvis==='Public' && venue && venue.type==='Home');
+}
+// R14: an approved event at a private home whose address visibility was never set
+// gets Registrants only when its listing shows (it overrides no choice), and the
+// autosave writes it. Runs once the form's baseline exists, so the change saves.
+function applyListingAddressDefault(){
+  const seg=document.getElementById('f_addrvis');
+  if(!seg || !editing || !_form || _form.ev!==editing || seg.querySelector('button[aria-pressed="true"]')) return;
+  const next=ListingRules.addressVisibilityDefault('', formVenueRecord());
+  if(!next) return;
+  setAddressVisibility(next);
+  const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=false;
+  paintAddrWarn(); scheduleAutosave();
 }
 function setAddressVisibility(val){
   const seg=document.getElementById('f_addrvis'); if(!seg) return false;
@@ -1491,12 +1520,11 @@ function applyAddressDefault(venBox){
   const seg=document.getElementById('f_addrvis'); if(!seg || !venBox) return;   // the toggle shows once approved
   const pressed=seg.querySelector('button[aria-pressed="true"]');
   const current=pressed ? pressed.dataset.addrvis : '';
-  const v=VENUES.find(x=>x.id===venBox.dataset.venueId);
-  const venue=v ? { name:v.name, type:v.type||'', hasAddress:!!v.hasAddress } : null;
-  const next=ListingRules.addressVisibilityDefault(current, venue);
-  if(next===current) return;
+  const next=ListingRules.addressVisibilityDefault(current, formVenueRecord());
+  if(next===current){ paintAddrWarn(); return; }
   setAddressVisibility(next);
   const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=false;
+  paintAddrWarn();
 }
 
 // The Details tab: stable "Event" subsection (draft/internal fields) on top,
@@ -2414,6 +2442,7 @@ function show(){ document.getElementById('scrim').classList.add('open'); documen
 // Eventbrite yet asks first, in the modal (no window.confirm). `proceed` runs on
 // "Close anyway". Returns true when it held the close.
 let _guardThen=null;
+let _guardBypass=false;   // set while "Close anyway" runs its proceed(): the re-entered opener must not ask again
 function unpushedOnLeave(){
   if(!editing || !_ctx || _ctx.ev!==editing || !_ctx.role.canEdit || _ctx.past) return 0;
   const st=ListingRules.stageOf(editing);
@@ -2422,6 +2451,7 @@ function unpushedOnLeave(){
   return ListingRules.unpushedFields(editing, editing.pushed || null).length;
 }
 function leaveGuard(proceed){
+  if(_guardBypass){ _guardBypass=false; hideLeaveGuard(); return false; }   // one shot: consumed by the first check
   const n=unpushedOnLeave();
   if(!n){ hideLeaveGuard(); return false; }
   _guardThen=proceed;
@@ -2448,7 +2478,10 @@ document.getElementById('edGuard').addEventListener('click', e=>{
   const b=e.target.closest('[data-guard]'); if(!b) return;
   const then=_guardThen;
   hideLeaveGuard();
-  if(b.dataset.guard==='go' && then) then();
+  if(b.dataset.guard==='go' && then){
+    _guardBypass=true;
+    try{ then(); } finally{ _guardBypass=false; }   // (a proceed that never re-checks mustn't leave it armed)
+  }
 });
 function close(){
   _ndocGen++;

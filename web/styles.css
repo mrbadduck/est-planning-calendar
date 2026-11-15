@@ -443,10 +443,7 @@
   .reflink:hover{text-decoration:underline}
 
   /* publish to Eventbrite */
-  .b-published{background:#E7F4E9;color:#2F7D3B;border:1px solid #BFE3C6;border-radius:10px;padding:1px 7px;font-size:11px}
-  .b-error{background:#FBEAEA;color:#B23A3A;border:1px solid #EEC3C3;border-radius:10px;padding:1px 7px;font-size:11px}
   .b-draft{background:#EAF1FB;color:#2F5FA3;border:1px solid #C4D8F0;border-radius:10px;padding:1px 7px;font-size:11px}
-  .b-unpublished,.b-publishing{background:var(--soft);color:#6b6960;border:1px solid var(--hair);border-radius:10px;padding:1px 7px;font-size:11px}
 
   /* legend footer */
   .legend{max-width:1180px;margin:14px auto 0;padding:0 18px;color:var(--faint);font-size:11px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
@@ -793,6 +790,8 @@
   .fhint{display:flex;flex-direction:column;gap:2px;font-size:11.5px}
   .fhint .hint{color:var(--muted)}
   .fhint .hint.err{color:#B3261E}
+  .fld .hint.warn{color:#7A5F1E;font-weight:500}
+  .fld .hint.warn[hidden]{display:none}
   .fieldgroup-h .fmk{margin-left:4px}
   .fkey{display:flex;align-items:center;flex-wrap:wrap;gap:6px;width:fit-content;max-width:100%;font-size:12px;color:var(--muted);padding:5px 10px;background:var(--surface);border:1px solid var(--hair);border-radius:7px;margin-bottom:10px}
   .fkey-sp{width:8px}
@@ -867,8 +866,6 @@
     .badge.b-proposed{background:#2E2E4C;color:#ABABEA}
     .badge.b-confirmed{background:#23352B;color:#82C89D}
     .badge.b-live{background:#20392A;color:#74C48C}
-    .b-published{background:#20392A;color:#74C48C;border-color:#2E4A36}
-    .b-error{background:#3C2626;color:#E08A8A;border-color:#553232}
     .b-draft{background:#252F42;color:#8FB4E8;border-color:#2F3E58}
     .slot-group-h.pot,.slot-kind.pot{background:#3A2F1E;color:#D8A85C}
     .slot-group-h.vol,.slot-kind.vol{background:#222B3E;color:#8FB4E8}
@@ -892,6 +889,7 @@
     .ftag.chg{background:#3A3322;color:#D9B96C}
     .ftag.ok{background:#20392A;color:#74C48C}
     .fhint .hint.err{color:#E9A0A0}
+    .fld .hint.warn{color:#D9B96C}
     .edguard{background:#3A3322;border-top-color:#4A4130}
     .edguard-msg{color:#D9B96C}
     .weekhead .wd.we{color:#C9938A}

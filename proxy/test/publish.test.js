@@ -201,3 +201,17 @@ test('venueRefItem: no address, array type, closed', () => {
   assert.deepEqual(out, { id: 'i-2', name: 'Park', values: { 'Venue Type': 'Outdoor', 'Closed/Unavailable?': true }, hasAddress: false });
   assert.equal(venueRefItem({ id: 'i-3', name: 'X' }).hasAddress, false);
 });
+
+import { effectiveAddressVisibility } from '../src/publish.js';
+
+test('effectiveAddressVisibility: blank at a Home venue is Registrants only (R14)', () => {
+  assert.equal(effectiveAddressVisibility('', { name: 'H', type: 'Home', hasAddress: true }), 'Registrants only');
+  assert.equal(effectiveAddressVisibility(null, { name: 'H', type: 'Home' }), 'Registrants only');
+  assert.equal(effectiveAddressVisibility('  ', { name: 'H', type: 'Home' }), 'Registrants only');
+});
+test('effectiveAddressVisibility: explicit choices and non-Home venues are kept', () => {
+  assert.equal(effectiveAddressVisibility('Public', { name: 'H', type: 'Home' }), 'Public');
+  assert.equal(effectiveAddressVisibility('Registrants only', { name: 'H', type: 'Home' }), 'Registrants only');
+  assert.equal(effectiveAddressVisibility('', { name: 'JCC', type: 'Partner' }), '');
+  assert.equal(effectiveAddressVisibility('', null), '');
+});
