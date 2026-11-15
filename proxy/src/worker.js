@@ -38,7 +38,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult } from './publish.js';
+import { mutationResult, hhmm } from './publish.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -362,8 +362,8 @@ export default {
 
         const ev = {
           title: V['Title'] || '', date: String(V['Date']).slice(0, 10),
-          start: (String(V['Start']).match(/(?:T|^)(\d{2}:\d{2})/) || [])[1] || '',
-          end:   (String(V['End']  || '').match(/(?:T|^)(\d{2}:\d{2})/) || [])[1] || '',
+          start: hhmm(V['Start']),
+          end:   hhmm(V['End']),
           capacity: Number(V['Capacity']) || undefined,
           description: V['Event Description'] || '',
           publicSummary: V['Public summary'] || '',
