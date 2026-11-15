@@ -175,3 +175,12 @@ test('deleteGate: published refused for everyone; leads may delete unpublished n
   assert.equal(deleteGate({ published: false, status: 'Cancelled' }, council), null);
   assert.deepEqual(deleteGate({ published: false, status: 'Draft' }, { canWrite: false, canApprove: false }), { status: 403, error: 'not authorized' });
 });
+test('deleteGate: a live/started Eventbrite listing refuses delete even when Published? is stale-false', () => {
+  const lead = { canWrite: true, canApprove: false }, council = { canWrite: true, canApprove: true };
+  const refused = { status: 409, error: 'Cancel this event before deleting it' };
+  for (const who of [lead, council]) {
+    assert.deepEqual(deleteGate({ published: false, status: 'Approved', ebStatus: 'live' }, who), refused);
+    assert.deepEqual(deleteGate({ published: false, status: 'Approved', ebStatus: 'started' }, who), refused);
+    assert.equal(deleteGate({ published: false, status: 'Approved', ebStatus: 'draft' }, who), null);
+  }
+});

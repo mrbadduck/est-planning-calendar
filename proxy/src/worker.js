@@ -162,6 +162,9 @@ export default {
               const g = await ebFetch(env, `/events/${ebId}/`);
               if (ebGone(g)) ebOutcome = 'already gone';
               else {
+                // Published? can be stale-false: a live listing on Eventbrite blocks too.
+                const live = g.ok && deleteGate({ published: false, status: V['Status'] || '', ebStatus: g.body && g.body.status }, id);
+                if (live) return json({ error: live.error }, live.status, cors);
                 const d = g.ok ? await ebDelete(env, ebId) : g;
                 if (d.ok || d.status === 404) ebOutcome = 'deleted';
                 else {
@@ -655,6 +658,7 @@ export default {
           if (!ebId) return json({ error: 'This event is not on Eventbrite' }, 409, cors);
           if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
           const g = await ebFetch(env, `/events/${ebId}/?expand=ticket_classes`);
+          if (ebGone(g)) return json({ error: 'This listing was cancelled on Eventbrite.' }, 409, cors);
           if (!g.ok) return ebFail(g, 'could not read the Eventbrite listing');
           const snap = ebEventSnapshot(g.body);
           if (snap.sold > 0) return blocked(snap.sold);
@@ -665,6 +669,7 @@ export default {
           const w = await setRow([
             { column: 'Publish status', value: 'Draft' },
             { column: PLANNING_COLS.published, value: false },   // gather hides it (F17)
+            { column: 'Last publish error', value: '' },
             { column: 'Edited by', value: [id.personId] },
           ]);
           if (!w.ok) return pass(w, cors);

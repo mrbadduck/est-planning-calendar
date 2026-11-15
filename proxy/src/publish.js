@@ -140,10 +140,12 @@ export const isPublishedCell = v => v === true || v === 'true';
 
 // Who may DELETE /rows/:id (Q1 (a)). Returns null when allowed, else {status, error}.
 // A published row must be cancelled first (everyone); a Cancelled row needs council;
-// otherwise any writer (lead) may delete a never-published event.
-export function deleteGate({ published, status } = {}, id = {}) {
+// otherwise any writer (lead) may delete a never-published event. `ebStatus` is
+// the live Eventbrite status when read: a live/started listing also counts as
+// published, since the Published? cell can be stale-false.
+export function deleteGate({ published, status, ebStatus } = {}, id = {}) {
   if (!id.canWrite) return { status: 403, error: 'not authorized' };
-  if (published) return { status: 409, error: 'Cancel this event before deleting it' };
+  if (published || ebStatus === 'live' || ebStatus === 'started') return { status: 409, error: 'Cancel this event before deleting it' };
   if (status === 'Cancelled' && !id.canApprove) return { status: 403, error: 'delete requires Tribal Council' };
   return null;
 }
