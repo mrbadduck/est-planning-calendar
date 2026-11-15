@@ -82,16 +82,29 @@ test('unclosed allowed tags are closed at the end', () => {
   eq('<p><strong>a', '<p><strong>a</strong></p>');
   eq('<ul><li>a<li>b</ul>', '<ul><li>a<li>b</li></li></ul>');
 });
-test('text entities: decoded then re-escaped (idempotent, never raw <)', () => {
+test('text entities: well-formed refs pass through, bare specials are escaped', () => {
   eq('a &amp; b', 'a &amp; b');
+  eq('It&rsquo;s &mdash; &copy;', 'It&rsquo;s &mdash; &copy;');
+  eq('&nbsp;', '&nbsp;');
   eq('&lt;script&gt;alert(1)&lt;/script&gt;', '&lt;script&gt;alert(1)&lt;/script&gt;');
-  eq('&#60;b&#62;x', '&lt;b&gt;x');
-  eq('q "x"', 'q &quot;x&quot;');
-  eq('&nbsp;', ' ');
-  eq('&bogus; &#0; &#1114112;', '&amp;bogus;  ');
-  const once = sanitize('<p>a &amp; b &lt; c</p>');
-  eq(once, once); // stable under a second pass
+  eq('&#60;script&#62;', '&#60;script&#62;'); // renders as text "<script>", inert
+  eq('&#x3C;b&#x3E;x', '&#x3C;b&#x3E;x');
+  eq('AT&T & co', 'AT&amp;T &amp; co');
+  eq('&x; &;', '&amp;x; &amp;;');
+  eq('q "x" 1 < 2 > 0', 'q &quot;x&quot; 1 &lt; 2 &gt; 0');
+  const once = sanitize('<p>a &amp; b &lt; c & d</p>');
   assert.equal(sanitize(once), once);
+});
+test('href: spaces after the scheme are percent-encoded, scheme whitespace tolerated only to reject', () => {
+  eq('<a href="https://e.com/a b">l</a>', '<a href="https://e.com/a%20b" target="_blank" rel="noopener">l</a>');
+  eq('<a href=" https://e.com">l</a>', '<a href="https://e.com" target="_blank" rel="noopener">l</a>');
+  eq('<a href="java script:x">z</a>', 'z');
+});
+test('deep nesting is capped (unwrapped to text), output stays balanced', () => {
+  const out = sanitize('<b>'.repeat(500) + 'x');
+  assert.equal((out.match(/<b>/g) || []).length, 100);
+  assert.equal((out.match(/<\/b>/g) || []).length, 100);
+  assert.ok(out.includes('x'));
 });
 test('null/undefined/empty', () => {
   eq(null, ''); eq(undefined, ''); eq('', '');

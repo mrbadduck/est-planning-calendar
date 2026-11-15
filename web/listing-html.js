@@ -8,8 +8,8 @@
      http(s)/mailto href and gets target="_blank" rel="noopener". Every other
      tag is dropped (its text stays). <script>/<style> are dropped with their
      content (an unclosed one drops the rest of the input); comments are
-     dropped; an unterminated tag drops the rest. Text is entity-decoded then
-     re-escaped (< > & "), so output holds a raw `<` only in tags emitted here.
+     dropped; an unterminated tag drops the rest. Text keeps well-formed
+     character references verbatim and escapes everything else (< > & "), so output holds a raw `<` only in tags emitted here.
      Tags left open are closed at the end. */
 (function (root) {
   const ALLOWED = { p: 1, br: 1, strong: 1, b: 1, em: 1, i: 1, ul: 1, ol: 1, li: 1, a: 1 };
@@ -24,14 +24,27 @@
       return String.fromCodePoint(cp);
     });
   }
+  // Text: keep well-formed character references verbatim (the browser decodes them to
+  // characters, never markup); escape everything else.
+  function escText(s) {
+    return s.replace(/&(?:[a-zA-Z][a-zA-Z0-9]{1,31};|#\d{1,7};|#[xX][0-9a-fA-F]{1,6};)|[&<>"]/g,
+      m => m.length > 1 ? m : m === '&' ? '&amp;' : m === '<' ? '&lt;' : m === '>' ? '&gt;' : '&quot;');
+  }
   function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  const STRIP = /[\u0000-\u0020\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g;
   function safeHref(raw) {
-    // Decode entities, then drop whitespace/control chars anywhere (browsers ignore
-    // them inside a scheme), then require an allowlisted scheme.
-    const v = decode(raw).replace(/[\u0000-\u0020\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, '');
-    return /^(https?:|mailto:)/i.test(v) ? v : null;
+    // Decode entities. Whitespace/control chars are ignored by browsers inside the scheme,
+    // so strip them up to the first ':' and require an allowlisted scheme. After the colon,
+    // spaces are percent-encoded and control chars dropped.
+    const v = decode(raw);
+    const k = v.indexOf(':');
+    if (k < 0) return null;
+    const scheme = v.slice(0, k).replace(STRIP, '');
+    if (!/^(https?|mailto)$/i.test(scheme)) return null;
+    const rest = v.slice(k + 1).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, '').replace(/ /g, '%20');
+    return scheme + ':' + rest;
   }
 
   // Parse a tag starting at html[i] === '<'. Returns { end, name, closing, href } or null if
@@ -76,7 +89,8 @@
     const n = s.length;
     let out = '', text = '', i = 0;
     const stack = [];
-    const flush = () => { if (text) { out += esc(decode(text)); text = ''; } };
+    const MAX_DEPTH = 100;
+    const flush = () => { if (text) { out += escText(text); text = ''; } };
     while (i < n) {
       const c = s[i];
       if (c !== '<') { text += c; i++; continue; }
@@ -107,6 +121,7 @@
         if (k >= 0) { while (stack.length > k) out += '</' + stack.pop() + '>'; }
         continue;
       }
+      if (stack.length >= MAX_DEPTH && !VOID[t.name]) continue; // too deep: unwrap to text
       if (t.name === 'a') {
         const h = t.href == null ? null : safeHref(t.href);
         if (!h) continue; // unsafe link: unwrap to text
