@@ -67,3 +67,15 @@ export function descriptionToWrite(ev, pushed) {
   if (pushed && normText(pushed.publicDescription) === normText(text)) return null;
   return text;
 }
+
+// What to do with Eventbrite ticket classes on a push (F12). `classes` is
+// [{id}] from GET /events/{id}/ticket_classes/, or null when not fetched (it is
+// fetched only on an update with no stored ticket class id).
+export function ticketPlan({ isCreate, storedTcId, classes, capacity } = {}) {
+  if (isCreate) return { action: 'create' };
+  if (storedTcId) return Number(capacity) > 0 ? { action: 'update', id: storedTcId } : { action: 'none' };
+  if (!Array.isArray(classes)) return { action: 'none' };
+  if (classes.length === 0) return { action: 'create' };
+  if (classes.length === 1) return { action: 'adopt', id: classes[0].id };
+  return { action: 'leave' };
+}

@@ -81,3 +81,27 @@ test('descriptionToWrite: different from pushed -> the text', () => {
 test('descriptionToWrite: no pushed snapshot + non-blank -> the text', () => {
   assert.equal(descriptionToWrite({ publicDescription: 'Hello' }, null), 'Hello');
 });
+
+import { ticketPlan } from '../src/publish.js';
+
+test('ticketPlan: create path always creates', () => {
+  assert.deepEqual(ticketPlan({ isCreate: true, storedTcId: '', classes: null, capacity: 40 }), { action: 'create' });
+});
+test('ticketPlan: stored id + capacity -> update that class', () => {
+  assert.deepEqual(ticketPlan({ isCreate: false, storedTcId: 'tc1', classes: null, capacity: 40 }), { action: 'update', id: 'tc1' });
+});
+test('ticketPlan: stored id, no capacity -> none', () => {
+  assert.deepEqual(ticketPlan({ isCreate: false, storedTcId: 'tc1', classes: null, capacity: '' }), { action: 'none' });
+});
+test('ticketPlan: no stored id, 0 classes -> create', () => {
+  assert.deepEqual(ticketPlan({ isCreate: false, storedTcId: '', classes: [], capacity: 40 }), { action: 'create' });
+});
+test('ticketPlan: no stored id, exactly 1 class -> adopt it', () => {
+  assert.deepEqual(ticketPlan({ isCreate: false, storedTcId: '', classes: [{ id: 'tc9' }], capacity: 40 }), { action: 'adopt', id: 'tc9' });
+});
+test('ticketPlan: no stored id, more than 1 class -> leave alone', () => {
+  assert.deepEqual(ticketPlan({ isCreate: false, storedTcId: '', classes: [{ id: 'a' }, { id: 'b' }], capacity: 40 }), { action: 'leave' });
+});
+test('ticketPlan: no stored id, classes not fetched -> none', () => {
+  assert.deepEqual(ticketPlan({ isCreate: false, storedTcId: '', classes: null, capacity: 40 }), { action: 'none' });
+});

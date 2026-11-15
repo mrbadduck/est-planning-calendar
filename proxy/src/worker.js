@@ -38,7 +38,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 const ListingRules = globalThis.ListingRules;
 
@@ -439,21 +439,40 @@ export default {
           const venueRes = await ensureEbVenue(env, base, docId, auth, ev.venueName, venueRow, ev.addressVisibility, ebId, isCreate);
           if (venueRes && venueRes.error) return fail('venue', venueRes.error, venueRes.error.status === 409 ? 409 : 502);
 
-          // 3. ticket class. Only ever CREATE one for a brand-new event (it can't
-          // publish without one). On an UPDATE we touch ticketing only if we own
-          // the class (stored tcId) AND have a staged capacity to change —
-          // otherwise leave Eventbrite's ticket classes alone. This avoids both
-          // duplicating tickets on an event whose classes we don't track and the
-          // "require a quantity_total" error when updating with no capacity.
+          // 3. ticket class (ticketPlan, F12). A new event gets a General Admission
+          // class. On an UPDATE with a stored class id we update its quantity from
+          // Capacity. With NO stored id (an earlier push failed after creating the
+          // event), list the event's classes: 0 -> create one, exactly 1 -> adopt
+          // it (store its id, then set its quantity), more than 1 -> leave them
+          // alone (managed in Eventbrite) and say so in the response + log.
           let ticketClassId = ev.ticketClassId;
-          if (isCreate) {
+          let ticketNote = '';
+          let classes = null;
+          if (!isCreate && !ev.ticketClassId) {
+            const lr = await ebListTickets(env, ebId);
+            if (!lr.ok) return fail('ticket', lr);
+            classes = ((lr.body && lr.body.ticket_classes) || []).map(c => ({ id: c.id }));
+          }
+          const tp = ticketPlan({ isCreate, storedTcId: ev.ticketClassId, classes, capacity: ev.capacity });
+          if (tp.action === 'create') {
             const r = await ebCreateTicket(env, ebId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
             ticketClassId = r.body.id;
             await setRow([{ column: 'Eventbrite Ticket Class ID', value: ticketClassId }]);
-          } else if (ev.ticketClassId && ev.capacity) {
-            const r = await ebUpdateTicket(env, ebId, ev.ticketClassId, ticketClassPayload(ev));
+          } else if (tp.action === 'adopt') {
+            ticketClassId = tp.id;
+            await setRow([{ column: 'Eventbrite Ticket Class ID', value: ticketClassId }]);
+            if (Number(ev.capacity) > 0) {
+              // Quantity only: an adopted class may have been made by hand in Eventbrite
+              // (name, price), so don't rename it or reset it to free.
+              const r = await ebUpdateTicket(env, ebId, ticketClassId, { ticket_class: { quantity_total: Number(ev.capacity) } });
+              if (!r.ok) return fail('ticket', r);
+            }
+          } else if (tp.action === 'update') {
+            const r = await ebUpdateTicket(env, ebId, tp.id, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
+          } else if (tp.action === 'leave') {
+            ticketNote = `This listing has ${classes.length} ticket types, managed in Eventbrite; tickets were left unchanged.`;
           }
 
           // 4. structured content (description body) — read current version, write current+1.
@@ -500,8 +519,9 @@ export default {
           ];
           if (!draftOnly) okCells.push({ column: 'Published?', value: true }, { column: 'Last published at', value: new Date().toISOString() });
           await setRow(okCells);
-          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: draftOnly ? 'update' : 'publish', ok: true, status: pubStatus, ebId, ebUrl: eventbriteWebUrl(ebId), message: draftOnly ? 'draft synced (not published)' : '' });
-          return json({ ok: true, eventbriteId: ebId, url: eventbriteWebUrl(ebId), draft: draftOnly }, 200, cors);
+          const okMsg = [draftOnly ? 'draft synced (not published)' : '', ticketNote].filter(Boolean).join(' · ');
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: draftOnly ? 'update' : 'publish', ok: true, status: pubStatus, ebId, ebUrl: eventbriteWebUrl(ebId), message: okMsg });
+          return json({ ok: true, eventbriteId: ebId, url: eventbriteWebUrl(ebId), draft: draftOnly, ...(ticketNote ? { ticketNote } : {}) }, 200, cors);
         } catch (err) {
           const msg = String((err && err.message) || err);
           try { await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]); } catch (_) {}
@@ -1240,6 +1260,7 @@ const ebCreateEvent = (env, payload) => ebFetch(env, `/organizations/${env.EVENT
 const ebUpdateEvent = (env, id, payload) => ebFetch(env, `/events/${id}/`, 'POST', payload);
 const ebCreateVenue = (env, payload) => ebFetch(env, `/organizations/${env.EVENTBRITE_ORG_ID}/venues/`, 'POST', payload);
 const ebCreateTicket = (env, id, payload) => ebFetch(env, `/events/${id}/ticket_classes/`, 'POST', payload);
+const ebListTickets = (env, id) => ebFetch(env, `/events/${id}/ticket_classes/`, 'GET');
 const ebUpdateTicket = (env, id, tcId, payload) => ebFetch(env, `/events/${id}/ticket_classes/${tcId}/`, 'POST', payload);
 const ebGetStructuredContent = (env, id) => ebFetch(env, `/events/${id}/structured_content/`, 'GET');
 const ebSetStructuredContent = (env, id, version, body) => ebFetch(env, `/events/${id}/structured_content/${version}/`, 'POST', body);
