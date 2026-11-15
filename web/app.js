@@ -106,7 +106,7 @@ async function loadVenues(){
       const items = (await rv.json()).items || [];
       const list = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
         type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true),
-        hasAddress: !!x.hasAddress }));   // the Worker sends whether a venue has an address, never the address (R12)
+        hasAddress: x.hasAddress != null ? !!x.hasAddress : !!(x.values && x.values['Address']) }));   // the Worker sends whether a venue has an address, never the address (R12); an older /ref/venues (or cache) still sends Address
       if(list.length){ setVenues(list); cacheSet('venues', list); }
     }
     if(rt && rt.ok){
