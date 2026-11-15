@@ -149,3 +149,17 @@ export function deleteGate({ published, status, ebStatus } = {}, id = {}) {
   if (status === 'Cancelled' && !id.canApprove) return { status: 403, error: 'delete requires Tribal Council' };
   return null;
 }
+
+// GET /ref/venues item (R12): what the editor's venue picker and readiness need,
+// never the Address itself — it holds private home addresses and /ref is
+// unauthenticated. `row` is a name-keyed simpleWithArrays Venues row.
+export function venueRefItem(row) {
+  const v = (row && row.values) || {};
+  const type = Array.isArray(v['Venue Type']) ? v['Venue Type'][0] : v['Venue Type'];
+  return {
+    id: row && row.id,
+    name: (row && row.name) || '',
+    values: { 'Venue Type': type == null ? '' : type, 'Closed/Unavailable?': v['Closed/Unavailable?'] === true },
+    hasAddress: !!v['Address'],
+  };
+}

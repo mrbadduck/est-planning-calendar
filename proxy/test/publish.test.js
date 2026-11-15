@@ -184,3 +184,20 @@ test('deleteGate: a live/started Eventbrite listing refuses delete even when Pub
     assert.equal(deleteGate({ published: false, status: 'Approved', ebStatus: 'draft' }, who), null);
   }
 });
+
+import { venueRefItem } from '../src/publish.js';
+
+test('venueRefItem: projects a venue row without its address (R12)', () => {
+  const row = { id: 'i-1', name: 'Mirowitz Home', href: 'x', values: {
+    'Venue Name': 'Mirowitz Home', 'Venue Type': 'Home', 'Closed/Unavailable?': false,
+    Address: '123 Secret St, Nashville, TN', Notes: 'gate code 1234' } };
+  const out = venueRefItem(row);
+  assert.deepEqual(out, { id: 'i-1', name: 'Mirowitz Home',
+    values: { 'Venue Type': 'Home', 'Closed/Unavailable?': false }, hasAddress: true });
+  assert.ok(!JSON.stringify(out).includes('Secret'));
+});
+test('venueRefItem: no address, array type, closed', () => {
+  const out = venueRefItem({ id: 'i-2', name: 'Park', values: { 'Venue Type': ['Outdoor'], 'Closed/Unavailable?': true, Address: '' } });
+  assert.deepEqual(out, { id: 'i-2', name: 'Park', values: { 'Venue Type': 'Outdoor', 'Closed/Unavailable?': true }, hasAddress: false });
+  assert.equal(venueRefItem({ id: 'i-3', name: 'X' }).hasAddress, false);
+});

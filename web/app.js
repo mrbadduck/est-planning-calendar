@@ -90,7 +90,7 @@ async function loadPeople(){
 }
 
 /* live venues + venue types for the cascade (small tables — full rows) */
-let VENUES = [];          // {id,name,type,closed}
+let VENUES = [];          // {id,name,type,closed,hasAddress}
 let VENUE_TYPES = [];     // {id,name}
 let venueIdByName = {}, venueTypeIdByName = {};
 function setVenues(list){ VENUES=list; venueIdByName=Object.fromEntries(VENUES.map(v=>[v.name,v.id])); _live.venues=true; }
@@ -105,7 +105,8 @@ async function loadVenues(){
     if(rv && rv.ok){
       const items = (await rv.json()).items || [];
       const list = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
-        type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true) }));
+        type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true),
+        hasAddress: !!x.hasAddress }));   // the Worker sends whether a venue has an address, never the address (R12)
       if(list.length){ setVenues(list); cacheSet('venues', list); }
     }
     if(rt && rt.ok){
@@ -255,7 +256,7 @@ function eventToCodaCells(e){
     {column:'Window start',    value:e.rangeStart||''},
     {column:'Window end',      value:e.rangeEnd||''},
     {column:'Capacity',           value:(e.capacity===''||e.capacity==null)?'':Number(e.capacity)},
-    {column:'Address visibility', value:e.addressVisibility||'Public'},
+    {column:'Address visibility', value:e.addressVisibility||''},   // blank = not chosen yet (Eventbrite treats it as Public)
     {column:'Public summary',     value:e.publicSummary||''},
     {column:'Public description', value:e.publicDescription||''},
   ];
@@ -309,6 +310,10 @@ function mapRelations(ev){
     || (!!ev.venueName && !venueIdByName[ev.venueName]) || (!!ev.venueTypeName && !venueTypeIdByName[ev.venueTypeName]);
   return !ev._lossy;
 }
+function _pushedSnapshot(raw){
+  if(!raw || typeof raw!=='string') return null;
+  try{ const p=JSON.parse(raw); return (p && typeof p==='object' && !Array.isArray(p)) ? p : null; }catch(_){ return null; }
+}
 function planningRowToEvent(r){
   const v = r.values || {};
   const venueName = _asList(v['Venue'])[0] || '';
@@ -328,12 +333,13 @@ function planningRowToEvent(r){
     status: String(v['Status'] || 'draft').toLowerCase(),
     description: v['Event Description'] || '',
     capacity: (v['Capacity'] === '' || v['Capacity'] == null) ? '' : Number(v['Capacity']),
-    addressVisibility: v['Address visibility'] || 'Public',
+    addressVisibility: v['Address visibility'] || '',
     publicSummary: v['Public summary'] || '',
     publicDescription: v['Public description'] || '',
     publishStatus: v['Publish status'] || 'Unpublished',
     eventbriteId: v['Eventbrite Event ID'] || '',
     lastPublishError: v['Last publish error'] || '',
+    pushed: _pushedSnapshot(v['Last EB pushed values']),   // what the Worker last sent to Eventbrite; read-only (never written by the app)
     planningNotes: v['Planning Notes'] || '',
     // proxy injects notesDocUrl resolved by the stable column id (rename-proof);
     // Notes Doc is a Coda link column, so the value may be a string or {url,name}.
@@ -393,6 +399,7 @@ const CodaSource = {
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
   async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; throw e; } return j; },
+  async ebPreview(rowId){ const r=await fetch(`${this.base}/eventbrite/preview?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(r.status===404 && j && j.linked===false) return null; if(!r.ok){ const e=new Error(j.error||`preview failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async refreshPeople(){ const r=await fetch(`${this.base}/admin/refresh-people`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`refresh failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async cancelEventbrite(rowId){ const r=await fetch(`${this.base}/cancel/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`cancel failed (${r.status})`); e.status=r.status; throw e; } return j; },
@@ -785,15 +792,16 @@ function whenFieldsHTML(type,ev,dis){
   if(type==='month') return `<div class="fld"><label>Target month</label><input id="f_month" type="month" value="${ev.targetMonth||(ev.date?ev.date.slice(0,7):'')}" ${dis}></div>
     <div class="whenhint">Whole-month idea — shows in the gutter.</div>`;
   const allDay = !!ev.allDay;
-  return `<div class="fld"><label>Date</label>
+  const fm=fieldMarkModel(editing||ev);
+  return `<div class="fld"><label>${fieldLabelHTML('date','Date',fm)}</label>
       <div class="daterow">
         <input id="f_date" type="date" value="${ev.date||''}" ${dis}>
         <label class="allday-inline"><input id="f_allday" type="checkbox" ${allDay?'checked':''} ${dis}> All day</label>
-      </div>
+      </div>${fieldHintSlot('date')}
     </div>` +
     (allDay ? '' : `<div class="timerow">
-      <div class="fld"><label>Start time</label><input id="f_start" type="time" value="${ev.start||''}" ${dis}></div>
-      <div class="fld"><label>End time</label><input id="f_end" type="time" value="${ev.end||''}" ${dis}></div>
+      <div class="fld"><label>${fieldLabelHTML('start','Start time',fm)}</label><input id="f_start" type="time" value="${ev.start||''}" ${dis}>${fieldHintSlot('start')}</div>
+      <div class="fld"><label>${fieldLabelHTML('end','End time',fm)}</label><input id="f_end" type="time" value="${ev.end||''}" ${dis}>${fieldHintSlot('end')}</div>
     </div>`);
 }
 function collectWhen(){
@@ -862,146 +870,198 @@ function wireNotes(panel, ev, canEdit){
   });
 }
 
-/* ---- publish-to-Eventbrite panel — mirrors the notes-doc panel's shape:
-   a small `<div id="f_publish">` whose contents swap between a button, a
-   "publishing…" spinner, and a linked/badge state. The Worker owns the
-   Eventbrite fields (publishStatus/eventbriteId/eventbriteUrl/lastPublishError);
-   this panel only ever reads them off `ev`, never writes them locally except
-   as an optimistic reflection of what the Worker just told us. */
-function publishPanelHTML(ev, canEdit){
-  if(!canEdit) return '';
-  if(ev.status!=='approved') return `<div class="fld full"><label>Eventbrite</label><div class="pubpanel"><span class="hint">Approve this event to publish it to Eventbrite.</span></div></div>`;
-  const linked = !!ev.eventbriteId;
-  const badge = `<span class="badge b-${(ev.publishStatus||'').toLowerCase()}">${esc(ev.publishStatus||'Unpublished')}</span>`;
-  // Draft-first: build/sync a draft in Eventbrite (data-act="publish-eb-draft"),
-  // review it there, then Publish for real (data-act="publish-eb-publish").
-  const st = ev.publishStatus||'Unpublished';
-  let inner;
-  if(!linked){
-    inner = `<button type="button" class="btn sm primary" data-act="publish-eb-draft">Create Eventbrite draft</button>
-      <span class="hint">Builds a draft in Eventbrite — review it there, then Publish.</span>`;
-  } else {
-    const open = `<a class="reflink" href="${esc(ev.eventbriteUrl||'#')}" target="_blank" rel="noopener">Open in Eventbrite ↗</a>`;
-    // Push buttons are DIRTY-GATED (#f_ebpush, hidden until the fields diverge
-    // from the live values loadEbLive seeds). A draft's Publish stays visible —
-    // going live is its whole point, edits or not.
-    const dirtyBtns = st==='Published'
-      ? `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Update published event</button>`
-      : `<button type="button" class="btn sm primary" data-act="publish-eb-draft">Update draft</button>`;
-    const alwaysBtns = st==='Published' ? '' : `<button type="button" class="btn sm primary" data-act="publish-eb-publish">Publish</button>`;
-    inner = `<div class="eb-live" id="f_eblive"><div class="hint"><span class="ndoc-spin"></span> Checking the live Eventbrite listing…</div></div>
-      <div class="eb-actions">${open} <span id="f_ebpush" hidden>${dirtyBtns}</span> ${alwaysBtns} ${badge}</div>
-      <div class="hint" style="margin-top:6px">On your phone, tap through to Check-In in the Eventbrite Organizer app.</div>`;
+/* ---- Eventbrite listing on the Details tab (spec 5.4, 5.7; D1, D4) -----------
+   The form always shows the event's own (Coda) values. Nothing read from
+   Eventbrite is ever put into the form or written to Coda: sync status compares
+   the form with `ev.pushed`, the snapshot the Worker stores on each push (Last EB
+   pushed values, read-only here). Every region that changes while the editor is
+   open has a stable container, repainted with paintInner: the field markers
+   ([data-fmk]), their hints ([data-fhint]), the form key (#f_key) and the
+   listing card (#listingCard, which Task 14 fills with the live status). */
+const ICON_PUBLIC = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg>`;
+const ICON_MATCH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16.5 9"/></svg>`;
+const ICON_PRIVATE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c6 0 9.5 7 9.5 7a17.6 17.6 0 0 1-3 3.9"/><path d="M6.1 6.1A17.4 17.4 0 0 0 2.5 12S6 19 12 19a9.6 9.6 0 0 0 5.1-1.4"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
+const TIP_PRIVATE = 'Private: only leads and council see this. Never sent to Eventbrite.';
+const TIP_PUBLIC = 'Public: this becomes part of the Eventbrite listing.';
+const TIP_MATCH = 'Matches the Eventbrite listing: what you see here is what Eventbrite has.';
+const ADDR_DEFAULT_HINT = 'Set to Registrants only because this venue is a private home. The public sees just "Nashville, TN".';
+const fmkIcon = (cls, icon, tip, aria) => `<span class="fic${cls?' '+cls:''}" role="img" data-tip="${esc(tip)}" aria-label="${esc(aria)}">${icon}</span>`;
+// What the markers show for the open editor: sync status per public field (only
+// once the event is on Eventbrite) and the fields the next action is waiting on —
+// the same set as the footer's links.
+function fieldMarkModel(ev){
+  const R=ListingRules, linked=!!ev.eventbriteId;
+  const sync = linked ? R.syncStatus(ev, ev.pushed || null) : {};
+  const needed = {};
+  if(_ctx && _ctx.ev===ev) for(const l of editorFooterModel(ev, _ctx).links) if(l.field) (needed[l.field] = needed[l.field] || []).push(l.label);
+  return { linked, pushed: linked ? (ev.pushed || null) : null, sync, needed };
+}
+// A field label's marker icons and tags (spec 5.7): eye-off for private fields;
+// globe for public ones, + check when it matches the pushed snapshot; amber
+// "● Not on Eventbrite yet" when it differs; red "Needed for Eventbrite" when the
+// next step is waiting on it.
+function fieldMarksHTML(key, m){
+  const F=ListingRules.FIELDS[key];
+  if(!F) return '';
+  if(!F.public) return fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private, never on Eventbrite');
+  let h = fmkIcon('pub', ICON_PUBLIC, TIP_PUBLIC, 'Public, on the Eventbrite listing');
+  const s = m.sync[key];
+  if(s==='match') h += fmkIcon('ok', ICON_MATCH, TIP_MATCH, 'Matches Eventbrite');
+  if(m.needed[key]) h += `<span class="ftag req">Needed for Eventbrite</span>`;
+  if(s==='changed') h += `<span class="ftag chg">● Not on Eventbrite yet</span>`;
+  return h;
+}
+// How a pushed value reads in the "Eventbrite: …" hint.
+function pushedText(key, v){
+  const s = v==null ? '' : String(v).trim();
+  if(key==='date') return s ? fmtDate(s) : '(no date)';
+  if(key==='start' || key==='end') return s ? hm12(s) : '(no time)';
+  if(key==='venue') return s || 'Online';
+  if(key==='addressVisibility') return s || 'Public';
+  if(!s) return '(empty)';
+  return s.length>90 ? s.slice(0,90)+'…' : s;
+}
+function fieldHintHTML(key, m){
+  let h='';
+  if(key==='venue' && m.needed.venue) h += m.needed.venue.map(t=>`<div class="hint err">${esc(t)}</div>`).join('');
+  if(m.sync[key]==='changed' && m.pushed){
+    const F=ListingRules.FIELDS[key];
+    h += `<div class="hint">Eventbrite: ${esc(pushedText(key, m.pushed[F.pushedKey]))}</div>`;
   }
-  const err = ev.lastPublishError && (ev.publishStatus==='Error') ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
-  return `<div class="fld full"><label>Eventbrite</label><div class="pubpanel" id="f_publish">${inner}${err}</div></div>`;
+  return h;
 }
-// Wires (and, after each outerHTML swap, re-wires) the publish panel's click
-// handler. Named function instead of arguments.callee so it can rebind itself
-// onto the fresh DOM node `outerHTML` produces.
-/* ---- live Eventbrite view: once pushed, Eventbrite is the truth; the row's
-   publish fields are staging. Fetched async so the panel paints instantly. ---- */
-const stripTags = s => String(s||'').replace(/<[^>]*>/g,' ');
-function ebLiveHTML(st){
-  const L=st.live||{};
-  const liveDate=(L.startLocal||'').slice(0,10), liveStart=(L.startLocal||'').slice(11,16), liveEnd=(L.endLocal||'').slice(11,16);
-  const statusCls = L.status==='live' ? 'live' : (L.status==='draft' ? 'draft' : 'past');
-  const conflict = st.editedSincePush ? `<div class="ndoc-warn">Edited directly in Eventbrite after the last push — pushing an update will overwrite those Eventbrite-side changes.</div>` : '';
-  return `${conflict}
-    <div class="eb-facts">
-      <span class="badge b-${statusCls}">${esc((L.status||'—').replace(/^./,c=>c.toUpperCase()))}</span>
-      <b class="eb-name">${esc(L.name||'')}</b>
-      <span>${esc(liveDate)}${liveStart?` · ${esc(liveStart)}${liveEnd?`–${esc(liveEnd)}`:''}`:''}</span>
-      <span>${L.sold||0}${L.capacity?` of ${L.capacity}`:''} registered</span>
-      ${L.venueName?`<span>📍 ${esc(L.venueName)}</span>`:(L.onlineEvent?'<span>Online</span>':'')}
-      ${L.ticketClasses>1?`<span class="hint">${L.ticketClasses} ticket types — managed in Eventbrite, pushes leave them alone</span>`:''}
-    </div>
-    <div class="hint">Live Eventbrite listing. The fields below show its current values — edit them to stage an update.</div>`;
+// Label text + its marker container (the label never moves; only the markers repaint).
+function fieldLabelHTML(key, labelText, m){
+  return `${labelText} <span class="fmk" data-fmk="${key}">${fieldMarksHTML(key, m || fieldMarkModel(editing || {}))}</span>`;
 }
-// Seed the publish fields from the LIVE listing and dirty-gate the push button:
-// it appears only when an edit makes the fields diverge from what's live.
-// Address visibility is our own concept (not readable from Eventbrite) so it
-// keeps the staged value but still counts toward dirtiness.
-function seedLiveFields(st){
-  const L=st.live||{};
-  const s=document.getElementById('f_pubsummary'), d=document.getElementById('f_pubdesc'), c=document.getElementById('f_capacity');
-  if(!s||!d||!c) return;
-  if(s.hasAttribute('data-livewait')){
-    // Seed all three from the LIVE listing, then mirror those live values into
-    // staging (Coda) so "what you see is what gets pushed": a later edit to one
-    // field pushes the others back unchanged (an unchanged description matches →
-    // its rich formatting is preserved; capacity/summary are no-ops).
-    s.value=L.summary||''; d.value=L.descriptionText||''; c.value=L.capacity!=null?L.capacity:'';
-    [s,d,c].forEach(el=>{ el.disabled=false; el.removeAttribute('data-livewait'); });
-    document.querySelectorAll('[data-act="copy-internal"][data-livewait]').forEach(b=>{ b.disabled=false; b.removeAttribute('data-livewait'); });
-    if(editing){
-      const cap = c.value!==''?Number(c.value):'';
-      const changed = String(editing.publicSummary??'')!==s.value || String(editing.publicDescription??'')!==d.value || String(editing.capacity??'')!==String(cap);
-      editing.publicSummary=s.value; editing.publicDescription=d.value; editing.capacity=cap;
-      if(changed && editing.id) scheduleAutosave();   // persist live values to staging so displayed == pushed
+const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
+function formKeyHTML(m){
+  const sp = '<span class="fkey-sp"></span>';
+  return fmkIcon('pub', ICON_PUBLIC, TIP_PUBLIC, 'Public') + 'Public: on the Eventbrite listing' + sp
+    + (m.linked && m.pushed ? fmkIcon('ok', ICON_MATCH, TIP_MATCH, 'In sync') + 'Matches Eventbrite' + sp : '')
+    + fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private') + 'Private: planning team only';
+}
+// The listing card (linked events). Registration counts come in Task 14 (live
+// status); until then the "X of Y registered" part is left out. The tickets line
+// shows what was pushed (what Eventbrite has), never the form's Capacity.
+function listingCardHTML(ev){
+  const pub = ev.publishStatus==='Published';
+  const pill = pub ? `<span class="ftag ok lg">Public</span>` : `<span class="ftag chg lg">Private draft</span>`;
+  const line = pub ? 'Registration open' : 'Nobody can see this listing or register yet.';
+  const view = pub && ev.eventbriteUrl ? `<a class="ebview" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
+  const qty = ev.pushed && Number(ev.pushed.capacity) > 0 ? ` · ${Number(ev.pushed.capacity)}` : '';
+  const err = ev.publishStatus==='Error' && ev.lastPublishError ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
+  return `<div class="ebrow">${pill}<b>${esc(line)}</b>${view}</div>
+    <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span><span class="ftag mgd">Paid tickets and discount codes: coming later</span></div>${err}`;
+}
+// Repaint every marker, hint, the key and the card from the open editor's event.
+// Called with the footer (open, tab switch, every save-state change), so markers
+// follow the same event state the footer reads.
+function paintFieldMarks(){
+  const panel=document.getElementById('wpanel');
+  if(!panel || !editing || !_ctx || _ctx.ev!==editing) return;
+  const m=fieldMarkModel(editing);
+  panel.querySelectorAll('[data-fmk]').forEach(el=>{
+    let key=el.dataset.fmk;
+    if(key==='when'){   // the When heading carries the date's tag while there is no Date field
+      paintInner(el, m.needed.date && !document.getElementById('f_date') ? `<span class="ftag req">Needed for Eventbrite</span>` : '');
+      return;
     }
-  }
-  const avVal=()=>{ const b=document.querySelector('#f_addrvis button[aria-pressed="true"]'); return b?b.dataset.addrvis:'Public'; };
-  const baseline=JSON.stringify([s.value,d.value,String(c.value),avVal()]);
-  const toggle=()=>{ const push=document.getElementById('f_ebpush'); if(push) push.hidden = JSON.stringify([s.value,d.value,String(c.value),avVal()])===baseline; };
-  [s,d,c].forEach(el=>el.addEventListener('input', toggle));
-  const av=document.getElementById('f_addrvis'); if(av) av.addEventListener('click', ()=>setTimeout(toggle,0));
-  toggle();
+    paintInner(el, fieldMarksHTML(key, m));
+  });
+  panel.querySelectorAll('[data-fhint]').forEach(el=>paintInner(el, fieldHintHTML(el.dataset.fhint, m)));
+  const k=document.getElementById('f_key'); if(k) paintInner(k, formKeyHTML(m));
+  const c=document.getElementById('listingCard'); if(c) paintInner(c, listingCardHTML(editing));
 }
-async function loadEbLive(pub){
-  const box=pub && pub.querySelector('#f_eblive');
-  if(!box || !editing || !editing.id || !editing.eventbriteId) { if(box) box.remove(); return; }
-  const rowId=editing.id;
-  const st=await DB.ebStatus(rowId);
-  if(!box.isConnected || !editing || editing.id!==rowId) return;   // panel re-rendered / event switched
-  const unstick=()=>{ // live load failed: fall back to staged values + visible push button
-    document.querySelectorAll('[data-livewait]').forEach(el=>{ el.disabled=false; el.removeAttribute('data-livewait'); });
-    const push=document.getElementById('f_ebpush'); if(push) push.hidden=false;
+
+/* ---- listing preview (act 'preview-eb'; board E2) ---------------------------
+   An overlay above the editor — the editor stays open underneath, unsaved state
+   and all. Everything Eventbrite sends is escaped, except the description HTML,
+   which goes through ListingHtml.sanitize (an allowlist) first. */
+let _pvGen=0;
+function previewWhen(m){
+  const s=String(m.startLocal||''), e=String(m.endLocal||'');
+  const d=s.slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { day:'', full:'' };
+  const [y,mo,da]=d.split('-').map(Number), dt=new Date(y,mo-1,da);
+  const t12 = hm => { const [h,mi]=hm.split(':').map(Number); return isNaN(h) ? '' : `${h%12||12}:${pad(mi||0)}`; };
+  const ap = hm => Number(hm.split(':')[0])<12 ? 'AM' : 'PM';
+  const st=s.slice(11,16), en=e.slice(11,16);
+  let tz=''; try{ tz = m.timezone ? (new Intl.DateTimeFormat('en-US',{timeZone:m.timezone, timeZoneName:'short'}).formatToParts(dt).find(p=>p.type==='timeZoneName')||{}).value||'' : ''; }catch(_){}
+  let times='';
+  if(st) times = en ? (ap(st)===ap(en) ? `${t12(st)} – ${t12(en)} ${ap(en)}` : `${t12(st)} ${ap(st)} – ${t12(en)} ${ap(en)}`) : `${t12(st)} ${ap(st)}`;
+  return {
+    day: dt.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'}),
+    full: dt.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'}) + (times ? ` · ${times}${tz?' '+tz:''}` : ''),
   };
-  if(!st){ box.innerHTML=`<div class="hint">Couldn’t reach Eventbrite just now — showing your staged copy; pushing still works.</div>`; unstick(); return; }
-  if(!st.linked){ box.remove(); unstick(); return; }
-  box.innerHTML=ebLiveHTML(st);
-  seedLiveFields(st);
 }
-function wirePublishPanel(pub){
-  if(!pub) return;
-  loadEbLive(pub);
-  pub.addEventListener('click', async e=>{
-    const b=e.target.closest('[data-act="publish-eb-draft"],[data-act="publish-eb-publish"]'); if(!b) return;
-    if(!editing || !editing.id){ toast('Save the event first','err'); return; }
-    const draftOnly = b.dataset.act==='publish-eb-draft';
-    const rowId=editing.id;
-    try{ await flushAutosave(); }   // Coda must have the latest public copy — the Worker builds the listing from it
-    catch(err){ if(!(err && err.status===401)) toast('Your latest changes didn’t save, so nothing was sent to Eventbrite — try again','err'); return; }
-    pub.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> ${draftOnly?'Creating Eventbrite draft':'Publishing to Eventbrite'}… <span class="hint">(a few seconds)</span></div>`;
-    try{
-      let res;
-      try{ res=await DB.publishEventbrite(rowId, draftOnly); }
-      catch(err){
-        // Eventbrite-side edits since our last push: make the overwrite explicit.
-        if(!(err && err.conflict)) throw err;
-        const go=window.confirm('This event was edited directly in Eventbrite after the last push.\n\nPushing now will overwrite those Eventbrite-side changes with your staged copy here. Push anyway?');
-        if(!go){
-          const p=document.getElementById('f_publish');
-          if(p && (!editing||editing.id===rowId)){ p.outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
-          return;
-        }
-        res=await DB.publishEventbrite(rowId, draftOnly, true);
-      }
-      const newStatus = res.draft ? 'Draft' : 'Published';
-      if(editing && editing.id===rowId){ editing.eventbriteId=res.eventbriteId||editing.eventbriteId; editing.eventbriteUrl=res.url||editing.eventbriteUrl; editing.publishStatus=newStatus; editing.lastPublishError=''; editing._ebDirty=false; }
-      const item=state.events.find(x=>x.id===rowId); if(item){ item.eventbriteId=editing.eventbriteId; item.eventbriteUrl=editing.eventbriteUrl; item.publishStatus=newStatus; }
-      if(document.getElementById('f_publish') && (!editing||editing.id===rowId)){ document.getElementById('f_publish').outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
-      toast(draftOnly?'Eventbrite draft ready':'Published to Eventbrite','ok');
-      refresh();
-    }catch(err){
-      if(editing && editing.id===rowId){ editing.publishStatus='Error'; editing.lastPublishError=(err&&err.message)||'Publish failed'; }
-      if(document.getElementById('f_publish')){ document.getElementById('f_publish').outerHTML=publishPanelHTML(editing,true); wirePublishPanel(document.getElementById('f_publish')); }
-      if(err && err.status===401 && typeof sessionExpired==='function') sessionExpired();
-      else toast((err&&err.message)||'Publish failed','err');
-    }
+function previewBodyHTML(m){
+  const w=previewWhen(m), draft = m.status!=='live';
+  const loc = m.location || {};
+  const locHTML = loc.online ? '<span>Online event</span>'
+    : `${loc.name?`<span>${esc(loc.name)}</span>`:''}${loc.displayAddress?`<span>${esc(loc.displayAddress)}</span>`:''}${loc.note?`<span class="pv-note">${esc(loc.note)}</span>`:''}`;
+  const logo = /^https:\/\//i.test(String(m.logoUrl||'')) ? `<img class="pv-banner" src="${esc(m.logoUrl)}" alt="">` : `<div class="pv-banner pv-nobanner">No event image on Eventbrite</div>`;
+  const tickets = (m.tickets||[]).map(t=>`<div class="pv-ticket"><div><b>${esc(t.name||'Ticket')}</b><span>${t.free?'Free':'Paid'}${t.quantityTotal!=null?` · ${esc(t.quantityTotal)} available`:''}</span></div><span class="pv-reserve">${draft?'Reserve a spot (opens when published)':'Reserve a spot'}</span></div>`).join('');
+  const desc = ListingHtml.sanitize(m.descriptionHtml||'');
+  return `<div class="pv-card">${logo}<div class="pv-main">
+      ${w.day?`<span class="pv-day">${esc(w.day)}</span>`:''}
+      <h1 class="pv-name">${esc(m.name||'Untitled')}</h1>
+      ${m.summary?`<p class="pv-summary">${esc(m.summary)}</p>`:''}
+      <div class="pv-facts"><div><b>Date and time</b><span>${esc(w.full||'—')}</span></div><div><b>Location</b>${locHTML||'<span>—</span>'}</div></div>
+      <div class="pv-about"><b>About this event</b><div class="pv-desc">${desc||'<p class="hint">No description yet.</p>'}</div></div>
+      ${tickets}
+      <span class="pv-org">Organized by East Side Tribe</span>
+    </div></div>
+    <p class="pv-why">Shown in the plan app's own layout using Eventbrite's data, because Eventbrite only shows draft pages to people logged in to its organizer account.</p>`;
+}
+function openPreview(){
+  const ev=editing; if(!ev || !ev.id || !_ctx) return;
+  closePreview();
+  const gen=++_pvGen;
+  const m=editorFooterModel(ev, _ctx);
+  const canPublish = !!(m.primary && m.primary.act==='publish-eb' && m.primary.enabled);
+  const draft = ev.publishStatus!=='Published';
+  const wrap=document.createElement('div');
+  wrap.className='pv-scrim'; wrap.id='pvScrim';
+  wrap.innerHTML=`<div class="pv-modal" role="dialog" aria-modal="true" aria-labelledby="pvTitle">
+    <div class="pv-head"><div class="pv-headtxt"><b id="pvTitle">Preview: your Eventbrite listing</b>
+      <span>${draft?'This is what Eventbrite has for your private draft, fetched just now. Nobody else can see it yet.':'This is what Eventbrite has for your listing, fetched just now.'}</span></div>
+      <span class="ftag ${draft?'chg':'ok'} lg">${draft?'Private draft':'Public'}</span></div>
+    <div class="pv-body" id="pvBody"><div class="ndoc-loading"><span class="ndoc-spin"></span> Fetching the listing from Eventbrite…</div></div>
+    <div class="pv-foot"><span class="pv-footmsg">Something wrong? Close this and edit the fields; they'll show "Not on Eventbrite yet" until you update.</span>
+      <button type="button" class="btn fbtn sec" data-pv="close">Close</button>
+      ${canPublish?`<button type="button" class="btn fbtn go" data-pv="publish">Publish</button>`:''}</div>
+  </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', e=>{
+    if(e.target===wrap){ closePreview(); return; }
+    const b=e.target.closest('[data-pv]'); if(!b) return;
+    if(b.dataset.pv==='close') closePreview();
+    else if(b.dataset.pv==='publish'){ closePreview(); footerAct('publish-eb'); }
+  });
+  wrap.querySelector('[data-pv="close"]').focus();
+  DB.ebPreview(ev.id).then(model=>{
+    if(gen!==_pvGen) return;   // closed, or reopened since
+    const body=document.getElementById('pvBody'); if(!body) return;
+    body.innerHTML = model ? previewBodyHTML(model) : `<div class="ndoc-warn">This event isn't on Eventbrite yet, so there is nothing to preview.</div>`;
+  }).catch(err=>{
+    if(gen!==_pvGen) return;
+    if(err && err.status===401){ closePreview(); sessionExpired(); return; }
+    const body=document.getElementById('pvBody');
+    if(body) body.innerHTML=`<div class="ndoc-warn">Couldn't load the listing from Eventbrite. Close this and try again in a moment.</div>`;
   });
 }
+function closePreview(){
+  _pvGen++;
+  const w=document.getElementById('pvScrim'); if(!w) return false;
+  hideTip(); w.remove();
+  const sec=document.querySelector('#edActs [data-act="preview-eb"]'); if(sec) sec.focus();
+  return true;
+}
+// Esc closes the preview (and only the preview) before it reaches the editor.
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape' || !document.getElementById('pvScrim')) return;
+  e.preventDefault(); e.stopImmediatePropagation(); closePreview();
+}, true);
 // Poll the server rows (bypassing the _recent optimistic overlay via listPlanning)
 // until the Copy file button has written the URL into the Notes Doc column, then
 // swap the panel to the embed. ~3s cadence, ~40-tick (~3 min) ceiling — the
@@ -1060,11 +1120,10 @@ function isHistory(ev){ return isPastEvent(ev) && ev.status==='approved'; }
 const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
 const EXT_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
 const GATHER_BASE = 'https://gather.eastsidetribe.org/';   // member app; #/event/<rowId> deep-links (auth is per-origin, so no session hand-off)
-// The venue record readiness checks against (Task 13 adds hasAddress from the venue's
-// address). null when the event has no listed venue.
+// The venue record readiness checks against. null when the event has no listed venue.
 function venueRecord(ev){
   const v = ev && ev.venueName ? VENUES.find(x=>x.name===ev.venueName) : null;
-  return v ? { name:v.name, type:v.type||'', hasAddress:false } : null;
+  return v ? { name:v.name, type:v.type||'', hasAddress:!!v.hasAddress } : null;
 }
 // One context object per open editor (D2): who may do what, and where the event is.
 // (No `stage`: the footer reads stageOf live, since publish status can change while open.)
@@ -1083,6 +1142,8 @@ function editorCtx(ev){
 let _ctx=null;   // the open workspace editor's ctx (renderEditorFooter reads it)
 function openEditor(ev, section){
   if(String(ev.id||'').startsWith('tmp-')){ toast('Still creating this event — try again in a moment'); return; }   // no row to save into yet
+  if(editing && editing!==ev && leaveGuard(()=>openEditor(ev, section))) return;   // switching away from a linked event with unpushed edits
+  hideLeaveGuard(); closePreview();
   leaveForm();   // leaving an open editor (or rebuilding this one): queue its unsaved edits first
   editing = ev;
   _menuOpen = false;
@@ -1188,6 +1249,7 @@ function showModalLoading(title, color){
    transitions into the full workspace via openEditor(savedEvent). */
 function openNewEventForm(seed){
   if(!(state.identity && state.identity.canWrite)){ toast('Sign in as a program lead to add events','err'); return; }
+  if(leaveGuard(()=>openNewEventForm(seed))) return;
   leaveForm();
   editing = seed;
   if(!relationsReady(seed) && !_refsSettled){   // first visit: the pickers need the reference lists
@@ -1296,18 +1358,19 @@ function renderPlanning(ev, canEdit, locked, canApprove){
   // a partial list. (readForm falls back to the event's own values for them.)
   const relOK = relationsReady(ev);
   const roText = v => `<input value="${esc(v||'—')}" disabled>`;
+  const fm = fieldMarkModel(ev), lab = (k, t) => fieldLabelHTML(k, t, fm);
   return `
-    <div class="fld full"><label>Title</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat"></div>
-    <div class="fld full"><label>Internal description <span class="hint">(planning copy — not shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
-    <div class="fld full"><label>Program(s)</label>
+    <div class="fld full"><label>${lab('title','Title')}</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat">${fieldHintSlot('title')}</div>
+    <div class="fld full"><label>${lab('description','Internal description')} <span class="hint">(planning copy — not shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
+    <div class="fld full"><label>${lab('programs','Program(s)')}</label>
       ${relOK ? `<div class="msel${dis?' dis':''}" id="f_progs" data-sel="${esc(progSel.join(','))}">
         <button type="button" class="msel-btn" ${dis} aria-haspopup="listbox" aria-expanded="false"><span class="msel-label"></span><span class="msel-caret">▾</span></button>
         <div class="msel-menu" role="listbox" hidden>${progList.map(p=>`<label class="msel-opt"><input type="checkbox" value="${p.id}" ${progSel.includes(p.id)?'checked':''} ${dis}><span>${esc(p.name)}</span></label>`).join('')}</div>
       </div>` : roText((ev.programNames||[]).join(', '))}
     </div>
-    <div class="fld full"><label>Leads <span class="hint">(program leads auto-added)</span></label>${relOK ? `<div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div>` : roText((ev.leadNames||[]).join(', '))}</div>
+    <div class="fld full"><label>${lab('leads','Leads')} <span class="hint">(program leads auto-added)</span></label>${relOK ? `<div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div>` : roText((ev.leadNames||[]).join(', '))}</div>
     <div class="fieldgroup">
-      <div class="fieldgroup-h">When</div>
+      <div class="fieldgroup-h">When <span class="fmk" data-fmk="when"></span></div>
       <div class="whenseg" id="f_when">
         <button type="button" data-when="exact" aria-pressed="${sched==='exact'}" ${dis}>Exact date</button>
         <button type="button" data-when="range" aria-pressed="${sched==='range'}" ${dis}>Date range</button>
@@ -1316,13 +1379,14 @@ function renderPlanning(ev, canEdit, locked, canApprove){
       <div class="fld full" id="whenFields"></div>
     </div>
     <div class="fieldgroup">
-      <div class="fieldgroup-h">Where</div>
+      <div class="fieldgroup-h">${lab('venue','Where')}</div>
       ${relOK ? `<div class="fld full"><label for="f_vtype">Venue type</label><select id="f_vtype" ${dis}>
         <option value="" ${!ev.venueType?'selected':''}>Any</option>
         ${VENUE_TYPES.map(t=>`<option value="${esc(t.id)}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}
       </select></div>
       <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>`
       : `<div class="fld full">${roText([ev.venueTypeName, ev.venueName||ev.venueOther].filter(Boolean).join(' · '))}</div>`}
+      <div class="fld full"><span class="hint">The street address is saved on the venue.</span>${fieldHintSlot('venue')}</div>
     </div>
     ${(!relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
@@ -1335,7 +1399,7 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
   // leads (leadership cohort) + venue typeaheads
   const resolveIds = (ids, names) => (ids && ids.length) ? ids : (names||[]).map(n=>peopleIdByName[n]).filter(Boolean);
   const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST, onChange:scheduleAutosave });
-  const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev, { onChange:scheduleAutosave });
+  const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev, { onChange:()=>{ applyAddressDefault(venBox); scheduleAutosave(); } });
 
   // program(s): dropdown multiselect — checking a program appends its Current Leads
   const prog=document.getElementById('f_progs');
@@ -1382,62 +1446,63 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
   }
 }
 
-/* Listing subsection (bottom of Details) — public listing copy + capacity +
-   address visibility + the Eventbrite publish panel. Only meaningful once the
-   event is approved. */
-/* Two modes:
-   - UNLINKED (no Eventbrite event yet): the fields are STAGING for the first
-     push, with the Create-draft flow below them.
-   - LINKED: Eventbrite is the truth. The live card sits on top, the fields are
-     seeded from the LIVE listing once it loads (data-livewait marks them), and
-     the push button only appears when an edit makes them diverge from live. */
-function publishFieldsHTML(vals, dis, livewait){
-  // In linked mode all three (summary, description, capacity) seed from the LIVE
-  // listing, so they wait (dimmed) until loadEbLive fills them. The description
-  // is read as plain text, so editing it replaces the listing's rich formatting;
-  // leaving it untouched preserves it (the push skips an unchanged description).
-  const lw = livewait ? 'data-livewait disabled' : dis;
-  const descHint = livewait
-    ? '(plain text — editing replaces the listing’s rich formatting; leave it untouched to keep that formatting)'
-    : '(listing body)';
+/* Listing subsection (bottom of Details): the public listing copy, capacity and
+   address visibility, plus — once the event is on Eventbrite — the listing card
+   (#listingCard). The fields always show the event's own (Coda) values (D4). */
+function publishFieldsHTML(vals, dis, linked, fm){
+  const lab = (k, t) => fieldLabelHTML(k, t, fm);
+  const av = vals.addressVisibility || '';
   return `
-    <div class="fld full"><label>Public summary <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(vals.summary||'')}" ${lw} placeholder="One-line blurb for the listing"></div>
-    <div class="fld full"><label>Public description <span class="hint">${descHint}</span> <button type="button" class="btn xs" data-act="copy-internal" ${lw}>Copy from internal</button></label><textarea id="f_pubdesc" rows="4" ${lw} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea></div>
-    <div class="fld"><label>Capacity</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${lw} placeholder="e.g. 40"></div>
-    <div class="fld"><label>Address on listing</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${(vals.addressVisibility||'Public')==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${vals.addressVisibility==='Registrants only'}" ${dis}>Registrants only</button></div></div>`;
-}
-// Bottom subsection of the Details tab. Heading tracks the stage: "Public
-// listing" while staging, "Published listing" once the event is live on
-// Eventbrite. Muted-but-visible before approval so the flow stays teachable.
-function listingHeading(ev){
-  return (ev.eventbriteId && ev.publishStatus==='Published') ? 'Published listing' : 'Public listing';
+    <div class="fld full"><label>${lab('publicSummary','Public summary')} <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(vals.summary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
+    <div class="fld full"><label>${lab('publicDescription','Public description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea>${fieldHintSlot('publicDescription')}
+      <span class="hint">${linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
+        : 'If you copy the internal description, take out planning notes first. This text goes public.'}</span></div>
+    <div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>
+    <div class="fld"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span></div>`;
 }
 function renderListingSection(ev, canEdit, locked){
-  const h=`<div class="wsub-h">${listingHeading(ev)}</div>`;
+  const linked=!!ev.eventbriteId;
   if(ev.status!=='approved')
-    return `<div class="wsub muted">${h}<div class="locknote">Available once approved — public summary, description, capacity, and the Eventbrite publish action live here. Approve the event below to unlock it.</div></div>`;
+    return `<div class="wsub muted"><div class="wsub-h">Public listing</div><div class="locknote">Available once approved — public summary, description, capacity, and the Eventbrite publish action live here. Approve the event below to unlock it.</div></div>`;
   const dis=(!canEdit||locked)?'disabled':'';
-  const staged={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
-  const body = !ev.eventbriteId
-    ? `${publishFieldsHTML(staged, dis, false)}${publishPanelHTML(ev, canEdit && !locked)}`
-    // linked: live card first; fields wait for the live values (staged shown
-    // dimmed meanwhile) unless the viewer can't edit at all.
-    : `${publishPanelHTML(ev, canEdit && !locked)}${publishFieldsHTML(staged, dis, dis==='')}`;
-  return `<div class="wsub">${h}${body}</div>`;
+  const fm=fieldMarkModel(ev);
+  const vals={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
+  const h = linked ? `<div class="wsub-h">Eventbrite listing</div>`
+    : `<div class="wsub-h">Public listing <span class="wsub-h-sub">· what people see on Eventbrite</span></div>`;
+  const card = linked ? `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>` : '';
+  return `<div class="wsub">${h}${card}${publishFieldsHTML(vals, dis, linked, fm)}</div>`;
 }
 function wireListingSection(panel, ev, canEdit, locked){
   if(ev.status!=='approved') return;                 // muted state has no controls
   const ci=panel.querySelector('[data-act="copy-internal"]');
   if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; t.dispatchEvent(new Event('input',{bubbles:true})); scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
-  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b)); scheduleAutosave(); });
-  wirePublishPanel(panel.querySelector('#f_publish'));
+  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; setAddressVisibility(b.dataset.addrvis); const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=true; scheduleAutosave(); });
+}
+function setAddressVisibility(val){
+  const seg=document.getElementById('f_addrvis'); if(!seg) return false;
+  [...seg.querySelectorAll('button[data-addrvis]')].forEach(x=>x.setAttribute('aria-pressed', String(x.dataset.addrvis===val)));
+  return true;
+}
+// Picking a private-home venue while the address visibility is still unset sets it
+// to Registrants only and says why (spec 5.7). Runs only when the venue picker
+// changes, and never overrides a value someone chose — an explicit Public stays.
+function applyAddressDefault(venBox){
+  const seg=document.getElementById('f_addrvis'); if(!seg || !venBox) return;   // the toggle shows once approved
+  const pressed=seg.querySelector('button[aria-pressed="true"]');
+  const current=pressed ? pressed.dataset.addrvis : '';
+  const v=VENUES.find(x=>x.id===venBox.dataset.venueId);
+  const venue=v ? { name:v.name, type:v.type||'', hasAddress:!!v.hasAddress } : null;
+  const next=ListingRules.addressVisibilityDefault(current, venue);
+  if(next===current) return;
+  setAddressVisibility(next);
+  const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=false;
 }
 
 // The Details tab: stable "Event" subsection (draft/internal fields) on top,
 // stage-aware listing subsection below. One surface that transforms by stage.
 function renderDetails(ev, canEdit, locked, canApprove){
-  return `<div class="wsub"><div class="wsub-h">Event</div>${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked)}`;
+  return `<div class="fkey" id="f_key">${formKeyHTML(fieldMarkModel(ev))}</div><div class="wsub"><div class="wsub-h">Event</div>${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked)}`;
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){
   wirePlanning(panel, ev, canEdit, locked, canApprove);
@@ -1902,6 +1967,7 @@ function readForm(){
   const venueOther=venBox ? ((venOther && !venOther.hidden) ? venBox.querySelector('.venue-other').value.trim() : '') : ((editing&&editing.venueOther)||'');
   const vtSel=g('f_vtype');
   const venueType=vtSel ? (vtSel.value||'') : ((editing&&editing.venueType)||'');
+  const venueName=venBox ? (venue ? ((VENUES.find(v=>v.id===venue)||{}).name||'') : '') : ((editing&&editing.venueName)||'');   // readiness/sync compare by name
   const whenRendered=!!g('f_when');
   const wt=whenRendered ? whenType : ((editing&&editing.scheduling)||'exact');
   const w=whenRendered ? collectWhen() : {};
@@ -1915,12 +1981,12 @@ function readForm(){
     allDay,
     start:(exact && !allDay) ? (whenRendered ? (w.start||'') : ((editing&&editing.start)||'')) : '',
     end:(exact && !allDay) ? (whenRendered ? (w.end||'') : ((editing&&editing.end)||'')) : '',
-    leads, volunteers, venueType, venue, venueOther,
+    leads, volunteers, venueType, venue, venueOther, venueName,
     location: venBox ? ((venue ? ((VENUES.find(v=>v.id===venue)||{}).name||'') : '') || venueOther) : ((editing&&editing.location)||''),   // display fallback
     description:g('f_desc') ? g('f_desc').value.trim() : ((editing&&editing.description)||''),
     planningNotes:(editing && editing.planningNotes)||'',
     capacity: capEl ? (capEl.value.trim()!=='' ? Number(capEl.value) : '') : ((editing&&editing.capacity!=null)?editing.capacity:''),
-    addressVisibility: (document.querySelector('#f_addrvis button[aria-pressed="true"]')?.dataset.addrvis) || (editing && editing.addressVisibility) || 'Public',
+    addressVisibility: g('f_addrvis') ? ((document.querySelector('#f_addrvis button[aria-pressed="true"]')?.dataset.addrvis) || '') : ((editing && editing.addressVisibility) || ''),
     publicSummary:(g('f_pubsummary')?g('f_pubsummary').value:(editing&&editing.publicSummary)||''),
     publicDescription:(g('f_pubdesc')?g('f_pubdesc').value:(editing&&editing.publicDescription)||''),
     publishStatus:(editing&&editing.publishStatus)||'Unpublished', eventbriteId:(editing&&editing.eventbriteId)||'', eventbriteUrl:(editing&&editing.eventbriteUrl)||'', lastPublishError:(editing&&editing.lastPublishError)||'',
@@ -1979,9 +2045,8 @@ function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(
 /* ---- workspace auto-save (existing events) --------------------------------
    Every editable workspace field saves on blur, debounced, in place — the modal
    stays open. A save sends ONLY the columns whose form value changed since the
-   form was last queued (formCells vs _form.base) — normally just the user's
-   edits (the one deliberate exception: seedLiveFields syncs the public-listing
-   fields from the live Eventbrite listing). So a column nobody touched — a
+   form was last queued (formCells vs _form.base) — only the user's edits;
+   nothing read from Eventbrite is ever written (D4). So a column nobody touched — a
    relation mapped before its list loaded, a Status someone else just changed —
    is never written back; Status is written only by the lifecycle actions
    (transitionTo/cancelEvent). Writes go through saveQueue (web/save-queue.js):
@@ -2184,6 +2249,7 @@ function renderEditorFooter(){
   paintInner(msgEl, onDetails ? footerMsgHTML(m) : '');
   paintInner(actEl, footerActsHTML(m, onDetails));
   if(paintInner(menuEl, footerMenuHTML(m.menu))) _menuOpen=false;   // items changed: it's a new (closed) menu
+  paintFieldMarks();   // field markers/tags follow the same event state as the footer
 }
 function kebabMenu(open, focusFirst){
   const wrap=document.getElementById('edMenu'), btn=wrap && wrap.querySelector('.kb'), menu=wrap && wrap.querySelector('.kmenu');
@@ -2221,7 +2287,6 @@ function autosaveEditor(){
   if(!_form || _form.ev!==editing || !editing.id) return;   // the modal shows something else now
   const ev=_form.ev, f=readForm(), cells=formCells(f), changes=SaveQueue.changedCells(_form.base, cells);
   if(changes.length){
-    markEbDirtyIfPublicChanged(f);
     let u=_unsaved.get(ev.id);
     if(!u || u.ev!==ev){ u={ ev, before:(u&&u.before)||{} }; _unsaved.set(ev.id, u); guardUnload(); }
     for(const k of Object.keys(f)) if(!(k in u.before) && !sameVal(ev[k], f[k])) u.before[k]=ev[k];   // saved values — put back if this never saves
@@ -2247,13 +2312,6 @@ async function flushAutosave(){
   if(!editing || !editing.id) return;
   autosaveEditor();
   await saveQueue.settle(editing.id);
-}
-// EB draft/listing goes out of sync when a public-facing field changes after a
-// push. Session-local flag (resets on reload — see design's accepted limitation).
-const EB_PUBLIC_KEYS=['publicSummary','publicDescription','capacity','addressVisibility','title','date','start','end','venue'];
-function markEbDirtyIfPublicChanged(f){
-  if(!editing || !editing.eventbriteId) return;
-  if(EB_PUBLIC_KEYS.some(k=>String(editing[k]??'')!==String(f[k]??''))) editing._ebDirty=true;
 }
 function applyLocal(e, remove){
   const i=state.events.findIndex(x=>x.id===e.id);
@@ -2305,8 +2363,8 @@ async function cancelEvent(){
   if(!confirm('Cancel this event?' + (ev.eventbriteId ? ' Its Eventbrite listing will be taken down.' : ''))) return;
   autosaveEditor();
   _busy.add(ev.id); guardUnload();
-  const prev={ status:ev.status, _ebDirty:ev._ebDirty, publishStatus:ev.publishStatus };
-  ev.status='cancelled'; ev._ebDirty=false; applyLocal(ev); rerender(); toast('Cancelling…','busy');
+  const prev={ status:ev.status, publishStatus:ev.publishStatus };
+  ev.status='cancelled'; applyLocal(ev); rerender(); toast('Cancelling…','busy');
   try{
     await saveQueue.settle(ev.id).catch(()=>{});   // queued edits land first; one that fails is reported, not a reason to stop
     const res=await DB.cancelEventbrite(ev.id);
@@ -2352,8 +2410,49 @@ async function deleteEditor(){
    WIRING
    ========================================================================= */
 function show(){ document.getElementById('scrim').classList.add('open'); document.body.classList.add('modal-open'); }   // lock background scroll while any modal is open
+// Leave guard (spec 5.7): closing a linked event's editor with edits that aren't on
+// Eventbrite yet asks first, in the modal (no window.confirm). `proceed` runs on
+// "Close anyway". Returns true when it held the close.
+let _guardThen=null;
+function unpushedOnLeave(){
+  if(!editing || !_ctx || _ctx.ev!==editing || !_ctx.role.canEdit || _ctx.past) return 0;
+  const st=ListingRules.stageOf(editing);
+  if(st!=='onEventbrite' && st!=='published') return 0;
+  if(_form && _form.ev===editing) autosaveEditor();   // count what's in the form (close would queue it anyway)
+  return ListingRules.unpushedFields(editing, editing.pushed || null).length;
+}
+function leaveGuard(proceed){
+  const n=unpushedOnLeave();
+  if(!n){ hideLeaveGuard(); return false; }
+  _guardThen=proceed;
+  const bar=document.getElementById('edGuard'); if(!bar) return false;
+  bar.innerHTML=`<span class="edguard-msg">${n===1 ? "You have 1 change that isn't on Eventbrite yet." : `You have ${n} changes that aren't on Eventbrite yet.`}</span>
+    <button type="button" class="btn fbtn sec" data-guard="keep">Keep editing</button><button type="button" class="btn fbtn danger" data-guard="go">Close anyway</button>`;
+  bar.hidden=false;
+  bar.querySelector('[data-guard="keep"]').focus();
+  return true;
+}
+function hideLeaveGuard(){
+  _guardThen=null;
+  const bar=document.getElementById('edGuard'); if(bar && !bar.hidden){ bar.hidden=true; bar.innerHTML=''; }
+}
+const leaveGuardShown = () => { const b=document.getElementById('edGuard'); return !!(b && !b.hidden); };
+// ✕, Esc, a click on the scrim and the modals' Close/Cancel buttons come here.
+function requestClose(viaEsc){
+  if(closePreview()) return;                     // the preview sits on top: close it first
+  if(leaveGuardShown()){ if(viaEsc) hideLeaveGuard(); return; }   // Esc again = keep editing
+  if(leaveGuard(()=>close())) return;
+  close();
+}
+document.getElementById('edGuard').addEventListener('click', e=>{
+  const b=e.target.closest('[data-guard]'); if(!b) return;
+  const then=_guardThen;
+  hideLeaveGuard();
+  if(b.dataset.guard==='go' && then) then();
+});
 function close(){
   _ndocGen++;
+  hideLeaveGuard(); closePreview();
   // Queue any edit before tearing down so a fast Done/Esc/✕ can't drop the last
   // change — including a field still being typed in (Esc closes without its blur).
   // The queue writes it after the editor is gone.
@@ -2367,9 +2466,9 @@ function close(){
   if(id) retryFailedSave(id);   // …and a read-only editor's, whose form wasn't bound
 }
 
-document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') close(); });
-document.getElementById('mClose').addEventListener('click', close);   // dedicated top-right ✕ (avoids mis-hitting Approve)
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
+document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') requestClose(); });
+document.getElementById('mClose').addEventListener('click', ()=>requestClose());   // dedicated top-right ✕ (avoids mis-hitting Approve)
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') requestClose(true); });
 
 document.getElementById('mFoot').addEventListener('click',e=>{
   if(e.target.id==='saveStatus' && e.target.classList.contains('error')){
@@ -2382,16 +2481,21 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='menu'){ kebabMenu(!_menuOpen, true); return; }
   if(e.target.closest('.kmenu')) kebabMenu(false);
-  if(act==='close') close();
+  footerAct(act);
+});
+// One dispatcher for the footer's and the preview's actions.
+function footerAct(act){
+  if(act==='close') requestClose();
   else if(act==='create') createFromForm();
   else if(act==='propose') transitionTo('proposed');
   else if(act==='approve') transitionTo('approved');
   else if(act==='cancel') cancelEvent();
   else if(act==='reopen') transitionTo('draft');
   else if(act==='delete') deleteEditor();
+  else if(act==='preview-eb') openPreview();
   else if(FOOTER_STUB_ACTS.includes(act)) toast('Coming in this branch');   // Tasks 14–16 wire these
-});
-const FOOTER_STUB_ACTS=['add-eb','update-eb','publish-eb','preview-eb','update-listing','email-registrants','dismiss-notice','unpublish'];
+}
+const FOOTER_STUB_ACTS=['add-eb','update-eb','publish-eb','update-listing','email-registrants','dismiss-notice','unpublish'];
 // ⋮ menu: closes on an outside click or Esc (before Esc closes the modal); arrow keys
 // move between its items.
 document.addEventListener('click', e=>{ if(_menuOpen && !e.target.closest('#edMenu')) kebabMenu(false); });
@@ -2444,6 +2548,7 @@ function newIdeaInMonth(mkey){
 
 /* tiny day picker when a cell overflows */
 function openDayPicker(ds,list){
+  if(leaveGuard(()=>openDayPicker(ds,list))) return;
   leaveForm();
   editing={id:'__picker__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
@@ -2487,6 +2592,7 @@ document.getElementById('viewSeg').addEventListener('click',e=>{
 
 /* feedback / ideas modal */
 function openFeedback(){
+  if(leaveGuard(()=>openFeedback())) return;
   leaveForm();   // (reachable by keyboard while an event is open — its edits must not be lost or misfiled)
   editing={id:'__feedback__'};
   document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');

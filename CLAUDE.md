@@ -182,9 +182,10 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   in place — modal stays open) and **writes only the columns whose form value
   changed**: `formCells(readForm())` vs `_form.base` (the form as last queued;
   `_form` = `{ev, base}`, bound to its event), diffed by `SaveQueue.changedCells`.
-  That's normally just the user's edits — the one deliberate exception is
-  `seedLiveFields` syncing the public-listing fields from the live Eventbrite
-  listing. It never writes Status (only `transitionTo`/`cancelEvent` do) — a
+  That's only the user's edits: nothing read from Eventbrite is ever put into the
+  form or written (D4 — the old live re-seeding once wiped Capacity); field sync
+  status compares the form with `ev.pushed` (`Last EB pushed values`, written only
+  by the Worker). It never writes Status (only `transitionTo`/`cancelEvent` do) — a
   whole-row write once blanked relations and undid approvals (#24). Writes go
   through **`saveQueue`** (`web/save-queue.js`, node-tested in
   `proxy/test/save-queue.test.js`): per event, one write in flight, later edits
@@ -211,10 +212,8 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   a save. Transitions/Cancel/Delete hold the event they started on (never
   `editing`, which can change mid-await; `_busy` per event) and wait for its queue
   first; a still-creating (`tmp-`) event doesn't open. Publish push (`Create draft`/`Publish`) calls
-  `flushAutosave()` first and stops if the save fails (the Worker reads Coda); a
-  session-local `_ebDirty` flag is set on public-field edits but not yet shown (the
-  push button is gated only on the listing fields — title/date/time/venue edits
-  don't reveal it). Design/plan:
+  `flushAutosave()` first and stops if the save fails (the Worker reads Coda).
+  Design/plan:
   `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*` (the queue and
   partial writes replaced its snapshot-and-rewrite save in #24).
 - **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/

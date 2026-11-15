@@ -40,7 +40,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan, previewModel, ebGone, cancelPlan, isPublishedCell, deleteGate } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan, previewModel, venueRefItem, ebGone, cancelPlan, isPublishedCell, deleteGate } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 const ListingRules = globalThis.ListingRules;
 
@@ -241,7 +241,7 @@ export default {
         // projection straight from the shared slim People snapshot (id-keyed, so
         // this read is rename-proof too). `lead` = write-authorized leadership:
         // one snapshot powers auth, the Leads chip list, and the Volunteers
-        // typeahead. Other ref tables (small) pass through whole via KV SWR.
+        // typeahead. Venues pass through as a projection without addresses; the other ref tables (small) pass through whole via KV SWR.
         let items;
         if (name === 'people') {
           const rows = await peopleRows(base, docId, auth, env, ctx);
@@ -252,10 +252,13 @@ export default {
           }).filter(p => p.name);
         } else {
           try {
-            items = await swrGet(env, ctx, `ref-${name}-v1`, 5 * 60_000, 24 * 3600_000, async () => {   // soft 5min / hard 24h
+            // Venues are projected (venueRefItem) before caching: the Address column
+            // holds private home addresses and /ref is unauthenticated (R12).
+            const isVenues = name === 'venues';
+            items = await swrGet(env, ctx, isVenues ? 'ref-venues-v2' : `ref-${name}-v1`, 5 * 60_000, 24 * 3600_000, async () => {   // soft 5min / hard 24h
               const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
               if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
-              return out.items;
+              return isVenues ? out.items.map(venueRefItem) : out.items;
             });
           } catch (e) { return json({ error: String((e && e.message) || e) }, 502, cors); }
         }
