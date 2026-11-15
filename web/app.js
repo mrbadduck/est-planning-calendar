@@ -396,13 +396,18 @@ const CodaSource = {
     const j=await r.json().catch(()=>({}));
     return { status:r.status, completed: !!(j && j.completed) };
   },
-  async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
+  // A refusal (409 cancel first, 502 Eventbrite wouldn't delete the draft) carries the Worker's own message.
+  async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok){ const j=await r.json().catch(()=>({})); const e=new Error(j.error||`delete failed (${r.status})`); e.status=r.status; throw e; } },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
   async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; e.lastPushAt=j.lastPushAt||null; throw e; } return j; },
   async ebPreview(rowId){ const r=await fetch(`${this.base}/eventbrite/preview?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(r.status===404 && j && j.linked===false) return null; if(!r.ok){ const e=new Error(j.error||`preview failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async refreshPeople(){ const r=await fetch(`${this.base}/admin/refresh-people`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`refresh failed (${r.status})`); e.status=r.status; throw e; } return j; },
-  async cancelEventbrite(rowId){ const r=await fetch(`${this.base}/cancel/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`cancel failed (${r.status})`); e.status=r.status; throw e; } return j; },
+  // Cancel / unpublish: a 409 {needsEventbriteCancel, registrants, error} means people registered,
+  // so Eventbrite refuses (F7) and nothing changed.
+  async cancelEventbrite(rowId){ return this._ebTeardown('cancel', rowId); },
+  async unpublishEventbrite(rowId){ return this._ebTeardown('unpublish', rowId); },
+  async _ebTeardown(route, rowId){ const r=await fetch(`${this.base}/${route}/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`${route} failed (${r.status})`); e.status=r.status; e.needsEventbriteCancel=!!j.needsEventbriteCancel; e.registrants=Number(j.registrants)||0; throw e; } return j; },
   async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
   async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
   async voteFeedback(id){ const r=await fetch(`${this.base}/feedback/${encodeURIComponent(id)}/vote`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||'vote failed'); e.status=r.status; throw e; } return j; },
@@ -1161,7 +1166,9 @@ function openEditor(ev, section){
   hideLeaveGuard(); closePreview();
   _pushChecks.delete(ev.id);   // the Worker's last "needs X" answer doesn't outlive the editor
   leaveForm();   // leaving an open editor (or rebuilding this one): queue its unsaved edits first
+  if(_ebBlock && _ebBlock.id!==ev.id) _ebBlock=null;   // the Eventbrite-cancel bar belongs to the event it was shown for
   editing = ev;
+  paintEbBlock();
   _menuOpen = false;
   section = sectionId(section);
   activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'details';   // reset per open; honor a deep-linked section
@@ -2057,6 +2064,7 @@ function toast(msg, kind){
   clearTimeout(_toastT);
   if(kind!=='busy') _toastT=setTimeout(()=>{ if(_toastEl) _toastEl.className='toast'; }, 2200);
 }
+function hideToast(){ clearTimeout(_toastT); if(_toastEl) _toastEl.className='toast'; }
 /* ---- tooltips: any element with data-tip gets one shared bubble, shown at once
    on hover or keyboard focus (title= is slow and never shows for keyboards).
    Fixed-position so a modal can't clip it; touch gets none (there's no hover). */
@@ -2399,7 +2407,7 @@ async function transitionTo(status){
     await afterCreate(ev.id);
     const w=await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
     await applied(w && w.requestId, ev.id);     // Approve → Add to Eventbrite must see the new Status in Coda
-    markRecent(ev.id, {e:ev}); scheduleReconcile();
+    markRecent(ev.id, {e:ev}); scheduleReconcile(); clearEbBlock(ev.id);
     toast(status==='approved'?'Approved':(status==='draft'?'Reopened':'Proposed'),'ok');
   }catch(err){
     ev.status=prev; applyLocal(ev); rerender();
@@ -2429,13 +2437,14 @@ async function cancelEvent(){
     await saveQueue.settle(ev.id).catch(()=>{});   // queued edits land first; one that fails is reported, not a reason to stop
     const res=await DB.cancelEventbrite(ev.id);
     if(res && res.publishStatus) ev.publishStatus=res.publishStatus;
-    markRecent(ev.id, {e:ev}); scheduleReconcile();
+    markRecent(ev.id, {e:ev}); scheduleReconcile(); clearEbBlock(ev.id);
     // The event is locked now, so a field edit that failed has nowhere to be retried.
     if(saveQueue.status(ev.id)==='error') dropFailedEdits(ev.id, 'Event cancelled, but your last change to it didn’t save');
     else toast('Event cancelled','ok');
   }catch(err){
     Object.assign(ev, prev); applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
+    else if(err && err.status===409 && err.needsEventbriteCancel){ hideToast(); showEbBlock(ev, err); }   // people registered: nothing changed
     else toast((err&&err.message)||'Cancel failed','err');
   }finally{
     _busy.delete(ev.id); guardUnload();
@@ -2462,8 +2471,56 @@ async function deleteEditor(){
   }catch(err){
     applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
-    else { toast('Delete failed — restored','err'); console.warn('delete failed:', err); }
+    else { toast((err && (err.status===409 || err.status===502) && err.message) || 'Delete failed — restored','err'); console.warn('delete failed:', err); }   // the Worker's reason (cancel first / Eventbrite refused); the row is kept
   }finally{ _busy.delete(id); guardUnload(); }
+}
+
+// Unpublish (back to private): the listing goes back to a private Eventbrite draft
+// and gather hides it. Refused (409 needsEventbriteCancel) once anyone registered.
+async function unpublishEvent(){
+  const ev=editing;
+  if(!ev || !ev.id || !ev.eventbriteId || _busy.has(ev.id)) return;
+  if(!confirm('Make this listing private again? It disappears from Eventbrite and gather until you publish it again.')) return;
+  const id=ev.id;
+  _busy.add(id); guardUnload(); toast('Unpublishing…','busy');
+  try{
+    const res=await DB.unpublishEventbrite(id);
+    ev.publishStatus=(res && res.publishStatus) || 'Draft';
+    clearEbBlock(id);
+    applyLocal(ev); rerender();
+    markRecent(id, {e:ev}); scheduleReconcile();
+    toast('Unpublished. It’s a private draft on Eventbrite again','ok');
+    refreshEbStatus(ev);
+  }catch(err){
+    if(err && err.status===401) sessionExpired();
+    else if(err && err.status===409 && err.needsEventbriteCancel){ hideToast(); showEbBlock(ev, err); }
+    else { toast((err && err.message) || 'Couldn’t unpublish. Try again.','err'); scheduleReconcile(); }   // (e.g. it was cancelled on Eventbrite)
+  }finally{
+    _busy.delete(id); guardUnload();
+    if(editing===ev) renderEditorFooter();     // footer + card only (D1)
+  }
+}
+// Eventbrite-cancel bar (Q2): Unpublish/Cancel refused because people registered.
+// Shows the Worker's message, Open in Eventbrite and Email the N registrants. The
+// status doesn't change; the bar goes on the next successful action or on close.
+let _ebBlock=null;   // { id, error, registrants } for the open editor's event
+function showEbBlock(ev, err){
+  if(editing!==ev) return;                     // the editor moved on meanwhile
+  _ebBlock={ id:ev.id, error:(err && err.message) || '', registrants:Number(err && err.registrants) || 0 };
+  if(_ebBlock.registrants > 0) prefetchRegistrants(ev.id);
+  paintEbBlock();
+}
+function clearEbBlock(id){ if(_ebBlock && (!id || _ebBlock.id===id)){ _ebBlock=null; paintEbBlock(); } }
+function paintEbBlock(){
+  const bar=document.getElementById('edBlock'); if(!bar) return;
+  const b=_ebBlock, ev=editing;
+  if(!b || !ev || ev.id!==b.id){ bar.hidden=true; bar.innerHTML=''; return; }
+  const url=/^https?:\/\//i.test(ev.eventbriteUrl || '') ? ev.eventbriteUrl : '';
+  const n=b.registrants;
+  bar.innerHTML=`<span class="edguard-msg">${esc(b.error)}</span>`
+    + (url ? `<a class="btn fbtn sec" href="${esc(url)}" target="_blank" rel="noopener">Open in Eventbrite ↗</a>` : '')
+    + (n > 0 ? `<button type="button" class="btn fbtn sec" data-block="email">Email the ${n} registrant${n===1?'':'s'}</button>` : '');
+  bar.hidden=false;
 }
 
 /* ---- Eventbrite push: Add to Eventbrite / Update draft / Publish / Update listing
@@ -2634,7 +2691,7 @@ async function pushToEventbrite(act){
     ev.publishStatus = res.publishStatus || (spec.draftOnly ? 'Draft' : 'Published');
     ev.lastPublishError='';
     if(res.pushed && typeof res.pushed==='object') ev.pushed=res.pushed;   // R15: the Worker's own snapshot
-    _pushChecks.delete(id); _ebConflict.delete(id); _conflictShown.delete(id);
+    _pushChecks.delete(id); _ebConflict.delete(id); _conflictShown.delete(id); clearEbBlock(id);
     const st=_ebStatus.get(id); if(st) st.editedSincePush=false;
     applyLocal(ev); rerender();
     markRecent(id, {e:ev}); scheduleReconcile();
@@ -2695,6 +2752,10 @@ function requestClose(viaEsc){
   if(leaveGuard(()=>close())) return;
   close();
 }
+document.getElementById('edBlock').addEventListener('click', e=>{
+  if(!e.target.closest('[data-block="email"]') || !editing) return;
+  emailRegistrants(editing, 'Update: ' + (editing.title || ''), '');
+});
 document.getElementById('edGuard').addEventListener('click', e=>{
   const b=e.target.closest('[data-guard]'); if(!b) return;
   const then=_guardThen;
@@ -2706,7 +2767,7 @@ document.getElementById('edGuard').addEventListener('click', e=>{
 });
 function close(){
   _ndocGen++;
-  hideLeaveGuard(); closePreview();
+  hideLeaveGuard(); closePreview(); clearEbBlock();
   // Queue any edit before tearing down so a fast Done/Esc/✕ can't drop the last
   // change — including a field still being typed in (Esc closes without its blur).
   // The queue writes it after the editor is gone.
@@ -2750,7 +2811,7 @@ function footerAct(act){
   else if(PUSH_ACTS[act]) pushToEventbrite(act);
   else if(act==='dismiss-notice') dismissChangeNotice();
   else if(act==='email-registrants') emailAfterChange();
-  else if(act==='unpublish') toast('Coming in this branch');   // Task 16 wires this
+  else if(act==='unpublish') unpublishEvent();
 }
 // ⋮ menu: closes on an outside click or Esc (before Esc closes the modal); arrow keys
 // move between its items.
