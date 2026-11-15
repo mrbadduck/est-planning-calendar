@@ -2588,38 +2588,50 @@ function dismissChangeNotice(){
 /* ---- Email registrants (Q3 interim, until Mailchimp comms exist): a BCC mailto:
    in the lead's own mail app, to the roster's Eventbrite registrants (orders —
    not gather-only sign-ups). Built with the Attendees tab's RosterLib helpers;
-   past MAILTO_LIMIT the emails go to the clipboard instead. The roster is fetched
-   ahead (when the notice or the Eventbrite-cancel bar appears) so the click opens
-   the mail app inside the browser's user-gesture window. */
+   past MAILTO_LIMIT the emails go to the clipboard and the draft opens with the
+   subject + body only, so the change notice is never lost. The roster is fetched
+   ahead (when the notice or the Eventbrite-cancel bar appears) and a click only
+   uses a settled read, so the mail app opens inside the user-gesture window —
+   never late. */
 const MAILTO_LIMIT=1800;
-const _regFetch=new Map();   // event id → pending roster read, started ahead of the click
+const REG_FETCH_TTL=60000;
+const _regFetch=new Map();   // event id → { at, settled, data, err }: a roster read started ahead of the click
 const _emailing=new Set();   // event ids with an Email click being handled
 function prefetchRegistrants(id){
-  const p=DB.roster(id, true); p.catch(()=>{});   // (awaited on the click; a failure is reported then)
-  _regFetch.set(id, p);
+  const entry={ at:Date.now(), settled:false, data:null, err:null };
+  _regFetch.set(id, entry);
+  DB.roster(id, true).then(d=>{ entry.data=d; }, e=>{ entry.err=e || new Error('roster failed'); }).finally(()=>{ entry.settled=true; });
 }
 function openMailto(href){ const a=document.createElement('a'); a.href=href; a.hidden=true; document.body.appendChild(a); a.click(); a.remove(); }
 // Returns true when it acted (the mail app opened, or the emails were copied).
 async function emailRegistrants(ev, subject, body){
   if(!ev || !ev.id || _emailing.has(ev.id)) return false;
-  const L=window.RosterLib, p=_regFetch.get(ev.id) || DB.roster(ev.id, false);
-  _regFetch.delete(ev.id);
+  const L=window.RosterLib;
+  let f=_regFetch.get(ev.id);
+  if(f && Date.now()-f.at > REG_FETCH_TTL){ _regFetch.delete(ev.id); f=null; }   // too old to trust
+  if(!f || !f.settled){                        // nothing ready: load now, the next click sends
+    if(!f) prefetchRegistrants(ev.id);
+    toast('Loading registrants…');            // (auto-hides: no click may follow)
+    return false;
+  }
+  if(f.err){
+    _regFetch.delete(ev.id);                   // the next click tries again
+    if(f.err.status===401) sessionExpired();
+    else toast(f.err.message || 'Couldn’t load the registrants. Try again.','err');
+    return false;
+  }
   _emailing.add(ev.id);
   try{
-    let data;
-    try{ data=await p; }
-    catch(err){
-      if(err && err.status===401) sessionExpired();
-      else toast((err && err.message) || 'Couldn’t load the registrants. Try again.','err');
-      return false;
-    }
-    const emails=L.emailsOf(((data && data.rows) || []).filter(r=>r.kind==='order'));
+    const emails=L.emailsOf(((f.data && f.data.rows) || []).filter(r=>r.kind==='order'));
     if(!emails.length){ toast('No registrant emails to send to.','err'); return false; }
     const href=L.mailtoHref(emails, subject, body, MAILTO_LIMIT);
-    if(href){ openMailto(href); return true; }
-    if(await copyText(emails.join(', '))){ toast('Emails copied. Paste them into BCC.','ok'); return true; }
-    toast('Couldn’t reach the clipboard. Use Copy emails on the Attendees tab.','err');
-    return false;
+    if(href){ hideToast(); openMailto(href); return true; }
+    // Too long for one link: emails to the clipboard (focus still here), then the draft with the text.
+    if(!(await copyText(emails.join(', ')))){ toast('Couldn’t reach the clipboard. Use Copy emails on the Attendees tab.','err'); return false; }
+    const draft=L.mailtoHref([], subject, body, Infinity);
+    if(draft && draft!=='mailto:?') openMailto(draft);
+    toast('Emails copied. Paste them into BCC.','ok');
+    return true;
   }finally{ _emailing.delete(ev.id); }
 }
 // "Email registrants" on the after-update notice: subject + body from changeNotice.
@@ -2768,6 +2780,7 @@ document.getElementById('edGuard').addEventListener('click', e=>{
 function close(){
   _ndocGen++;
   hideLeaveGuard(); closePreview(); clearEbBlock();
+  if(editing && editing.id) _regFetch.delete(editing.id);   // a registrants read doesn't outlive the editor
   // Queue any edit before tearing down so a fast Done/Esc/✕ can't drop the last
   // change — including a field still being typed in (Esc closes without its blur).
   // The queue writes it after the editor is gone.

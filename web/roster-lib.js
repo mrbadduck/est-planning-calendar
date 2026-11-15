@@ -34,9 +34,14 @@
   // UI disables Email and points at Copy instead. `max` lets a caller set its own
   // limit (the editor's "Email registrants" uses 1800, since it adds a body).
   const MAILTO_MAX = 1900;
+  // No emails → no bcc (a subject+body-only draft). Body line breaks are CRLF (RFC 6068).
   function mailtoHref(emails, subject, body, max) {
     const list = (emails || []).map(encodeURIComponent).join(',');
-    const href = 'mailto:?bcc=' + list + (subject ? '&subject=' + encodeURIComponent(subject) : '') + (body ? '&body=' + encodeURIComponent(body) : '');
+    const parts = [];
+    if (list) parts.push('bcc=' + list);
+    if (subject) parts.push('subject=' + encodeURIComponent(subject));
+    if (body) parts.push('body=' + encodeURIComponent(String(body).replace(/\r?\n/g, '\r\n')));
+    const href = 'mailto:?' + parts.join('&');
     return href.length > (max || MAILTO_MAX) ? null : href;
   }
   root.RosterLib = { SEGMENTS, segmentsFor, applySegment, emailsOf, mailtoHref, MAILTO_MAX };
