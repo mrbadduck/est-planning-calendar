@@ -79,3 +79,31 @@ export function ticketPlan({ isCreate, storedTcId, classes, capacity } = {}) {
   if (classes.length === 1) return { action: 'adopt', id: classes[0].id };
   return { action: 'leave' };
 }
+
+// Draft preview (F8): Eventbrite 404s draft pages to non-organizers, so the app
+// renders the listing's own data. descriptionHtml is raw; the app sanitizes it.
+export function previewModel(ev, desc, addressVisibility) {
+  ev = ev || {};
+  const online = !!ev.online_event;
+  const addr = (ev.venue && ev.venue.address) || {};
+  const regOnly = addressVisibility === 'Registrants only';
+  const cityRegion = [addr.city, addr.region].filter(Boolean).join(', ');
+  const location = {
+    online,
+    name: online ? '' : ((ev.venue && ev.venue.name) || ''),
+    displayAddress: online ? '' : (regOnly ? cityRegion : (addr.localized_address_display || '')),
+  };
+  if (!online) location.note = regOnly ? 'Full address shown to registrants only' : '';
+  return {
+    name: (ev.name && ev.name.text) || '',
+    summary: ev.summary || '',
+    descriptionHtml: (desc && desc.description) || '',
+    startLocal: (ev.start && ev.start.local) || '',
+    endLocal: (ev.end && ev.end.local) || '',
+    timezone: (ev.start && ev.start.timezone) || '',
+    status: ev.status || '',
+    location,
+    tickets: (ev.ticket_classes || []).map(t => ({ name: t.name, free: !!t.free, quantityTotal: t.quantity_total })),
+    logoUrl: (ev.logo && ev.logo.url) || null,
+  };
+}

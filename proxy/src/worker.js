@@ -38,7 +38,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan, previewModel } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 const ListingRules = globalThis.ListingRules;
 
@@ -553,6 +553,27 @@ export default {
         live.descriptionText = scr.ok ? structuredContentText(scr.body) : '';
         const lastPushAt = V['Last EB push at'] || null;
         return json({ linked: true, live, lastPushAt, editedSincePush: editedSincePush(live.changed, lastPushAt) }, 200, cors);
+      }
+      if (parts[0] === 'eventbrite' && parts[1] === 'preview' && request.method === 'GET') {
+        // Draft preview: Eventbrite 404s draft pages to non-organizers, so the
+        // app renders the draft's own data, fetched here with the EST token.
+        if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const rowId = url.searchParams.get('rowId');
+        if (!rowId) return json({ error: 'rowId required' }, 400, cors);
+        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+        const V = (await one.json()).values || {};
+        const ebId = V['Eventbrite Event ID'] || '';
+        if (!ebId) return json({ linked: false }, 404, cors);
+        const [evr, dr] = await Promise.all([
+          ebFetch(env, `/events/${ebId}/?expand=venue,ticket_classes,logo`),
+          ebFetch(env, `/events/${ebId}/description/`),
+        ]);
+        if (!evr.ok || !dr.ok) return json({ error: `eventbrite read failed (${!evr.ok ? evr.status : dr.status})` }, 502, cors);
+        return json(previewModel(evr.body, dr.body, V['Address visibility']), 200, cors);
       }
       if (parts[0] === 'cancel' && parts[1] === 'eventbrite' && request.method === 'POST') {
         // Cancel a planning event: tear down its Eventbrite listing (unpublish, or

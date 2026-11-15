@@ -105,3 +105,39 @@ test('ticketPlan: no stored id, more than 1 class -> leave alone', () => {
 test('ticketPlan: no stored id, classes not fetched -> none', () => {
   assert.deepEqual(ticketPlan({ isCreate: false, storedTcId: '', classes: null, capacity: 40 }), { action: 'none' });
 });
+
+import { previewModel } from '../src/publish.js';
+
+test('previewModel: online draft, no tickets, null summary', () => {
+  const m = previewModel(
+    { name: { text: 'Shabbat' }, summary: null, start: { local: '2026-12-05T18:00:00', timezone: 'America/Chicago' }, end: { local: '2026-12-05T20:00:00', timezone: 'America/Chicago' }, status: 'draft', online_event: true, venue: null, ticket_classes: [], logo: null },
+    { description: '<p>Hi</p>' }, 'Public');
+  assert.equal(m.location.online, true);
+  assert.equal(m.location.displayAddress, '');
+  assert.equal(m.location.name, '');
+  assert.deepEqual(m.tickets, []);
+  assert.equal(m.summary, '');
+  assert.equal(m.logoUrl, null);
+  assert.equal(m.descriptionHtml, '<p>Hi</p>');
+  assert.equal(m.name, 'Shabbat');
+  assert.equal(m.startLocal, '2026-12-05T18:00:00');
+  assert.equal(m.timezone, 'America/Chicago');
+  assert.equal(m.status, 'draft');
+});
+const venueEv = () => ({ name: { text: 'X' }, summary: 's', start: { local: 'a', timezone: 'tz' }, end: { local: 'b', timezone: 'tz' }, status: 'draft', online_event: false,
+  venue: { name: 'The Hall', address: { localized_address_display: '1 Main St, Nashville, TN 37201', city: 'Nashville', region: 'TN' } },
+  ticket_classes: [{ name: 'General', free: true, quantity_total: 50 }], logo: { url: 'http://l' } });
+test('previewModel: registrants only hides street address', () => {
+  const m = previewModel(venueEv(), { description: '' }, 'Registrants only');
+  assert.equal(m.location.displayAddress, 'Nashville, TN');
+  assert.equal(m.location.note, 'Full address shown to registrants only');
+  assert.equal(m.location.name, 'The Hall');
+  assert.ok(!JSON.stringify(m).includes('1 Main St'));
+  assert.deepEqual(m.tickets, [{ name: 'General', free: true, quantityTotal: 50 }]);
+  assert.equal(m.logoUrl, 'http://l');
+});
+test('previewModel: public shows full address', () => {
+  const m = previewModel(venueEv(), { description: '' }, 'Public');
+  assert.equal(m.location.displayAddress, '1 Main St, Nashville, TN 37201');
+  assert.equal(m.location.note, '');
+});
