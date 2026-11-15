@@ -244,7 +244,6 @@
   .chip.draft{background:color-mix(in srgb,var(--c) 13%,var(--mixbase));border:1px dashed var(--c);border-left-width:3px;color:color-mix(in srgb,var(--c) 78%,var(--mixink))}
   .chip.confirmed,.chip.proposed{background:color-mix(in srgb,var(--c) 20%,var(--mixbase));border:1px solid color-mix(in srgb,var(--c) 30%,var(--mixbase));border-left:3px solid var(--c);color:color-mix(in srgb,var(--c) 82%,var(--mixink))}
   .chip.approved{background:var(--c);border:1px solid var(--c);border-left:3px solid color-mix(in srgb,var(--c) 60%,var(--mixink));color:#fff}
-  .chip.approved .lock{margin-left:3px;opacity:.85}
   .chip.cancelled{background:var(--soft);border:1px solid var(--hair-strong);border-left:3px solid var(--faint);color:var(--faint);text-decoration:line-through;opacity:.75}
   /* reference chips: quiet ground */
   .chip.ref{

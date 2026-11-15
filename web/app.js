@@ -551,8 +551,8 @@ function chipHTML(e){
   }
   const c=progColor(e.program);
   const t = (!e.allDay && e.start) ? `<span class="time">${e.start}</span>` : '';
-  const lock = e.status==='approved' ? '<span class="lock">🔒</span>' : '';
-  return `<div class="chip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${t}<span class="t">${esc(e.title)}</span>${xMark(e)}${lock}</div>`;
+  // (No 🔒 on approved: approved isn't locked — leads keep editing it, decision 5.)
+  return `<div class="chip ${e.status}" style="--c:${c}" data-id="${e.id}" title="${esc(e.title)} — ${cap(e.status)}">${t}<span class="t">${esc(e.title)}</span>${xMark(e)}</div>`;
 }
 
 function weekRowOf(startWd, day){ return Math.floor((startWd + day - 1) / 7); }
@@ -3269,7 +3269,7 @@ function setHelpExpanded(open){
 function legendEmbedHTML(){
   const progs=PROGRAMS.filter(p=>p.id!=='oth' && p.active!==false);
   const hue=cssColor(progs[0] && progs[0].color, 'var(--accent)');
-  const row=(cls,label,note)=>`<div class="help-legend-row"><div class="chip ${cls}" style="--c:${hue}"><span class="t">${label}</span>${cls==='approved'?'<span class="lock">🔒</span>':''}</div><span>${note}</span></div>`;
+  const row=(cls,label,note)=>`<div class="help-legend-row"><div class="chip ${cls}" style="--c:${hue}"><span class="t">${label}</span></div><span>${note}</span></div>`;
   const ref=REF_LAYERS[0];
   return `<div class="help-legend">
       ${row('draft','Draft','Being planned')}

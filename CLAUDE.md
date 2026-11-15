@@ -267,7 +267,7 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 - **Class-name collision watch:** the month grid is `.mgrid`; the modal body is
   `.mbody`. Keep them distinct (they collided once and broke the calendar grid).
 - Coloring is intentional: planning events by **program** (hue), **status** by
-  chip treatment (dashed→tint→solid→filled+lock); reference calendars muted.
+  chip treatment (dashed→tint→solid→filled; no 🔒 — approved isn't locked for leads, decision 5); reference calendars muted.
 - `localStorage` holds only caches (`est-cache-*`) and per-device UI state (the
   help drawer's `est-help-welcomed` / `est-help-seen`, and `est-view-prefs` — the
   layer toggles someone has switched + their view above phone width; untouched

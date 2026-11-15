@@ -11,6 +11,7 @@
 - **Honest saving.** **Saved** now means the change has really landed. It can take up to half a minute, and the next-step button waits for it.
 - **Field icons.** Each field shows whether it's private or public, matches Eventbrite, is needed for Eventbrite, or isn't on Eventbrite yet. Private homes start with the address for registrants only.
 - **Delete before publishing, cancel after.** Leads can now delete an unpublished event (its Eventbrite draft goes too). After an update changes the date, time or venue, you're offered to email the registrants.
+- **No lock on approved events.** Approved events no longer show 🔒 on the calendar: leads can keep editing them.
 
 ## 2026-10-01
 - **Built for phones.** On a phone, the calendar is now a simple list of what's coming up, and the top of the page is a single line. Tap **☰** for your account, Help, Feedback / Ideas, the program year and which calendars to show, and the round **+** to add an event.
