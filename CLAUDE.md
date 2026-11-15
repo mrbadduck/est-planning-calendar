@@ -20,7 +20,7 @@ Mailchimp — but that push happens in **Superhuman Docs automations, not this a
 
 | Path | What | Deploys to |
 |------|------|-----------|
-| `web/index.html` | The calendar app — self-contained, vanilla JS, **no build step** | Netlify (`plan.eastsidetribe.org`) |
+| `web/index.html` | The calendar app — self-contained, vanilla JS, **no build step**. `web/listing-readiness.js` is also bundled into the Worker | Netlify (`plan.eastsidetribe.org`) |
 | `web/embed-test/index.html` | "Did JS run in the embed?" validator — **deferred** (standalone is the current path) | Netlify (`plan.eastsidetribe.org`) |
 | `web/help/` | In-app help — `guide.md` (lead-facing guides), `whats-new.md`, `help-lib.js` (parser/renderer shared by the app, the tests and the guard) | Netlify (with `web/`) |
 | `scripts/check-help.mjs` | Help guard — keeps `web/help/` in step with the app (run by a Claude Code hook + a GitHub check) | — |
@@ -258,6 +258,7 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 
 ### App gotchas (things that already bit us)
 
+- `web/listing-readiness.js` is imported by the Worker: keep it free of DOM/browser globals; editing it redeploys the Worker.
 - All calendar grid columns use `minmax(0,1fr)`, **not** bare `1fr` — that's what
   keeps columns equal and clips long chips instead of stretching. Don't revert.
 - **Class-name collision watch:** the month grid is `.mgrid`; the modal body is
