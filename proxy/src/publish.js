@@ -63,7 +63,9 @@ export function pushedValues(ev, { ticketClassId } = {}) {
 // pushed values (R15): the app adopts it as-is rather than recomputing it.
 // `lastPushAt` is the Last EB push at it wrote, so the app can tell a status read
 // that predates this push (Coda's apply lag) from a real Eventbrite-side edit.
-export function publishSuccessBody({ ebId, url, draftOnly, ticketNote, pushedJson, lastPushAt }) {
+// `requestId` is Coda's id for the last row write (applied 13–30 s later, F1): the
+// app waits on it before showing Saved.
+export function publishSuccessBody({ ebId, url, draftOnly, ticketNote, pushedJson, lastPushAt, requestId }) {
   let pushed = null;
   try { pushed = JSON.parse(pushedJson); } catch (_) {}
   return {
@@ -71,6 +73,7 @@ export function publishSuccessBody({ ebId, url, draftOnly, ticketNote, pushedJso
     publishStatus: draftOnly ? 'Draft' : 'Published',
     pushed,
     lastPushAt: lastPushAt || null,
+    requestId: requestId || null,
     ...(ticketNote ? { ticketNote } : {}),
   };
 }
@@ -188,4 +191,36 @@ export function venueRefItem(row) {
 export function effectiveAddressVisibility(addressVisibility, venue) {
   const v = String(addressVisibility == null ? '' : addressVisibility).trim();
   return globalThis.ListingRules.addressVisibilityDefault(v, venue) || '';
+}
+
+// --- Eventbrite ids the row hasn't applied yet (R19) -------------------------
+// The Worker's own Coda writes apply 13–30 s later (F1), so a second push (or
+// preview/cancel/unpublish/delete/status) inside that window reads a row with no
+// Eventbrite id and would create a DUPLICATE event. After creating an event (and
+// after learning a ticket class, and on each successful push) the Worker keeps a
+// KV marker `ebpending:<rowId>` -> {ebId, tcId, lastPushAt, at} for 10 minutes;
+// readers use it wherever the row's value is still blank.
+export const EB_PENDING_TTL = 600;   // seconds (KV expirationTtl)
+export const ebPendingKey = rowId => `ebpending:${rowId}`;
+
+// The marker after `patch` (null/undefined fields in patch are ignored).
+export function mergeEbPending(cur, patch, now = Date.now()) {
+  const out = { ...((cur && typeof cur === 'object') ? cur : {}) };
+  for (const [k, v] of Object.entries(patch || {})) if (v != null && v !== '') out[k] = v;
+  out.at = now;
+  return out;
+}
+
+// Row value or marker. `V` is the name-keyed planning row. The marker's ticket
+// class only counts for the same event; Last EB push at is the later of the two.
+export function resolveEbIds(V, marker) {
+  V = V || {};
+  const m = (marker && typeof marker === 'object') ? marker : {};
+  const rowEb = String(V['Eventbrite Event ID'] || '');
+  const ebId = rowEb || String(m.ebId || '');
+  const sameEvent = !!ebId && String(m.ebId || '') === ebId;
+  const tcId = String(V['Eventbrite Ticket Class ID'] || '') || (sameEvent ? String(m.tcId || '') : '');
+  const rowAt = V['Last EB push at'] || '', mAt = sameEvent ? (m.lastPushAt || '') : '';
+  const lastPushAt = (Date.parse(mAt) > (Date.parse(rowAt) || -Infinity)) ? mAt : (rowAt || null);
+  return { ebId, tcId, lastPushAt: lastPushAt || null, fromMarker: !rowEb && !!ebId };
 }

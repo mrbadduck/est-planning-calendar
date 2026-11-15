@@ -241,3 +241,55 @@ test('publishSuccessBody: returns the lastPushAt it wrote', () => {
   const b = publishSuccessBody({ ebId: '9', url: 'u', draftOnly: true, pushedJson: '{}', lastPushAt: '2026-11-15T10:00:00.000Z' });
   assert.equal(b.lastPushAt, '2026-11-15T10:00:00.000Z');
 });
+
+// --- R19: ebpending marker backstop for the Worker's own Coda apply lag ------
+import { resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL, ticketPlan as tPlan } from '../src/publish.js';
+
+test('resolveEbIds: row value wins; marker fills a blank row', () => {
+  assert.deepEqual(resolveEbIds({ 'Eventbrite Event ID': 'E1', 'Eventbrite Ticket Class ID': 'T1' }, { ebId: 'E9', tcId: 'T9' }),
+    { ebId: 'E1', tcId: 'T1', lastPushAt: null, fromMarker: false });
+  assert.deepEqual(resolveEbIds({}, { ebId: 'E1', tcId: 'T1' }), { ebId: 'E1', tcId: 'T1', lastPushAt: null, fromMarker: true });
+  assert.deepEqual(resolveEbIds({}, null), { ebId: '', tcId: '', lastPushAt: null, fromMarker: false });
+});
+test('resolveEbIds: marker ticket class only for the same event', () => {
+  assert.equal(resolveEbIds({ 'Eventbrite Event ID': 'E1' }, { ebId: 'E1', tcId: 'T1' }).tcId, 'T1');
+  assert.equal(resolveEbIds({ 'Eventbrite Event ID': 'E2' }, { ebId: 'E1', tcId: 'T1' }).tcId, '');
+});
+test('resolveEbIds: Last EB push at is the later of row and marker', () => {
+  const V = { 'Eventbrite Event ID': 'E1', 'Last EB push at': '2026-11-15T10:00:00.000Z' };
+  assert.equal(resolveEbIds(V, { ebId: 'E1', lastPushAt: '2026-11-15T10:05:00.000Z' }).lastPushAt, '2026-11-15T10:05:00.000Z');
+  assert.equal(resolveEbIds(V, { ebId: 'E1', lastPushAt: '2026-11-15T09:00:00.000Z' }).lastPushAt, '2026-11-15T10:00:00.000Z');
+  assert.equal(resolveEbIds({}, { ebId: 'E1', lastPushAt: '2026-11-15T10:05:00.000Z' }).lastPushAt, '2026-11-15T10:05:00.000Z');
+});
+test('mergeEbPending: merges, ignores blanks, stamps at', () => {
+  assert.deepEqual(mergeEbPending({ ebId: 'E1', at: 1 }, { tcId: 'T1', ebId: '' }, 5), { ebId: 'E1', tcId: 'T1', at: 5 });
+  assert.deepEqual(mergeEbPending(null, { ebId: 'E1' }, 2), { ebId: 'E1', at: 2 });
+  assert.equal(ebPendingKey('i-abc'), 'ebpending:i-abc');
+  assert.equal(EB_PENDING_TTL, 600);
+});
+test('publish twice before the id write applies: the second call updates, never creates', () => {
+  // A fake KV and a planning row whose Coda writes have not applied (it stays blank).
+  const kv = new Map();
+  const row = { 'Eventbrite Event ID': '', 'Eventbrite Ticket Class ID': '' };
+  let creates = 0, ticketCreates = 0;
+  const publishOnce = () => {
+    const ids = resolveEbIds(row, kv.get(ebPendingKey('r1')) || null);
+    const isCreate = !ids.ebId;
+    let ebId = ids.ebId;
+    if (isCreate) { creates++; ebId = `E${creates}`; kv.set(ebPendingKey('r1'), mergeEbPending(kv.get(ebPendingKey('r1')), { ebId })); }
+    const tp = tPlan({ isCreate, storedTcId: ids.tcId, classes: isCreate ? null : [], capacity: 10 });
+    if (tp.action === 'create') { ticketCreates++; kv.set(ebPendingKey('r1'), mergeEbPending(kv.get(ebPendingKey('r1')), { tcId: `T${ticketCreates}` })); }
+    return { isCreate, ebId, ticket: tp.action };
+  };
+  const a = publishOnce();
+  const b = publishOnce();   // row still blank: Coda hasn't applied the first call's writes
+  assert.deepEqual(a, { isCreate: true, ebId: 'E1', ticket: 'create' });
+  assert.deepEqual(b, { isCreate: false, ebId: 'E1', ticket: 'update' });
+  assert.equal(creates, 1);
+  assert.equal(ticketCreates, 1);
+});
+test('publishSuccessBody: carries the requestId of the last row write', () => {
+  const b = publishSuccessBody({ ebId: '1', url: 'u', draftOnly: false, pushedJson: '{}', requestId: 'mutate:abc' });
+  assert.equal(b.requestId, 'mutate:abc');
+  assert.equal(publishSuccessBody({ ebId: '1', url: 'u', pushedJson: '{}' }).requestId, null);
+});

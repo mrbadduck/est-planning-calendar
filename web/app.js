@@ -399,7 +399,7 @@ const CodaSource = {
   // A refusal (409 cancel first, 502 Eventbrite wouldn't delete the draft) carries the Worker's own message.
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok){ const j=await r.json().catch(()=>({})); const e=new Error(j.error||`delete failed (${r.status})`); e.status=r.status; throw e; } },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
-  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; e.lastPushAt=j.lastPushAt||null; throw e; } return j; },
+  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; e.lastPushAt=j.lastPushAt||null; e.requestId=j.requestId||null; e.eventbriteId=j.eventbriteId?String(j.eventbriteId):''; throw e; } return j; },
   async ebPreview(rowId){ const r=await fetch(`${this.base}/eventbrite/preview?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(r.status===404 && j && j.linked===false) return null; if(!r.ok){ const e=new Error(j.error||`preview failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async refreshPeople(){ const r=await fetch(`${this.base}/admin/refresh-people`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`refresh failed (${r.status})`); e.status=r.status; throw e; } return j; },
@@ -472,7 +472,7 @@ const _unsaved = new Map();
 async function loadEvents(){
   const [p,r] = await Promise.all([DB.listPlanning(), DB.listReferences()]);
   const now = Date.now();
-  for(const [id,rec] of [..._recent]) if(rec.until <= now) _recent.delete(id);
+  for(const [id,rec] of [..._recent]) if(rec.until <= now && !((_applying.get(id)||0) > 0)) _recent.delete(id);   // held while a write to it is still applying
   const local = id => (_unsaved.get(id)||{}).ev || (_recent.get(id)||{}).e;
   const planning = p.filter(ev => !(_recent.get(ev.id)||{}).deleted)   // hide just-deleted
                     .map(ev => local(ev.id) || ev);                      // keep just-edited / not yet saved
@@ -2152,6 +2152,16 @@ function pendingFor(id){
     || (_applying.get(id)||0) > 0
     || _unconfirmed.has(id);
 }
+// A Worker write to this event's row (publish / cancel / unpublish, R19): Coda applies
+// it 13–30 s later, so hold the primary at Saving… (pendingFor counts it) and keep the
+// local copy over stale /rows reads (loadEvents holds _recent while it applies).
+function trackWorkerWrite(ev, requestId){
+  markRecent(ev.id, {e:ev});
+  if(!requestId) return;
+  applied(requestId, ev.id).then(
+    ()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); },
+    err=>{ console.warn('worker write not confirmed:', err); markRecent(ev.id, {e:ev}); toast('Coda didn’t confirm the change. Check again in a minute.','err'); scheduleReconcile(); });
+}
 // Writes to a just-created row wait for its insert to apply (a failed confirm is
 // handled by _unconfirmed, not here).
 const afterCreate = id => Promise.resolve(_createApply.get(id)).catch(()=>{});
@@ -2437,7 +2447,7 @@ async function cancelEvent(){
     await saveQueue.settle(ev.id).catch(()=>{});   // queued edits land first; one that fails is reported, not a reason to stop
     const res=await DB.cancelEventbrite(ev.id);
     if(res && res.publishStatus) ev.publishStatus=res.publishStatus;
-    markRecent(ev.id, {e:ev}); scheduleReconcile(); clearEbBlock(ev.id);
+    trackWorkerWrite(ev, res && res.requestId); scheduleReconcile(); clearEbBlock(ev.id);
     // The event is locked now, so a field edit that failed has nowhere to be retried.
     if(saveQueue.status(ev.id)==='error') dropFailedEdits(ev.id, 'Event cancelled, but your last change to it didn’t save');
     else toast('Event cancelled','ok');
@@ -2488,7 +2498,7 @@ async function unpublishEvent(){
     ev.publishStatus=(res && res.publishStatus) || 'Draft';
     clearEbBlock(id);
     applyLocal(ev); rerender();
-    markRecent(id, {e:ev}); scheduleReconcile();
+    trackWorkerWrite(ev, res && res.requestId); scheduleReconcile();
     toast('Unpublished. It’s a private draft on Eventbrite again','ok');
     refreshEbStatus(ev);
   }catch(err){
@@ -2681,6 +2691,10 @@ async function pushToEventbrite(act){
     catch(err){
       _sending.delete(id);
       if(err && err.status===401){ sessionExpired(); return; }
+      // The Worker may have created the event (or written the row) before failing:
+      // adopt its id so nothing re-creates it, and wait for that write to apply.
+      if(err && err.eventbriteId && !ev.eventbriteId){ ev.eventbriteId=err.eventbriteId; applyLocal(ev); rerender(); }
+      if(err && (err.requestId || err.eventbriteId)) trackWorkerWrite(ev, err.requestId);
       if(err && err.status===409 && err.checks && err.checks.length){
         _pushChecks.set(id, { draftOnly: spec.draftOnly, checks: err.checks });
         toast(err.checks[0].message || err.message,'err');
@@ -2706,7 +2720,7 @@ async function pushToEventbrite(act){
     _pushChecks.delete(id); _ebConflict.delete(id); _conflictShown.delete(id); clearEbBlock(id);
     const st=_ebStatus.get(id); if(st) st.editedSincePush=false;
     applyLocal(ev); rerender();
-    markRecent(id, {e:ev}); scheduleReconcile();
+    trackWorkerWrite(ev, res.requestId); scheduleReconcile();
     let msg=spec.ok;
     if(act==='update-listing' && prevPushed && ev.pushed){
       const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);
