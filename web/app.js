@@ -466,6 +466,8 @@ async function loadEvents(){
   for(const id of new Set([..._unsaved.keys(), ..._recent.keys()])){ const e=local(id); if(e && !p.some(x=>x.id===id)) planning.push(e); }   // keep just-created
   for(const e of planning) if(e._lossy && e!==editing) mapRelations(e);   // a list may have landed while these rows were loading
   state.events = [...planning, ...r];
+  // An insert Coda never confirmed is confirmed once its row is in /rows.
+  for(const id of [..._unconfirmed.keys()]) if(p.some(x=>x.id===id)){ _unconfirmed.delete(id); if(editing && editing.id===id) paintSaveStatus(); }
 }
 // A reference list just arrived: map the events that were waiting on it (colors,
 // relation ids) and repaint. The open editor's event is left alone — it re-maps
@@ -1216,7 +1218,7 @@ async function createFromForm(){
     if(saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); }  // swap temp → real id
     // Not awaited: the workspace opens now, and its pill/footer read pendingFor(e.id)
     // until Coda has applied the insert.
-    if(!String(e.id).startsWith('tmp-')) applied(e._requestId, e.id).catch(err=>console.warn('create not confirmed:', err));
+    if(!String(e.id).startsWith('tmp-')) trackCreate(e.id, e._requestId);
     markRecent(e.id, {e}); rerender(); toast('Created','ok'); scheduleReconcile();
     _creating=false;
     if(editing===seed){   // land in the workspace for the just-created event
@@ -1997,6 +1999,8 @@ const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
 // transitions). pendingFor(id) is the one answer the pill and footer read.
 const _applying=new Map();    // event id → applies in flight outside the queue
 const _slow=new Set();        // event ids whose apply has passed CodaApplied's slow mark
+const _createApply=new Map(); // new event id → its insert's apply promise (later writes wait on it)
+const _unconfirmed=new Map(); // new event id → requestId of an insert Coda never confirmed (pill: Save failed — retry)
 function applied(requestId, eventId, opts={}){
   const counted = opts.counted!==false;
   if(counted) _applying.set(eventId, (_applying.get(eventId)||0)+1);
@@ -2017,11 +2021,32 @@ function applied(requestId, eventId, opts={}){
 function pendingFor(id){
   if(!id) return false;
   return saveQueue.status(id)==='saving'
-    || !!(_autosaveT && _form && editing && editing.id===id)
-    || (_applying.get(id)||0) > 0;
+    || !!(_autosaveT && _form && editing && _form.ev===editing && editing.id===id)
+    || (_applying.get(id)||0) > 0
+    || _unconfirmed.has(id);
+}
+// Writes to a just-created row wait for its insert to apply (a failed confirm is
+// handled by _unconfirmed, not here).
+const afterCreate = id => Promise.resolve(_createApply.get(id)).catch(()=>{});
+// Track a new event's insert until Coda applies it; unconfirmed → the pill offers a retry.
+function trackCreate(id, requestId){
+  const p=applied(requestId, id);
+  _createApply.set(id, p);
+  p.then(()=>{ _unconfirmed.delete(id); },
+         err=>{ console.warn('create not confirmed:', err); _unconfirmed.set(id, requestId); })
+   .finally(()=>{ if(_createApply.get(id)===p) _createApply.delete(id); if(editing && editing.id===id) paintSaveStatus(); });
+}
+// The pill's retry for an unconfirmed create: never re-POST (that would duplicate the
+// row) — poll the same requestId once more; if that fails too, pull server truth and
+// let loadEvents clear it once the row shows up in /rows.
+function retryCreateConfirm(id){
+  const rid=_unconfirmed.get(id);
+  if(rid==null || (_applying.get(id)||0) > 0) return;
+  applied(rid, id).then(()=>{ _unconfirmed.delete(id); }, ()=>{ scheduleReconcile(); })
+    .finally(()=>{ if(editing && editing.id===id) paintSaveStatus(); });
 }
 const saveQueue = SaveQueue.create({
-  write: (id, cells) => DB.update(id, cells).then(r => applied(r && r.requestId, id, { counted:false })),
+  write: (id, cells) => afterCreate(id).then(() => DB.update(id, cells)).then(r => applied(r && r.requestId, id, { counted:false })),
   onState(id, st, err){
     if(st==='saved'){ const u=_unsaved.get(id); _unsaved.delete(id); guardUnload(); if(u) markRecent(id, {e:u.ev}); scheduleReconcile(); }
     if(st==='error'){
@@ -2064,11 +2089,11 @@ document.addEventListener('est:identity', ()=>{
 // beforeunload listener keeps some browsers from caching the page for Back.
 function onBeforeUnload(e){
   if(_form) autosaveEditor();
-  if(_unsaved.size){ e.preventDefault(); e.returnValue=''; }
+  if(_unsaved.size || _busy.size){ e.preventDefault(); e.returnValue=''; }   // _busy: a delete/transition still waiting on Coda
 }
 let _unloadGuarded=false;
 function guardUnload(){
-  const need=!!_form || _unsaved.size>0;
+  const need=!!_form || _unsaved.size>0 || _busy.size>0;
   if(need===_unloadGuarded) return;
   _unloadGuarded=need;
   if(need) window.addEventListener('beforeunload', onBeforeUnload); else window.removeEventListener('beforeunload', onBeforeUnload);
@@ -2087,7 +2112,7 @@ function paintSaveStatus(){
   if(!editing || !editing.id) return;
   const id=editing.id, q=saveQueue.status(id);
   const saving = q==='saving' || (_applying.get(id)||0) > 0;
-  setSaveStatus(saving ? (_slow.has(id) ? 'slow' : 'saving') : q==='error' ? 'error' : _autosaveT ? 'dirty' : 'clean');
+  setSaveStatus(saving ? (_slow.has(id) ? 'slow' : 'saving') : (q==='error' || _unconfirmed.has(id)) ? 'error' : _autosaveT ? 'dirty' : 'clean');
 }
 function scheduleAutosave(){
   if(!_form || _form.ev!==editing) return;     // create modal / read-only: nothing to auto-save into
@@ -2150,7 +2175,7 @@ async function transitionTo(status){
   if(!ev || !ev.id || _busy.has(ev.id)) return;
   if(status==='approved' && isPastEvent(ev) && !confirm('This event’s date has passed. Once it’s approved, its details lock and it can’t be cancelled or deleted. Approve anyway?')) return;
   autosaveEditor();                            // queue any field edit still in the form
-  _busy.add(ev.id);
+  _busy.add(ev.id); guardUnload();
   const prev=ev.status;
   ev.status=status;
   ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
@@ -2158,6 +2183,7 @@ async function transitionTo(status){
   let fieldsFailed=false;
   try{
     await saveQueue.settle(ev.id).catch(err=>{ fieldsFailed=true; throw err; });
+    await afterCreate(ev.id);
     const w=await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
     await applied(w && w.requestId, ev.id);     // Approve → Add to Eventbrite must see the new Status in Coda
     markRecent(ev.id, {e:ev}); scheduleReconcile();
@@ -2165,9 +2191,14 @@ async function transitionTo(status){
   }catch(err){
     ev.status=prev; applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
-    else { toast(fieldsFailed ? 'Your changes didn’t save, so the status wasn’t changed — try again' : 'Update failed — reverted','err'); console.warn('transition failed:', err); }
+    else {
+      const unconfirmed = !fieldsFailed && err && err.message==='save not confirmed';   // accepted, but Coda never said it applied
+      toast(fieldsFailed ? 'Your changes didn’t save, so the status wasn’t changed — try again' : unconfirmed ? 'Coda didn’t confirm the change. Check again in a minute.' : 'Update failed — reverted','err');
+      console.warn('transition failed:', err);
+      if(unconfirmed) scheduleReconcile();
+    }
   }finally{
-    _busy.delete(ev.id);
+    _busy.delete(ev.id); guardUnload();
     if(editing===ev) openEditor(ev, activeSection);   // (openEditor first queues anything typed meanwhile)
   }
 }
@@ -2178,7 +2209,7 @@ async function cancelEvent(){
   if(!ev || !ev.id || _busy.has(ev.id)) return;
   if(!confirm('Cancel this event?' + (ev.eventbriteId ? ' Its Eventbrite listing will be taken down.' : ''))) return;
   autosaveEditor();
-  _busy.add(ev.id);
+  _busy.add(ev.id); guardUnload();
   const prev={ status:ev.status, _ebDirty:ev._ebDirty, publishStatus:ev.publishStatus };
   ev.status='cancelled'; ev._ebDirty=false; applyLocal(ev); rerender(); toast('Cancelling…','busy');
   try{
@@ -2194,7 +2225,7 @@ async function cancelEvent(){
     if(err && err.status===401) sessionExpired();
     else toast((err&&err.message)||'Cancel failed','err');
   }finally{
-    _busy.delete(ev.id);
+    _busy.delete(ev.id); guardUnload();
     if(editing===ev) openEditor(ev, activeSection);
   }
 }
@@ -2209,14 +2240,16 @@ async function deleteEditor(){
   applyLocal({id}, true); close(); rerender(); toast('Deleting…','busy');
   try{
     await drained;                             // …and a write already in flight finishes before the delete
+    await afterCreate(id);                     // a just-created row: let its insert apply first
     await DB.remove(id);
+    _unconfirmed.delete(id);
     markRecent(id, { deleted:true });
     toast('Deleted','ok'); scheduleReconcile();
   }catch(err){
     applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
     else { toast('Delete failed — restored','err'); console.warn('delete failed:', err); }
-  }finally{ _busy.delete(id); }
+  }finally{ _busy.delete(id); guardUnload(); }
 }
 
 /* =========================================================================
@@ -2243,7 +2276,11 @@ document.getElementById('mClose').addEventListener('click', close);   // dedicat
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
 
 document.getElementById('mFoot').addEventListener('click',e=>{
-  if(e.target.id==='saveStatus' && e.target.classList.contains('error')){ flushAutosave().catch(()=>{}); return; }   // the label reports the outcome
+  if(e.target.id==='saveStatus' && e.target.classList.contains('error')){
+    if(editing && _unconfirmed.has(editing.id)) retryCreateConfirm(editing.id);
+    if(!editing || saveQueue.status(editing.id)==='error' || !_unconfirmed.has(editing.id)) flushAutosave().catch(()=>{});
+    return;
+  }   // the label reports the outcome
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='close') close();
   else if(act==='create') createFromForm();
