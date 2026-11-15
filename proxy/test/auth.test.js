@@ -34,3 +34,21 @@ test('firebaseClaims rejects an unverified email', () => {
 test('firebaseClaims rejects a missing email', () => {
   assert.throws(() => firebaseClaims({ ...good(), email: '' }, PROJ, NOW), /no email/);
 });
+
+import { authErrorStatus, verifyFirebaseToken } from '../src/auth.js';
+test('authErrorStatus: 401 only for a bad/expired token, else 503', () => {
+  assert.equal(authErrorStatus(Object.assign(new Error('expired'), { authError: true })), 401);
+  assert.equal(authErrorStatus(new Error('people read failed (500)')), 503);
+  assert.equal(authErrorStatus(Object.assign(new Error('signing keys unavailable'), { transient: true })), 503);
+  assert.equal(authErrorStatus(null), 503);
+});
+test('verifyFirebaseToken: Google key endpoint down is transient, not a bad token', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('network down'); };
+  try {
+    const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const tok = `${b64({ alg: 'RS256', kid: 'k1' })}.${b64({ sub: 'x' })}.sig`;
+    await assert.rejects(verifyFirebaseToken(tok, 'p'), e => e.transient === true && /signing keys unavailable/.test(e.message));
+    await assert.rejects(verifyFirebaseToken('not-a-token', 'p'), e => !e.transient && /malformed/.test(e.message));
+  } finally { globalThis.fetch = realFetch; }
+});

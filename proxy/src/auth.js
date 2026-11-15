@@ -25,8 +25,16 @@ export function firebaseClaims(payload, projectId, nowSec) {
 let _jwks = null, _jwksExp = 0;
 async function firebaseKeys() {
   if (_jwks && Date.now() < _jwksExp) return _jwks;
-  const r = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
-  const j = await r.json();
+  let j;
+  try {
+    const r = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    j = await r.json();
+    if (!j || !Array.isArray(j.keys)) throw new Error('no keys');
+  } catch (e) {
+    // Google's key endpoint failing says nothing about the token: not a 401.
+    throw Object.assign(new Error(`signing keys unavailable (${(e && e.message) || e})`), { transient: true });
+  }
   _jwks = {}; for (const k of j.keys) _jwks[k.kid] = k;
   _jwksExp = Date.now() + 3600_000;                  // ~1h; keys rotate slowly
   return _jwks;
@@ -53,3 +61,8 @@ export async function verifyFirebaseToken(token, projectId, now = Date.now()) {
 export async function verifyFirebaseIdToken(token, projectId, now = Date.now()) {
   return (await verifyFirebaseToken(token, projectId, now)).email;
 }
+
+// HTTP status for a failed identity check: 401 only when the token itself is bad or
+// expired (authIdentity tags those `authError`); anything else — Google's signing
+// keys, the People lookup, Coda, KV — is a 503 the client should retry.
+export const authErrorStatus = e => (e && e.authError) ? 401 : 503;

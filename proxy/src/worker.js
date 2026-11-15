@@ -32,7 +32,7 @@ import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
 } from './eventbrite.js';
-import { verifyFirebaseIdToken, verifyFirebaseToken } from './auth.js';
+import { verifyFirebaseIdToken, verifyFirebaseToken, authErrorStatus } from './auth.js';
 import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
@@ -135,7 +135,12 @@ export default {
       if (parts[0] === 'mutation' && parts[1] && request.method === 'GET') {
         let id;
         try { id = await authIdentity(request, env, base, docId, auth, ctx); }
-        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        catch (e) {
+          // Only a bad/expired token is a 401 (the app signs in again); a People /
+          // Coda / KV failure is a 503 so the app keeps polling instead.
+          const st = authErrorStatus(e);
+          return json({ error: st === 401 ? 'invalid token' : `could not check who you are (${String((e && e.message) || e)})` }, st, cors);
+        }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const r = await fetch(`${base}/mutationStatus/${encodeURIComponent(decodeURIComponent(parts[1]))}`, { headers: auth });
         let body = null;
@@ -1191,7 +1196,9 @@ async function resolvePerson(email, base, docId, auth, env, ctx) {
 async function authIdentity(request, env, base, docId, auth, ctx) {
   const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  const email = await verifyFirebaseIdToken(m[1], env.FIREBASE_PROJECT_ID);
+  let email;
+  try { email = await verifyFirebaseIdToken(m[1], env.FIREBASE_PROJECT_ID); }
+  catch (e) { if (!(e && e.transient)) { try { e.authError = true; } catch (_) {} } throw e; }   // a bad/expired token (authErrorStatus -> 401)
   const person = await resolvePerson(email, base, docId, auth, env, ctx);
   if (!person) return { matched: false, email, canWrite: false, canApprove: false };
   return { matched: true, ...person };
