@@ -38,6 +38,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
+import { mutationResult } from './publish.js';
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -110,6 +111,20 @@ export default {
     const parts = url.pathname.split('/').filter(Boolean); // ['rows'] | ['rows', id]
 
     try {
+      // Has Coda applied a queued mutation? The app polls this so a save shows
+      // "Saved" only once the write is really visible. One Coda subrequest.
+      if (parts[0] === 'mutation' && parts[1] && request.method === 'GET') {
+        let id;
+        try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const r = await fetch(`${base}/mutationStatus/${encodeURIComponent(decodeURIComponent(parts[1]))}`, { headers: auth });
+        let body = null;
+        try { body = await r.json(); } catch (_) {}
+        const out = mutationResult(r.status, body);
+        return json(out.json, out.httpStatus, cors);
+      }
+
       if (parts[0] === 'rows') {
         const rowId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
