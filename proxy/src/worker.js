@@ -350,7 +350,13 @@ export default {
         // Venue record (one EST Venues SRC read, shared with ensureEbVenue below).
         let venueRow = null, venue = null;
         if (ev.venueName) {
-          const vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth);
+          let vr;
+          try { vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth); }
+          catch (err) {
+            // A thrown fetch/json must still leave a Publish Log row, not a bare 502.
+            const msg = `Could not read Venues (${String((err && err.message) || err)})`;
+            return reject('venue', 502, msg, { error: msg });
+          }
           if (!vr.ok) {
             const msg = `Could not read Venues (Coda ${vr.resp && vr.resp.status})`;
             return reject('venue', 502, msg, { error: msg });
@@ -363,7 +369,7 @@ export default {
         }
 
         // Readiness: the same rules the app shows (web/listing-readiness.js).
-        const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+        const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
         const checks = ListingRules.readiness(ev, { venue, todayISO });
         const failed = (draftOnly ? checks.add : checks.publish).filter(c => !c.ok);
         if (failed.length)
