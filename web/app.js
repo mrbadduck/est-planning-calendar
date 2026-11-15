@@ -2145,10 +2145,12 @@ function applied(requestId, eventId, opts={}){
   });
 }
 // Anything for this event queued, in flight, or written but not yet applied by Coda.
+// A bare debounce timer doesn't count: the footer's primary must not turn into
+// Saving… under a click, and every push/transition flushes the form and waits on
+// this before it acts (settledForPush, transitionTo), so nothing goes out early.
 function pendingFor(id){
   if(!id) return false;
   return saveQueue.status(id)==='saving'
-    || !!(_autosaveT && _form && editing && _form.ev===editing && editing.id===id)
     || (_applying.get(id)||0) > 0
     || _unconfirmed.has(id);
 }
@@ -2355,8 +2357,12 @@ function paintSaveStatus(){
 }
 function scheduleAutosave(){
   if(!_form || _form.ev!==editing) return;     // create modal / read-only: nothing to auto-save into
+  // Every focusout lands here, including the one from clicking a footer button: only
+  // a real change marks the form dirty, so a bare blur never repaints the footer
+  // under the click (which would swallow it).
+  if(!SaveQueue.changedCells(_form.base, formCells(readForm())).length) return;
   clearTimeout(_autosaveT); _autosaveT=setTimeout(autosaveEditor, 800);
-  setSaveStatus('dirty');                      // after the timer is set: the footer's pendingFor counts it
+  setSaveStatus('dirty');                      // pill: Unsaved changes (the footer's primary stays put)
 }
 // Queue whatever the open form changed since it was last queued. Synchronous, so
 // close() can call it on the way out — the queue writes it after the editor is gone.
