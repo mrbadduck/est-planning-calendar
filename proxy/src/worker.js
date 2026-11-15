@@ -9,10 +9,12 @@
  *   GET    /rows        list planning rows (values keyed by column name)
  *   POST   /rows        create a row  (body: { rows: [{ cells: [...] }] })
  *   PUT    /rows/:id    update a row  (body: { row:  { cells: [...] } })
- *   DELETE /rows/:id    delete a row
+ *   DELETE /rows/:id    delete a row (refused while Published?; deletes its Eventbrite draft first)
  *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
  *   GET    /me          verify Firebase token -> { signedIn, name, canWrite, canApprove }
  *   POST   /notes-doc   push the row's notes-doc button by id (body: { rowId }) — role-gated
+ *   POST   /unpublish/eventbrite  take a listing back to a private draft (body: { rowId }) — refused with registrants
+ *   POST   /cancel/eventbrite     cancel a planning event + tear down its listing (body: { rowId }) — refused with registrants
  *   GET    /roster/:rowId  lead-facing attendee roster (Eventbrite orders ∪ gather claimants) — role-gated; ?fresh=1 bypasses KV
  *
  * Config (see wrangler.toml and .dev.vars.example):
@@ -38,7 +40,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan, previewModel } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite, ticketPlan, previewModel, ebGone, cancelPlan, isPublishedCell, deleteGate } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 const ListingRules = globalThis.ListingRules;
 
@@ -143,9 +145,35 @@ export default {
           if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
 
           if (request.method === 'DELETE' && rowId) {
-            if (!id.canApprove) return json({ error: 'delete requires Tribal Council' }, 403, cors);   // hard removal is council-only; leads Cancel instead
+            // Q1 (a): a lead may delete a never-published, non-cancelled event; a
+            // Cancelled row needs council; a Published row must be cancelled first.
+            // With an Eventbrite id, its listing goes first (F7: allowed with no
+            // orders) — on an Eventbrite refusal the row stays.
+            // Worst case: auth + row read + EB GET + EB DELETE + row DELETE + log (~8).
+            const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+            if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+            const V = (await one.json()).values || {};
+            const gate = deleteGate({ published: isPublishedCell(V['Published?']), status: V['Status'] || '' }, id);
+            if (gate) return json({ error: gate.error }, gate.status, cors);
+            const ebId = V['Eventbrite Event ID'] || '';
+            let ebOutcome = 'none';
+            if (ebId) {
+              if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+              const g = await ebFetch(env, `/events/${ebId}/`);
+              if (ebGone(g)) ebOutcome = 'already gone';
+              else {
+                const d = g.ok ? await ebDelete(env, ebId) : g;
+                if (d.ok || d.status === 404) ebOutcome = 'deleted';
+                else {
+                  const msg = (d.body && (d.body.error_description || d.body.error)) || `HTTP ${d.status}`;
+                  await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'delete', ok: false, status: d.status, ebId, message: String(msg) });
+                  return json({ error: `could not delete the Eventbrite listing: ${msg}`, step: 'eventbrite' }, 502, cors);
+                }
+              }
+            }
             const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
             if (w.ok) await swrBust(env, ROWS_KV_KEY);
+            await logPublish(env, base, docId, auth, { rowId: w.ok ? '' : rowId, actorId: id.personId, action: 'delete', ok: w.ok, status: w.status, ebId, message: w.ok ? `event deleted (eb: ${ebOutcome}; row ${rowId})` : `row delete failed (eb: ${ebOutcome})` });
             return pass(w, cors);
           }
 
@@ -575,10 +603,19 @@ export default {
         if (!evr.ok || !dr.ok) return json({ error: `eventbrite read failed (${!evr.ok ? evr.status : dr.status})` }, 502, cors);
         return json(previewModel(evr.body, dr.body, V['Address visibility']), 200, cors);
       }
-      if (parts[0] === 'cancel' && parts[1] === 'eventbrite' && request.method === 'POST') {
-        // Cancel a planning event: tear down its Eventbrite listing (unpublish, or
-        // cancel if it has registrants) then set Status=Cancelled. Same write gate
-        // + Publish Log posture as /publish/eventbrite. Works with or without an EB id.
+      if ((parts[0] === 'cancel' || parts[0] === 'unpublish') && parts[1] === 'eventbrite' && request.method === 'POST') {
+        // Cancel / Unpublish against Eventbrite's order rules (F7): Eventbrite
+        // refuses unpublish, cancel and delete for any event with orders, so both
+        // read the registrant count (ebEventSnapshot(...).sold) first and, when
+        // anyone registered, change nothing and return 409 needsEventbriteCancel.
+        //   cancel:    no orders -> live/started: unpublish; draft: DELETE the draft;
+        //              then Status=Cancelled, Published?=false, Publish status=Cancelled.
+        //              Already canceled/deleted on Eventbrite counts as done (council
+        //              cancelled it there). Works with or without an EB id.
+        //   unpublish: no orders -> unpublish; Publish status=Draft, Published?=false.
+        // Same write gate (canWrite) + Publish Log posture as /publish/eventbrite.
+        // Worst case: auth + row read + EB GET + EB action + row PUT + log (~8).
+        const isCancel = parts[0] === 'cancel';
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
@@ -594,31 +631,78 @@ export default {
         const V = (await one.json()).values || {};
         const setRow = async (cells) => {
           const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) await swrBust(env, ROWS_KV_KEY);   // cancel write-backs must be visible to the next /rows read
+          if (r.ok) await swrBust(env, ROWS_KV_KEY);   // write-backs must be visible to the next /rows read
           return r;
         };
+        const action = isCancel ? 'cancel' : 'unpublish';
         const ebId = V['Eventbrite Event ID'] || '';
+        const log = (rec) => logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ebId, ...rec });
+        const ebMsg = (r) => String((r.body && (r.body.error_description || r.body.error)) || `HTTP ${r.status}`);
+        const ebFail = async (r, what) => {
+          const msg = ebMsg(r);
+          await log({ ok: false, status: r.status, message: `${what}: ${msg}` });
+          return json({ error: `${what}: ${msg}`, step: 'eventbrite' }, 502, cors);
+        };
+        const blocked = async (n) => {
+          const error = isCancel
+            ? 'Eventbrite only lets someone with East Side Tribe\'s Eventbrite login cancel an event people have registered for (it refunds and emails them). Ask council to cancel it on Eventbrite, then click Cancel event here again.'
+            : 'People have registered, so Eventbrite won\'t let this listing be unpublished. Cancel the event instead.';
+          await log({ ok: false, status: 409, message: `refused: ${n} registrant(s) on Eventbrite` });
+          return json({ needsEventbriteCancel: true, registrants: n, error }, 409, cors);
+        };
 
-        let ebOutcome = 'none', pubStatus = V['Publish status'] || '';
-        if (ebId && env.EVENTBRITE_TOKEN) {
-          let r = await ebUnpublish(env, ebId);              // clean/silent path
-          if (r.ok) { ebOutcome = 'unpublished'; pubStatus = 'Unpublished'; }
+        if (!isCancel) {
+          if (!ebId) return json({ error: 'This event is not on Eventbrite' }, 409, cors);
+          if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+          const g = await ebFetch(env, `/events/${ebId}/?expand=ticket_classes`);
+          if (!g.ok) return ebFail(g, 'could not read the Eventbrite listing');
+          const snap = ebEventSnapshot(g.body);
+          if (snap.sold > 0) return blocked(snap.sold);
+          if (snap.status !== 'draft') {   // already a private draft: just sync the row
+            const u = await ebUnpublish(env, ebId);
+            if (!u.ok) return ebFail(u, 'could not unpublish the Eventbrite listing');
+          }
+          const w = await setRow([
+            { column: 'Publish status', value: 'Draft' },
+            { column: PLANNING_COLS.published, value: false },   // gather hides it (F17)
+            { column: 'Edited by', value: [id.personId] },
+          ]);
+          if (!w.ok) return pass(w, cors);
+          await log({ ok: true, status: 200, ebUrl: eventbriteWebUrl(ebId), message: 'listing unpublished (back to private draft)' });
+          return json({ ok: true, publishStatus: 'Draft' }, 200, cors);
+        }
+
+        let ebOutcome = 'none';
+        if (ebId) {
+          if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+          const g = await ebFetch(env, `/events/${ebId}/?expand=ticket_classes`);
+          if (ebGone(g)) ebOutcome = 'already gone';
+          else if (!g.ok) return ebFail(g, 'could not read the Eventbrite listing');
           else {
-            const c = await ebCancel(env, ebId);            // has registrants → cancel + notify
-            if (c.ok) { ebOutcome = 'cancelled'; pubStatus = 'Cancelled'; }
-            else {
-              const msg = (c.body && (c.body.error_description || c.body.error)) || `HTTP ${c.status}`;
-              await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'cancel', ok: false, status: c.status, ebId, message: String(msg) });
-              return json({ error: `could not take down the Eventbrite listing: ${msg}`, step: 'eventbrite' }, 502, cors);
-            }
+            const snap = ebEventSnapshot(g.body);
+            const plan = cancelPlan({ status: snap.status, sold: snap.sold });
+            if (plan.action === 'blocked') return blocked(plan.registrants);
+            if (plan.action === 'unpublish') {
+              const u = await ebUnpublish(env, ebId);
+              if (!u.ok) return ebFail(u, 'could not take down the Eventbrite listing');
+              ebOutcome = 'unpublished';
+            } else if (plan.action === 'delete') {
+              const d = await ebDelete(env, ebId);
+              if (!d.ok && d.status !== 404) return ebFail(d, 'could not delete the Eventbrite draft');
+              ebOutcome = 'draft deleted';
+            } else ebOutcome = `left as ${snap.status || 'is'}`;
           }
         }
-        const cells = [{ column: 'Status', value: 'Cancelled' }, { column: 'Edited by', value: [id.personId] }];
-        if (ebId) cells.push({ column: 'Publish status', value: pubStatus });
+        const cells = [
+          { column: PLANNING_COLS.status, value: 'Cancelled' },
+          { column: PLANNING_COLS.published, value: false },
+          { column: 'Edited by', value: [id.personId] },
+        ];
+        if (ebId) cells.push({ column: 'Publish status', value: 'Cancelled' });
         const w = await setRow(cells);
         if (!w.ok) return pass(w, cors);
-        await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'cancel', ok: true, status: 200, ebId, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
-        return json({ ok: true, publishStatus: ebId ? pubStatus : '', eventbrite: ebOutcome }, 200, cors);
+        await log({ ok: true, status: 200, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
+        return json({ ok: true, publishStatus: ebId ? 'Cancelled' : '', eventbrite: ebOutcome }, 200, cors);
       }
       if (parts[0] === 'notes-doc' && request.method === 'POST') {
         // Provision a Planning-Notes Google Doc by pushing the row's notes-doc
@@ -1287,7 +1371,7 @@ const ebGetStructuredContent = (env, id) => ebFetch(env, `/events/${id}/structur
 const ebSetStructuredContent = (env, id, version, body) => ebFetch(env, `/events/${id}/structured_content/${version}/`, 'POST', body);
 const ebPublish = (env, id) => ebFetch(env, `/events/${id}/publish/`, 'POST');
 const ebUnpublish = (env, id) => ebFetch(env, `/events/${id}/unpublish/`, 'POST');   // revert to draft (free events, no orders)
-const ebCancel = (env, id) => ebFetch(env, `/events/${id}/cancel/`, 'POST');          // cancel a live event + notify registrants
+const ebDelete = (env, id) => ebFetch(env, `/events/${id}/`, 'DELETE');               // delete an event (no orders only, F7)
 
 // Append one row to the Publish Log table. Logging must NEVER throw — a failed
 // log write can't be allowed to break (or falsely fail) the publish path.

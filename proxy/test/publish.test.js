@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mutationResult } from '../src/publish.js';
+import { mutationResult, cancelPlan, ebGone, deleteGate, isPublishedCell } from '../src/publish.js';
 
 test('mutationResult: 200 completed true', () => {
   assert.deepEqual(mutationResult(200, { completed: true }), { httpStatus: 200, json: { completed: true } });
@@ -140,4 +140,38 @@ test('previewModel: public shows full address', () => {
   const m = previewModel(venueEv(), { description: '' }, 'Public');
   assert.equal(m.location.displayAddress, '1 Main St, Nashville, TN 37201');
   assert.equal(m.location.note, '');
+});
+
+// --- Task 9: cancel / delete against Eventbrite's order rules (F7) ---
+test('ebGone: 404, deleted and canceled count as already done', () => {
+  assert.equal(ebGone({ status: 404 }), true);
+  assert.equal(ebGone({ ok: true, status: 200, body: { status: 'deleted' } }), true);
+  assert.equal(ebGone({ ok: true, status: 200, body: { status: 'canceled' } }), true);
+  assert.equal(ebGone({ ok: true, status: 200, body: { status: 'live' } }), false);
+  assert.equal(ebGone({ ok: false, status: 500, body: null }), false);
+});
+test('cancelPlan: registrants block; live/started unpublish; draft delete; others leave alone', () => {
+  assert.deepEqual(cancelPlan({ status: 'live', sold: 12 }), { action: 'blocked', registrants: 12 });
+  assert.deepEqual(cancelPlan({ status: 'draft', sold: 1 }), { action: 'blocked', registrants: 1 });
+  assert.deepEqual(cancelPlan({ status: 'live', sold: 0 }), { action: 'unpublish' });
+  assert.deepEqual(cancelPlan({ status: 'started', sold: 0 }), { action: 'unpublish' });
+  assert.deepEqual(cancelPlan({ status: 'draft', sold: 0 }), { action: 'delete' });
+  assert.deepEqual(cancelPlan({ status: 'ended', sold: 0 }), { action: 'none' });
+});
+test('isPublishedCell reads Coda booleans', () => {
+  assert.equal(isPublishedCell(true), true);
+  assert.equal(isPublishedCell('true'), true);
+  assert.equal(isPublishedCell(false), false);
+  assert.equal(isPublishedCell(''), false);
+  assert.equal(isPublishedCell(undefined), false);
+});
+test('deleteGate: published refused for everyone; leads may delete unpublished non-cancelled rows', () => {
+  const lead = { canWrite: true, canApprove: false }, council = { canWrite: true, canApprove: true };
+  assert.deepEqual(deleteGate({ published: true, status: 'Approved' }, council), { status: 409, error: 'Cancel this event before deleting it' });
+  assert.deepEqual(deleteGate({ published: true, status: 'Approved' }, lead), { status: 409, error: 'Cancel this event before deleting it' });
+  assert.equal(deleteGate({ published: false, status: 'Draft' }, lead), null);
+  assert.equal(deleteGate({ published: false, status: 'Proposed' }, lead), null);
+  assert.deepEqual(deleteGate({ published: false, status: 'Cancelled' }, lead), { status: 403, error: 'delete requires Tribal Council' });
+  assert.equal(deleteGate({ published: false, status: 'Cancelled' }, council), null);
+  assert.deepEqual(deleteGate({ published: false, status: 'Draft' }, { canWrite: false, canApprove: false }), { status: 403, error: 'not authorized' });
 });

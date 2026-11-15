@@ -107,3 +107,43 @@ export function previewModel(ev, desc, addressVisibility) {
     logoUrl: (ev.logo && ev.logo.url) || null,
   };
 }
+
+// --- Unpublish / cancel / delete vs Eventbrite's order rules (F7) ----------
+// Eventbrite refuses unpublish, cancel and delete for any event with orders, so
+// the routes check registrants (ebEventSnapshot(body).sold) before acting.
+
+// An Eventbrite event that is already gone (404, deleted) or canceled — e.g.
+// council cancelled it on Eventbrite — counts as torn down. `r` is ebFetch's
+// {ok,status,body} for GET /events/{id}/.
+export function ebGone(r) {
+  if (!r) return false;
+  if (r.status === 404) return true;
+  const st = r.ok && r.body ? r.body.status : '';
+  return st === 'deleted' || st === 'canceled';
+}
+
+// What Cancel does on Eventbrite for a still-existing event (call ebGone first).
+//   blocked  -> people registered: change nothing, ask council to cancel on Eventbrite
+//   unpublish-> live listing with no orders
+//   delete   -> private draft with no orders
+//   none     -> ended/completed etc.: leave Eventbrite alone
+export function cancelPlan({ status, sold } = {}) {
+  const n = Number(sold) || 0;
+  if (n > 0) return { action: 'blocked', registrants: n };
+  if (status === 'live' || status === 'started') return { action: 'unpublish' };
+  if (status === 'draft') return { action: 'delete' };
+  return { action: 'none' };
+}
+
+// Coda checkbox cell (simpleWithArrays) -> boolean.
+export const isPublishedCell = v => v === true || v === 'true';
+
+// Who may DELETE /rows/:id (Q1 (a)). Returns null when allowed, else {status, error}.
+// A published row must be cancelled first (everyone); a Cancelled row needs council;
+// otherwise any writer (lead) may delete a never-published event.
+export function deleteGate({ published, status } = {}, id = {}) {
+  if (!id.canWrite) return { status: 403, error: 'not authorized' };
+  if (published) return { status: 409, error: 'Cancel this event before deleting it' };
+  if (status === 'Cancelled' && !id.canApprove) return { status: 403, error: 'delete requires Tribal Council' };
+  return null;
+}

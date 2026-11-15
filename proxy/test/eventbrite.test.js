@@ -169,3 +169,8 @@ test('normText: the did-the-user-change-it signal for the description skip', () 
   assert.equal(normText(''), '');
   assert.equal(normText(null), '');
 });
+
+test('ebEventSnapshot.sold sums ticket_classes quantity_sold (registrant count for cancel/unpublish)', () => {
+  assert.equal(ebEventSnapshot({ ticket_classes: [{ quantity_sold: 3 }, { quantity_sold: 9 }] }).sold, 12);
+  assert.equal(ebEventSnapshot({ status: 'live' }).sold, 0);
+});
