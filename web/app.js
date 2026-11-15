@@ -1488,10 +1488,10 @@ const listingHeadHTML = ev => ev.eventbriteId ? 'Eventbrite listing'
   : 'Public listing <span class="wsub-h-sub">· what people see on Eventbrite</span>';
 const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
   : 'If you copy the internal description, take out planning notes first. This text goes public.';
-function renderListingSection(ev, canEdit, locked){
+function renderListingSection(ev, canEdit, locked, canApprove){
   const linked=!!ev.eventbriteId;
   if(ev.status!=='approved')
-    return `<div class="wsub muted"><div class="wsub-h">Public listing</div><div class="locknote">Available once approved — public summary, description, capacity, and the Eventbrite publish action live here. Approve the event below to unlock it.</div></div>`;
+    return `<div class="wsub muted"><div class="wsub-h">Public listing</div><div class="locknote">Available once approved — public summary, description, capacity, and the Eventbrite publish action live here. ${canApprove ? 'Approve it to unlock the public listing.' : 'Unlocks once Tribal Council approves it.'}</div></div>`;
   const dis=(!canEdit||locked)?'disabled':'';
   const fm=fieldMarkModel(ev);
   const vals={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
@@ -1557,7 +1557,7 @@ function applyAddressDefault(venBox){
 // The Details tab: stable "Event" subsection (draft/internal fields) on top,
 // stage-aware listing subsection below. One surface that transforms by stage.
 function renderDetails(ev, canEdit, locked, canApprove){
-  return `<div class="fkey" id="f_key">${formKeyHTML(fieldMarkModel(ev))}</div><div class="wsub"><div class="wsub-h">Event</div>${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked)}`;
+  return `<div class="fkey" id="f_key">${formKeyHTML(fieldMarkModel(ev))}</div><div class="wsub"><div class="wsub-h">Event</div>${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked, canApprove)}`;
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){
   wirePlanning(panel, ev, canEdit, locked, canApprove);
