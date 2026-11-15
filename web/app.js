@@ -2725,7 +2725,9 @@ async function pushToEventbrite(act){
     if(act==='update-listing' && prevPushed && ev.pushed){
       const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);
       if(n.fields.length){
-        const sold = st && st.sold!=null ? Number(st.sold) : 0;
+        if(!_ebStatus.has(id)) await refreshEbStatus(ev);   // registrants not loaded yet: read them before deciding
+        const st2=_ebStatus.get(id);
+        const sold = st2 && st2.sold!=null ? Number(st2.sold) : 0;
         if(sold > 0){ _justChanged.set(id, { fields:n.fields, registrants:sold, subject:n.subject, body:n.body }); prefetchRegistrants(id); }
       }
     }
