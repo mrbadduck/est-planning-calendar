@@ -1,4 +1,5 @@
 // Pure helpers for the Eventbrite publish flow. No I/O — unit-tested.
+import { normText } from './eventbrite.js';
 
 // Map Coda's GET /mutationStatus/:id response to our route's response.
 export function mutationResult(status, body) {
@@ -55,4 +56,14 @@ export function pushedValues(ev, { ticketClassId } = {}) {
     addressVisibility: ev.addressVisibility || '',
     ticketClassId: ticketClassId || '',
   });
+}
+
+// Public description to write to Eventbrite's structured content, or null to skip
+// the write: blank, or unchanged since the last push (whitespace-insensitive).
+// Never falls back to the internal description (decision 7).
+export function descriptionToWrite(ev, pushed) {
+  const text = (ev && ev.publicDescription) || '';
+  if (!normText(text)) return null;
+  if (pushed && normText(pushed.publicDescription) === normText(text)) return null;
+  return text;
 }

@@ -34,10 +34,10 @@ const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g,
 // summary is Eventbrite's short listing blurb. Critically it is OMITTED when we
 // have no staged summary — Eventbrite's read returns summary as null (it's
 // effectively write-only), so sending an empty string would silently WIPE a
-// blurb the organizer set. On create we fall back to a description snippet.
+// blurb the organizer set. No fallback to the internal description, on create
+// either (decision 7): a create with no staged summary simply sends none.
 export function eventToEventbritePayload(ev, tz, opts = {}) {
-  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140))
-    || (opts.isCreate ? stripHtml(ev.description).slice(0, 140) : '');
+  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140)) || '';
   const event = {
     'name': { html: ev.title || '' },
     'start': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.start, tz) },

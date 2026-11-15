@@ -38,7 +38,9 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult, hhmm } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, descriptionToWrite } from './publish.js';
+import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
+const ListingRules = globalThis.ListingRules;
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -337,16 +339,42 @@ export default {
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
         const row = await one.json();
         const V = row.values || {};
-        if (String(V['Status'] || '').toLowerCase() !== 'approved') return json({ error: 'event must be Approved before publishing' }, 409, cors);
-        if (String(V['Scheduling'] || 'Exact').toLowerCase() !== 'exact' || !V['Date'] || !V['Start'])
-          return json({ error: 'publish needs an exact date and start time' }, 409, cors);
+        const ev = rowToListingEvent(V);
+        const tz = env.EVENTBRITE_TZ || 'America/Chicago';
+        const reject = async (action, status, logMessage, body) => {
+          // Every early rejection lands in the Publish Log (they used to leave no trace).
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ok: false, status, ebId: ev.eventbriteId, message: logMessage });
+          return json(body, status, cors);
+        };
+
+        // Venue record (one EST Venues SRC read, shared with ensureEbVenue below).
+        let venueRow = null, venue = null;
+        if (ev.venueName) {
+          const vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth);
+          if (!vr.ok) {
+            const msg = `Could not read Venues (Coda ${vr.resp && vr.resp.status})`;
+            return reject('venue', 502, msg, { error: msg });
+          }
+          venueRow = vr.items.find(r => String((r.values || {})['Venue Name'] || '') === String(ev.venueName)) || null;
+          const vv = (venueRow && venueRow.values) || {};
+          const vt = Array.isArray(vv['Venue Type']) ? vv['Venue Type'][0] : vv['Venue Type'];
+          venue = venueRow ? { name: ev.venueName, type: vt || '', hasAddress: !!vv['Address'] }
+                           : { name: ev.venueName, type: '', hasAddress: false };
+        }
+
+        // Readiness: the same rules the app shows (web/listing-readiness.js).
+        const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+        const checks = ListingRules.readiness(ev, { venue, todayISO });
+        const failed = (draftOnly ? checks.add : checks.publish).filter(c => !c.ok);
+        if (failed.length)
+          return reject('readiness', 409, failed.map(c => c.message).join(' · '), { error: failed[0].message, checks: failed });
 
         const setRow = async (cells) => {
           const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
           if (r.ok) await swrBust(env, ROWS_KV_KEY);   // publish write-backs must be visible to the next /rows read
           return r;
         };
-        const fail = async (action, r) => {
+        const fail = async (action, r, httpStatus = 502) => {
           // Build the most specific message Eventbrite gives us. error_detail carries
           // the per-argument reasons that error_description flattens to an unhelpful
           // "UNKNOWN — Something went wrong"; append it so the log is diagnosable.
@@ -357,33 +385,20 @@ export default {
           msg = String(msg).slice(0, 900);
           await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]);
           await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ok: false, status: r.status, message: msg });
-          return json({ error: msg, step: action }, 502, cors);
+          return json({ error: msg, step: action }, httpStatus, cors);
         };
-
-        const ev = {
-          title: V['Title'] || '', date: String(V['Date']).slice(0, 10),
-          start: hhmm(V['Start']),
-          end:   hhmm(V['End']),
-          capacity: Number(V['Capacity']) || undefined,
-          description: V['Event Description'] || '',
-          publicSummary: V['Public summary'] || '',
-          publicDescription: V['Public description'] || '',
-          addressVisibility: V['Address visibility'] || 'Public',
-          ebId: V['Eventbrite Event ID'] || '', tcId: V['Eventbrite Ticket Class ID'] || '',
-        };
-        const tz = env.EVENTBRITE_TZ || 'America/Chicago';
 
         // Conflict guard: pushing is a blind overwrite of the Eventbrite copy, so
         // if it was edited directly in Eventbrite after our last push (its
         // `changed` stamp vs our Last EB push at), stop with a 409 the client
         // turns into an explicit confirm; a `force:true` retry proceeds.
-        if (ev.ebId && !force) {
-          const cur = await ebFetch(env, `/events/${ev.ebId}/`);
+        if (ev.eventbriteId && !force) {
+          const cur = await ebFetch(env, `/events/${ev.eventbriteId}/`);
           if (cur.ok && editedSincePush(cur.body && cur.body.changed, V['Last EB push at'])) {
-            return json({
-              error: 'This event was edited directly in Eventbrite after the last push — publishing would overwrite those changes.',
-              conflict: true, ebChanged: cur.body.changed, lastPushAt: V['Last EB push at'] || null,
-            }, 409, cors);
+            const msg = 'This event was edited directly in Eventbrite after the last push — publishing would overwrite those changes.';
+            return reject('conflict', 409, msg, {
+              error: msg, conflict: true, ebChanged: cur.body.changed, lastPushAt: V['Last EB push at'] || null,
+            });
           }
         }
         await setRow([{ column: 'Publish status', value: 'Publishing' }]);
@@ -393,8 +408,9 @@ export default {
         // Publishing with no Error write-back and no log. Wrap the whole path.
         try {
           // 1. create-once (store id immediately so a retry never duplicates)
-          let ebId = ev.ebId;
-          if (!ebId) {
+          const isCreate = !ev.eventbriteId;
+          let ebId = ev.eventbriteId;
+          if (isCreate) {
             const r = await ebCreateEvent(env, eventToEventbritePayload(ev, tz, { isCreate: true }));
             if (!r.ok) return fail('create', r);
             ebId = r.body.id;
@@ -413,9 +429,9 @@ export default {
           }
 
           // 2. venue (named -> resolve/create + attach; empty -> online on CREATE
-          // only, untouched on update — see ensureEbVenue)
-          const venueRes = await ensureEbVenue(env, base, docId, auth, V, ev.addressVisibility, ebId, !ev.ebId);
-          if (venueRes && venueRes.error) return fail('venue', venueRes.error);
+          // only, untouched on update; never a silent online fallback — see ensureEbVenue)
+          const venueRes = await ensureEbVenue(env, base, docId, auth, ev.venueName, venueRow, ev.addressVisibility, ebId, isCreate);
+          if (venueRes && venueRes.error) return fail('venue', venueRes.error, venueRes.error.status === 409 ? 409 : 502);
 
           // 3. ticket class. Only ever CREATE one for a brand-new event (it can't
           // publish without one). On an UPDATE we touch ticketing only if we own
@@ -423,34 +439,32 @@ export default {
           // otherwise leave Eventbrite's ticket classes alone. This avoids both
           // duplicating tickets on an event whose classes we don't track and the
           // "require a quantity_total" error when updating with no capacity.
-          if (!ev.ebId) {
+          let ticketClassId = ev.ticketClassId;
+          if (isCreate) {
             const r = await ebCreateTicket(env, ebId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
-            await setRow([{ column: 'Eventbrite Ticket Class ID', value: r.body.id }]);
-          } else if (ev.tcId && ev.capacity) {
-            const r = await ebUpdateTicket(env, ebId, ev.tcId, ticketClassPayload(ev));
+            ticketClassId = r.body.id;
+            await setRow([{ column: 'Eventbrite Ticket Class ID', value: ticketClassId }]);
+          } else if (ev.ticketClassId && ev.capacity) {
+            const r = await ebUpdateTicket(env, ebId, ev.ticketClassId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
           }
 
           // 4. structured content (description body) — read current version, write current+1.
           // SC write shape ({publish:true}+modules, version in path) verified against the live API in Task 6.
           // page_version_number comes back as a STRING; nextScVersion coerces it (see helper).
-          // On UPDATE, the description is ONLY the staged Public description — no
-          // fallback to the internal Event Description, which would clobber the
-          // live public listing. (Create still falls back so a new event gets a
-          // body.) Combined with the skip below, an empty staged description on
-          // an update leaves the live description — and its rich formatting —
-          // untouched.
-          const scText = ev.publicDescription || (ev.ebId ? '' : (V['Event Description'] || ''));
+          // The description is ONLY the Public description, never the internal
+          // Event Description (decision 7). descriptionToWrite returns null when it
+          // is blank or unchanged since the last push (the pushed snapshot), so the
+          // live description — and rich formatting added in Eventbrite — stays put.
+          const scText = descriptionToWrite(ev, ev.pushed);
           const writeSc = async () => {
+            if (scText == null) return { ver: null, res: { ok: true, skipped: true } };
             const sc = await ebGetStructuredContent(env, ebId);
-            // Our writes are PLAIN text (a single text module), but the listing may
-            // carry rich formatting (bold, links, lists) added in Eventbrite. Never
-            // flatten it as a side effect: skip the rewrite when nothing is staged,
-            // or when the staged text matches the live text content (the publish tab
-            // seeds the field from that same stripped copy, so text-equality means
-            // "the user didn't touch the description").
-            if (!normText(scText) || normText(structuredContentText(sc.body)) === normText(scText))
+            // Our writes are PLAIN text (a single text module). Events pushed before
+            // the snapshot existed have no pushed value to compare with, so also skip
+            // when the text matches the live text content (don't flatten formatting).
+            if (normText(structuredContentText(sc.body)) === normText(scText))
               return { ver: null, res: { ok: true, skipped: true } };
             const ver = nextScVersion(sc.body);
             const { _version, ...scBody } = structuredContentBody(scText, ver);
@@ -476,6 +490,7 @@ export default {
             { column: 'Publish status', value: draftOnly ? 'Draft' : 'Published' },
             { column: 'Last publish error', value: '' },
             { column: PLANNING_COLS.lastEbPushAt, value: new Date().toISOString() },   // conflict-guard baseline (drafts too)
+            { column: PLANNING_COLS.lastEbPushedValues, value: pushedValues(ev, { ticketClassId }) },   // what we just sent (sync status)
           ];
           if (!draftOnly) okCells.push({ column: 'Published?', value: true }, { column: 'Last published at', value: new Date().toISOString() });
           await setRow(okCells);
@@ -1249,18 +1264,19 @@ async function logPublish(env, base, docId, auth, rec) {
 }
 
 // Resolve the planning row's venue to an Eventbrite venue and attach it to the
-// event. `V['Venue']` is an array of venue display-name strings (or empty).
+// event. `name` is the venue display name ('' when none); `found` is its EST
+// Venues SRC row (or null), read once by the publish route for readiness.
 //   - empty -> mark the event online, return null (or {error:r} if that update fails)
-//   - named -> look the venue up in EST Venues SRC; reuse its cached Eventbrite
+//   - public with no street address -> {error} 409 'This venue has no street
+//     address' (readiness blocks this first; never a silent online fallback)
+//   - named -> reuse the venue's cached Eventbrite
 //     Venue ID if present, else create the venue on Eventbrite (passing
 //     addressVisibility through so registrants-only never leaks an address) and
 //     cache the id back into the row (non-fatal if that write fails). Then set
 //     venue_id on the event.
 // Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
 const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
-async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId, isCreate) {
-  const names = Array.isArray(V['Venue']) ? V['Venue'] : (V['Venue'] ? [V['Venue']] : []);
-  const name = names[0];
+async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibility, ebId, isCreate) {
   if (!name) {
     // No staged venue: only a brand-new event gets marked online (it must have
     // SOME location posture to publish). On an update, leave the Eventbrite
@@ -1276,18 +1292,13 @@ async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId,
   // has no hide-address feature), cached separately so the two never mix.
   const registrantsOnly = addressVisibility === 'Registrants only';
   const cacheCol = registrantsOnly ? 'Eventbrite Private Venue ID' : 'Eventbrite Venue ID';
-  const out = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth);
-  const found = out.ok ? out.items.find(row => String((row.values || {})['Venue Name'] || '') === String(name)) : null;
   const realAddress = (found && found.values['Address']) || '';
   // A public venue with no street address on file can't be created (Eventbrite
-  // requires one) → on CREATE fall back to online rather than 400; on update,
-  // leave the Eventbrite-side venue alone. Registrants-only always has a coarse
-  // area, so it's fine.
-  if (!registrantsOnly && !realAddress) {
-    if (!isCreate) return null;
-    const r = await ebUpdateEvent(env, ebId, { event: { online_event: true } });
-    return r.ok ? null : { error: r };
-  }
+  // requires one). Fail with a message the user can act on — never quietly turn
+  // the event into an online one (D7/F13). Registrants-only always has a coarse
+  // area, so it's fine without one.
+  if (!registrantsOnly && !realAddress)
+    return { error: { status: 409, body: { error_description: 'This venue has no street address' } } };
   let venueId = found && (found.values || {})[cacheCol];
   if (!venueId) {
     // Structured coarse area (Eventbrite requires city + country). EST is Nashville

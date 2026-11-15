@@ -65,3 +65,19 @@ test('pushedValues round-trips with numeric capacity', () => {
   assert.equal(p.ticketClassId, 'tc9');
   assert.equal(p.venueName, 'Mirowitz Home');
 });
+
+import { descriptionToWrite } from '../src/publish.js';
+
+test('descriptionToWrite: blank public description -> null (never the internal one)', () => {
+  assert.equal(descriptionToWrite({ publicDescription: '', description: 'internal' }, null), null);
+  assert.equal(descriptionToWrite({ publicDescription: '   ', description: 'internal' }, { publicDescription: 'x' }), null);
+});
+test('descriptionToWrite: equals pushed (whitespace-insensitive) -> null', () => {
+  assert.equal(descriptionToWrite({ publicDescription: ' Come  sing\nwith us ' }, { publicDescription: 'Come sing with us' }), null);
+});
+test('descriptionToWrite: different from pushed -> the text', () => {
+  assert.equal(descriptionToWrite({ publicDescription: 'New copy' }, { publicDescription: 'Old copy' }), 'New copy');
+});
+test('descriptionToWrite: no pushed snapshot + non-blank -> the text', () => {
+  assert.equal(descriptionToWrite({ publicDescription: 'Hello' }, null), 'Hello');
+});
