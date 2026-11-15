@@ -31,12 +31,13 @@
     return [...new Set((rows || []).map((r) => String((r && r.email) || '').trim().toLowerCase()).filter(Boolean))];
   }
   // mailto: links break past ~2k chars in some browsers/clients; past this the
-  // UI disables Email and points at Copy instead.
+  // UI disables Email and points at Copy instead. `max` lets a caller set its own
+  // limit (the editor's "Email registrants" uses 1800, since it adds a body).
   const MAILTO_MAX = 1900;
-  function mailtoHref(emails, subject) {
+  function mailtoHref(emails, subject, body, max) {
     const list = (emails || []).map(encodeURIComponent).join(',');
-    const href = 'mailto:?bcc=' + list + (subject ? '&subject=' + encodeURIComponent(subject) : '');
-    return href.length > MAILTO_MAX ? null : href;
+    const href = 'mailto:?bcc=' + list + (subject ? '&subject=' + encodeURIComponent(subject) : '') + (body ? '&body=' + encodeURIComponent(body) : '');
+    return href.length > (max || MAILTO_MAX) ? null : href;
   }
   root.RosterLib = { SEGMENTS, segmentsFor, applySegment, emailsOf, mailtoHref, MAILTO_MAX };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

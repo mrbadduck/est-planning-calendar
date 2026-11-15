@@ -2490,6 +2490,7 @@ const _lastPushAt=new Map();    // event id → Last EB push at our own last pus
 // A status/conflict answer that read Coda's Last EB push at from before our own last
 // push (Coda's apply lag, 13–30 s) can't say whether Eventbrite was edited since.
 // Treat it as no conflict. 2 s of slack covers Coda storing the time less precisely.
+// Coda's "Last EB push at" must stay a text column: a date column would round the time and break this exact comparison.
 function predatesOurPush(id, theirs){
   const mine=_lastPushAt.get(id); if(!mine) return false;
   const t=Date.parse(theirs||''); if(isNaN(t)) return true;
@@ -2526,6 +2527,52 @@ async function refreshEbStatus(ev){
 function dismissChangeNotice(){
   if(!editing) return;
   _justChanged.delete(editing.id); renderEditorFooter();
+}
+/* ---- Email registrants (Q3 interim, until Mailchimp comms exist): a BCC mailto:
+   in the lead's own mail app, to the roster's Eventbrite registrants (orders —
+   not gather-only sign-ups). Built with the Attendees tab's RosterLib helpers;
+   past MAILTO_LIMIT the emails go to the clipboard instead. The roster is fetched
+   ahead (when the notice or the Eventbrite-cancel bar appears) so the click opens
+   the mail app inside the browser's user-gesture window. */
+const MAILTO_LIMIT=1800;
+const _regFetch=new Map();   // event id → pending roster read, started ahead of the click
+const _emailing=new Set();   // event ids with an Email click being handled
+function prefetchRegistrants(id){
+  const p=DB.roster(id, true); p.catch(()=>{});   // (awaited on the click; a failure is reported then)
+  _regFetch.set(id, p);
+}
+function openMailto(href){ const a=document.createElement('a'); a.href=href; a.hidden=true; document.body.appendChild(a); a.click(); a.remove(); }
+// Returns true when it acted (the mail app opened, or the emails were copied).
+async function emailRegistrants(ev, subject, body){
+  if(!ev || !ev.id || _emailing.has(ev.id)) return false;
+  const L=window.RosterLib, p=_regFetch.get(ev.id) || DB.roster(ev.id, false);
+  _regFetch.delete(ev.id);
+  _emailing.add(ev.id);
+  try{
+    let data;
+    try{ data=await p; }
+    catch(err){
+      if(err && err.status===401) sessionExpired();
+      else toast((err && err.message) || 'Couldn’t load the registrants. Try again.','err');
+      return false;
+    }
+    const emails=L.emailsOf(((data && data.rows) || []).filter(r=>r.kind==='order'));
+    if(!emails.length){ toast('No registrant emails to send to.','err'); return false; }
+    const href=L.mailtoHref(emails, subject, body, MAILTO_LIMIT);
+    if(href){ openMailto(href); return true; }
+    if(await copyText(emails.join(', '))){ toast('Emails copied. Paste them into BCC.','ok'); return true; }
+    toast('Couldn’t reach the clipboard. Use Copy emails on the Attendees tab.','err');
+    return false;
+  }finally{ _emailing.delete(ev.id); }
+}
+// "Email registrants" on the after-update notice: subject + body from changeNotice.
+async function emailAfterChange(){
+  const ev=editing, jc=ev && _justChanged.get(ev.id);
+  if(!jc) return;
+  if(await emailRegistrants(ev, jc.subject, jc.body)){
+    _justChanged.delete(ev.id);              // the lead acted: the notice is done
+    if(editing===ev) renderEditorFooter();
+  }
 }
 // Wait until nothing for this event is queued, in flight or unapplied. Resolves
 // false when an edit failed or a create was never confirmed (nothing to wait for).
@@ -2569,7 +2616,7 @@ async function pushToEventbrite(act){
         _pushChecks.set(id, { draftOnly: spec.draftOnly, checks: err.checks });
         toast(err.checks[0].message || err.message,'err');
       } else if(err && err.status===409 && err.conflict && predatesOurPush(id, err.lastPushAt)){
-        toast('Eventbrite is still catching up with your last update. Try again in a few seconds.','err');   // Coda lag, not an edit
+        toast('Your last update is still being saved. Try again in a few seconds.','err');   // Coda lag, not an edit
       } else if(err && err.status===409 && err.conflict){
         _ebConflict.add(id);
         toast(EB_CONFLICT_NOTICE,'err');
@@ -2596,7 +2643,7 @@ async function pushToEventbrite(act){
       const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);
       if(n.fields.length){
         const sold = st && st.sold!=null ? Number(st.sold) : 0;
-        if(sold > 0) _justChanged.set(id, { fields:n.fields, registrants:sold });
+        if(sold > 0){ _justChanged.set(id, { fields:n.fields, registrants:sold, subject:n.subject, body:n.body }); prefetchRegistrants(id); }
       }
     }
     if(res.ticketNote) msg += '. ' + res.ticketNote;   // R16: the toast is the action's copy, plus the ticket note as its own sentence
@@ -2702,9 +2749,9 @@ function footerAct(act){
   else if(act==='preview-eb') openPreview();
   else if(PUSH_ACTS[act]) pushToEventbrite(act);
   else if(act==='dismiss-notice') dismissChangeNotice();
-  else if(FOOTER_STUB_ACTS.includes(act)) toast('Coming in this branch');   // Tasks 15–16 wire these
+  else if(act==='email-registrants') emailAfterChange();
+  else if(act==='unpublish') toast('Coming in this branch');   // Task 16 wires this
 }
-const FOOTER_STUB_ACTS=['email-registrants','unpublish'];
 // ⋮ menu: closes on an outside click or Esc (before Esc closes the modal); arrow keys
 // move between its items.
 document.addEventListener('click', e=>{ if(_menuOpen && !e.target.closest('#edMenu')) kebabMenu(false); });
