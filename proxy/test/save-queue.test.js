@@ -221,3 +221,33 @@ test('discard clears an error so nothing is retried', async () => {
   await q.settle('e1');
   assert.equal(w.calls.length, 1);
 });
+
+// Honest saves (D3): the app's write is DB.update(...) then applied(requestId).
+// 'saved' must wait for the apply — and for every edit coalesced meanwhile.
+test('saved fires only after the applied promise resolves', async () => {
+  const states = [];
+  const accepted = [], applies = [];
+  const deferred = () => { let resolve; const p = new Promise(r => { resolve = r; }); return { p, resolve }; };
+  const write = (id, cells) => {
+    const acc = deferred(), app = deferred();
+    accepted.push({ cells, acc }); applies.push(app);
+    return acc.p.then(() => app.p);           // the 202, then Coda applying it
+  };
+  const q = create({ write, onState: (id, st) => states.push(st) });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  accepted[0].acc.resolve(); await tick();     // Coda accepted the first write…
+  q.stage('e1', [{ column: 'Capacity', value: 20 }]);   // …and two edits land during its apply
+  q.stage('e1', [{ column: 'Title', value: 'B' }]);
+  assert.equal(q.status('e1'), 'saving');
+  assert.ok(!states.includes('saved'));
+  applies[0].resolve(); await tick();          // first apply done → the coalesced write goes out
+  assert.equal(accepted.length, 2);
+  assert.deepEqual(cols(accepted[1].cells), { Capacity: 20, Title: 'B' });
+  assert.ok(!states.includes('saved'));
+  assert.equal(q.status('e1'), 'saving');
+  accepted[1].acc.resolve(); await tick();
+  assert.ok(!states.includes('saved'), 'accepted but not applied is not saved');
+  applies[1].resolve(); await tick();
+  assert.deepEqual(states.filter(s => s === 'saved'), ['saved']);
+  assert.equal(q.status('e1'), 'idle');
+});

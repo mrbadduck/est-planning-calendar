@@ -373,9 +373,22 @@ const CodaSource = {
   },
   _wh(){ return { 'Content-Type':'application/json', 'Authorization':`Bearer ${state.idToken||''}` }; },
   async _fail(r){ let t=await r.text(); try{ t=JSON.parse(t).error||t; }catch(_){} const e=new Error(`save failed (${r.status})${t?': '+t:''}`); e.status=r.status; throw e; },
-  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; }catch(_){} return e; },
+  // Coda answers a write with 202 + requestId and applies it seconds later — the
+  // Worker passes that body through ({requestId, addedRowIds} for an insert,
+  // {requestId, id} for an update). applied(requestId) waits for the apply.
+  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; e._requestId=(j&&j.requestId)||''; }catch(_){} return e; },
   // Writes ONLY the given cells — Coda leaves every other column of the row as it is.
-  async update(id, cells){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells}})}); if(!r.ok) await this._fail(r); },
+  async update(id, cells){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells}})}); if(!r.ok) await this._fail(r); const j=await r.json().catch(()=>null); return { requestId:(j&&j.requestId)||'' }; },
+  // Has Coda applied this write yet? Never throws on a non-2xx (a network error may —
+  // waitApplied retries it). 401/403 count as applied: the write was accepted with
+  // valid auth seconds ago, and an expired token mid-poll mustn't fail the save.
+  async mutationStatus(requestId){
+    const r=await fetch(`${this.base}/mutation/${encodeURIComponent(requestId)}`,{headers:this._wh()});
+    if(r.status===401 || r.status===403) return { status:404 };
+    if(!r.ok) return { status:r.status };
+    const j=await r.json().catch(()=>({}));
+    return { status:r.status, completed: !!(j && j.completed) };
+  },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
   async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; throw e; } return j; },
@@ -1201,6 +1214,9 @@ async function createFromForm(){
   try{
     const saved=await DB.create(e);
     if(saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); }  // swap temp → real id
+    // Not awaited: the workspace opens now, and its pill/footer read pendingFor(e.id)
+    // until Coda has applied the insert.
+    if(!String(e.id).startsWith('tmp-')) applied(e._requestId, e.id).catch(err=>console.warn('create not confirmed:', err));
     markRecent(e.id, {e}); rerender(); toast('Created','ok'); scheduleReconcile();
     _creating=false;
     if(editing===seed){   // land in the workspace for the just-created event
@@ -1974,8 +1990,38 @@ const _busy=new Set();        // event ids with a transition/cancel/delete in fl
 const _authRetry=new Set();   // event ids whose save hit an expired session — sent again after sign-in
 const sameVal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
+// Honest saves (D3): "Saved" means Coda has APPLIED a write, not just accepted it
+// (202). applied() polls the Worker's /mutation route via CodaApplied.waitApplied.
+// The queue's write awaits it, so saveQueue.status(id)==='saving' covers the apply
+// time of edits; _applying counts only applies started outside the queue (create,
+// transitions). pendingFor(id) is the one answer the pill and footer read.
+const _applying=new Map();    // event id → applies in flight outside the queue
+const _slow=new Set();        // event ids whose apply has passed CodaApplied's slow mark
+function applied(requestId, eventId, opts={}){
+  const counted = opts.counted!==false;
+  if(counted) _applying.set(eventId, (_applying.get(eventId)||0)+1);
+  const repaint=()=>{ if(editing && editing.id===eventId) paintSaveStatus(); };
+  repaint();
+  return CodaApplied.waitApplied(requestId, {
+    fetchStatus: rid => DB.mutationStatus(rid),
+    sleep: ms => new Promise(r => setTimeout(r, ms)),
+    now: () => Date.now(),
+    onSlow: () => { _slow.add(eventId); if(editing && editing.id===eventId) setSaveStatus('slow'); },
+  }).finally(()=>{
+    if(counted){ const n=(_applying.get(eventId)||0)-1; if(n>0) _applying.set(eventId, n); else _applying.delete(eventId); }
+    if(!((_applying.get(eventId)||0) > 0)) _slow.delete(eventId);   // the next write gets its own slow mark
+    repaint();
+  });
+}
+// Anything for this event queued, in flight, or written but not yet applied by Coda.
+function pendingFor(id){
+  if(!id) return false;
+  return saveQueue.status(id)==='saving'
+    || !!(_autosaveT && _form && editing && editing.id===id)
+    || (_applying.get(id)||0) > 0;
+}
 const saveQueue = SaveQueue.create({
-  write: (id, cells) => DB.update(id, cells),
+  write: (id, cells) => DB.update(id, cells).then(r => applied(r && r.requestId, id, { counted:false })),
   onState(id, st, err){
     if(st==='saved'){ const u=_unsaved.get(id); _unsaved.delete(id); guardUnload(); if(u) markRecent(id, {e:u.ev}); scheduleReconcile(); }
     if(st==='error'){
@@ -2027,15 +2073,21 @@ function guardUnload(){
   _unloadGuarded=need;
   if(need) window.addEventListener('beforeunload', onBeforeUnload); else window.removeEventListener('beforeunload', onBeforeUnload);
 }
-function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'error'
-  const el=document.getElementById('saveStatus'); if(!el) return;
-  el.className='savestat '+s;
-  el.textContent = s==='saving'?'Saving…' : s==='error'?'Save failed — retry' : s==='dirty'?'Unsaved changes' : 'Saved';
+function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'slow' | 'error'
+  const el=document.getElementById('saveStatus');
+  if(el){
+    el.className='savestat '+s;
+    el.textContent = s==='saving'?'Saving…' : s==='slow'?'Still saving — Coda is slow right now' : s==='error'?'Save failed — retry' : s==='dirty'?'Unsaved changes' : 'Saved';
+  }
+  renderEditorFooter();                        // the footer's primary slot follows pendingFor too
 }
+// Task 12 fills this: repaint the editor footer's primary slot from pendingFor(editing.id).
+function renderEditorFooter(){}
 function paintSaveStatus(){
   if(!editing || !editing.id) return;
-  const q=saveQueue.status(editing.id);
-  setSaveStatus(q==='saving' ? 'saving' : q==='error' ? 'error' : _autosaveT ? 'dirty' : 'clean');
+  const id=editing.id, q=saveQueue.status(id);
+  const saving = q==='saving' || (_applying.get(id)||0) > 0;
+  setSaveStatus(saving ? (_slow.has(id) ? 'slow' : 'saving') : q==='error' ? 'error' : _autosaveT ? 'dirty' : 'clean');
 }
 function scheduleAutosave(){
   if(!_form || _form.ev!==editing) return;     // create modal / read-only: nothing to auto-save into
@@ -2106,7 +2158,8 @@ async function transitionTo(status){
   let fieldsFailed=false;
   try{
     await saveQueue.settle(ev.id).catch(err=>{ fieldsFailed=true; throw err; });
-    await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
+    const w=await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
+    await applied(w && w.requestId, ev.id);     // Approve → Add to Eventbrite must see the new Status in Coda
     markRecent(ev.id, {e:ev}); scheduleReconcile();
     toast(status==='approved'?'Approved':(status==='draft'?'Reopened':'Proposed'),'ok');
   }catch(err){
