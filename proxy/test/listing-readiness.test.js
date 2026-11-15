@@ -21,12 +21,17 @@ test('stageOf follows spec 5.1', () => {
   assert.equal(R.stageOf({ status: 'approved', eventbriteId: '1', publishStatus: 'Published' }), 'published');
 });
 
+test('stageOf defaults a missing or unknown status to draft', () => {
+  assert.equal(R.stageOf({}), 'draft');
+  assert.equal(R.stageOf({ status: 'weird' }), 'draft');
+});
+
 test('FIELDS marks public fields with pushedKey', () => {
   const pub = ['title', 'date', 'start', 'end', 'venue', 'publicSummary', 'publicDescription', 'capacity', 'addressVisibility'];
   for (const k of ['title', 'description', 'programs', 'leads', ...pub.slice(1)]) assert.ok(R.FIELDS[k], k);
   for (const [k, f] of Object.entries(R.FIELDS)) {
     assert.equal(f.public, pub.includes(k), k);
-    if (f.public) assert.equal(f.pushedKey, k);
+    if (f.public) assert.equal(f.pushedKey, k === 'venue' ? 'venueName' : k);
   }
 });
 
@@ -70,7 +75,7 @@ test('venue address rule', () => {
   const home = { name: 'X', type: 'Home', hasAddress: false };
   const f = failing({ ...ready(), venueName: 'X', addressVisibility: 'Public' }, home);
   assert.deepEqual(f.map(c => c.key), ['venueAddress']);
-  assert.equal(f[0].message, 'This venue has no street address. Add one to the venue, or choose Registrants only');
+  assert.equal(f[0].message, 'Add a street address to the venue, or choose Registrants only');
   assert.equal(failing({ ...ready(), venueName: 'X', addressVisibility: '' }, home).length, 1);
   assert.equal(failing({ ...ready(), venueName: 'X', addressVisibility: 'Registrants only' }, home).length, 0);
   assert.equal(failing({ ...ready(), venueName: 'X', addressVisibility: 'Public' }, { ...home, hasAddress: true }).length, 0);
@@ -90,12 +95,14 @@ test('syncStatus and unpushedFields', () => {
   const unknown = R.syncStatus(ev, null);
   assert.deepEqual(Object.keys(unknown).sort(), ['addressVisibility', 'capacity', 'date', 'end', 'publicDescription', 'publicSummary', 'start', 'title', 'venue']);
   assert.ok(Object.values(unknown).every(v => v === 'unknown'));
-  const pushed = { title: ' T ', date: '2027-03-01', start: '18:00', end: '20:00', venue: 'V', publicSummary: 'S',
+  const pushed = { title: ' T ', date: '2027-03-01', start: '18:00', end: '20:00', venueName: 'V', publicSummary: 'S',
     publicDescription: 'D', capacity: 20, addressVisibility: 'Public' };
   const s = R.syncStatus({ ...ev, capacity: '25' }, pushed);
   assert.equal(s.start, 'changed');
   assert.equal(s.capacity, 'changed');
   assert.equal(s.title, 'match');
+  assert.equal(s.venue, 'match');
+  assert.equal(R.syncStatus({ ...ev, capacity: 'abc' }, { ...pushed, capacity: 'abc' }).capacity, 'match');
   assert.equal(R.syncStatus(ev, pushed).capacity, 'match');
   assert.ok(!('description' in s));
   assert.deepEqual(R.unpushedFields({ ...ev, capacity: '25' }, pushed), ['start', 'capacity']);

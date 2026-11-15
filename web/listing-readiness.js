@@ -8,6 +8,7 @@
    - readiness(ev, {venue, todayISO}): the checks the footer, fields and Worker share
    - addressVisibilityDefault(current, venue): Home venues default to Registrants only
    - syncStatus / unpushedFields: compare the event with the last pushed snapshot */
+// Dates are YYYY-MM-DD and times zero-padded HH:MM: string comparison relies on it.
 (function (root) {
   const blank = v => v == null || String(v).trim() === '';
   const str = v => (v == null ? '' : String(v).trim());
@@ -40,6 +41,7 @@
     addressVisibility: pub('Address visibility'),
   };
   for (const k of Object.keys(FIELDS)) if (FIELDS[k].public) FIELDS[k].pushedKey = k;
+  FIELDS.venue.pushedKey = 'venueName'; // the pushed snapshot stores the venue as venueName
 
   // Value of a FIELDS key on an app event (venue is stored as venueName).
   const evValue = (ev, key) => (key === 'venue' ? ev.venueName : ev[key]);
@@ -69,7 +71,7 @@
       chk('venueOther', 'venue', blank(ev.venueOther) || !blank(ev.venueName),
         'Add this venue to Venues first, so Eventbrite gets its address'),
       chk('venueAddress', 'venue', !venue || !(vis === '' || vis === 'Public') || venue.hasAddress,
-        'This venue has no street address. Add one to the venue, or choose Registrants only'),
+        'Add a street address to the venue, or choose Registrants only'),
     ];
     const publish = add.concat([
       chk('publicDescription', 'publicDescription', !blank(ev.publicDescription),
@@ -86,7 +88,10 @@
   function sameValue(key, a, b) {
     if (key === 'capacity') {
       const n = v => (blank(v) ? null : Number(str(v)));
-      return n(a) === n(b);
+      const x = n(a), y = n(b);
+      if (x === null || y === null) return x === y;
+      if (Number.isFinite(x) && Number.isFinite(y)) return x === y;
+      return str(a) === str(b);
     }
     return str(a) === str(b);
   }
