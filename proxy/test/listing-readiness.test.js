@@ -265,3 +265,19 @@ test('changeNotice', () => {
   assert.ok(v.body.includes('Where: Cafe A → Cafe B'));
   assert.deepEqual(R.changeNotice(b, { ...b, title: 'x' }, ev).fields, []);
 });
+
+test('footerModel sending: primary reads Sending to Eventbrite…, wins over pending', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  const m = fm({ stage: 'onEventbrite', ev, sending: true, pending: true });
+  assert.deepEqual(m.primary, { label: 'Sending to Eventbrite…', act: null, enabled: false, tone: 'primary' });
+  assert.deepEqual(acts(m), ['delete']);
+});
+
+test('EB_CONFLICT_NOTICE is the footer sub text (one constant)', () => {
+  assert.equal(R.EB_CONFLICT_NOTICE, 'Someone changed this listing on Eventbrite since your last update. Updating will replace their changes.');
+  const ev = { ...ready(), publicDescription: 'x' };
+  for (const stage of ['onEventbrite', 'published']) {
+    const m = fm({ stage, ev, ebEditedElsewhere: true });
+    assert.ok(m.sub.endsWith(R.EB_CONFLICT_NOTICE), stage + ': ' + m.sub);
+  }
+});

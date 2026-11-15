@@ -116,8 +116,12 @@
   const STAGE_INDEX = { draft: 0, proposed: 1, approved: 2, onEventbrite: 3, published: 4 };
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
+  // Shown when the listing was edited on Eventbrite since our last push (D8): the
+  // footer and the app's listing card use this one text.
+  const EB_CONFLICT_NOTICE = 'Someone changed this listing on Eventbrite since your last update. Updating will replace their changes.';
+
   function footerModel(input) {
-    const { stage, past, checks, pending, ebEditedElsewhere, registrants, proposedBy, justChanged } = input;
+    const { stage, past, checks, pending, sending, ebEditedElsewhere, registrants, proposedBy, justChanged } = input;
     const role = input.role || {};
     const unpushed = input.unpushed || [];
     const canEdit = !!role.canEdit, canApprove = !!role.canApprove;
@@ -178,7 +182,7 @@
         out.title = 'On Eventbrite as a private draft';
         out.sub = 'Preview shows exactly what Eventbrite has. Publish makes it public and opens registration.';
         if (nUn) out.sub += ' ' + unNote + '.';
-        if (ebEditedElsewhere) out.sub += ' Someone changed this listing on Eventbrite since your last update; updating will replace their changes.';
+        if (ebEditedElsewhere) out.sub += ' ' + EB_CONFLICT_NOTICE;
         if (canEdit) {
           if (nUn) {
             out.primary = prim('Update draft', 'update-eb', addFail.length === 0, 'primary');
@@ -201,7 +205,7 @@
           out.title = regLine();
           out.sub = '';
         }
-        if (ebEditedElsewhere) out.sub += (out.sub ? ' ' : '') + 'Someone changed this listing on Eventbrite since your last update; updating will replace their changes.';
+        if (ebEditedElsewhere) out.sub += (out.sub ? ' ' : '') + EB_CONFLICT_NOTICE;
         if (canEdit) {
           if (nUn) {
             out.primary = prim('Update listing', 'update-listing', pubFail.length === 0, 'primary');
@@ -233,7 +237,8 @@
       out.primary = prim('Email registrants', 'email-registrants', true, 'primary');
       out.secondary = { label: 'Not now', act: 'dismiss-notice' };
     }
-    if (pending && out.primary) out.primary = prim('Saving…', null, false, 'primary');   // no action to hold back → nothing to show
+    if (sending && out.primary) out.primary = prim('Sending to Eventbrite…', null, false, 'primary');   // a push in flight
+    else if (pending && out.primary) out.primary = prim('Saving…', null, false, 'primary');   // no action to hold back → nothing to show
     return out;
   }
 
@@ -277,5 +282,5 @@
     };
   }
 
-  root.ListingRules = { stageOf, FIELDS, readiness, addressVisibilityDefault, syncStatus, unpushedFields, footerModel, changeNotice, fmtDate, fmtTime };
+  root.ListingRules = { stageOf, FIELDS, readiness, addressVisibilityDefault, syncStatus, unpushedFields, footerModel, changeNotice, fmtDate, fmtTime, EB_CONFLICT_NOTICE };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

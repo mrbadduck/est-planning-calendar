@@ -61,13 +61,16 @@ export function pushedValues(ev, { ticketClassId } = {}) {
 
 // The publish route's 200 body. `pushed` is the snapshot just written to Last EB
 // pushed values (R15): the app adopts it as-is rather than recomputing it.
-export function publishSuccessBody({ ebId, url, draftOnly, ticketNote, pushedJson }) {
+// `lastPushAt` is the Last EB push at it wrote, so the app can tell a status read
+// that predates this push (Coda's apply lag) from a real Eventbrite-side edit.
+export function publishSuccessBody({ ebId, url, draftOnly, ticketNote, pushedJson, lastPushAt }) {
   let pushed = null;
   try { pushed = JSON.parse(pushedJson); } catch (_) {}
   return {
     ok: true, eventbriteId: ebId, url, draft: !!draftOnly,
     publishStatus: draftOnly ? 'Draft' : 'Published',
     pushed,
+    lastPushAt: lastPushAt || null,
     ...(ticketNote ? { ticketNote } : {}),
   };
 }

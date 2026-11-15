@@ -237,3 +237,7 @@ test('publishSuccessBody: publish step + ticket note', () => {
   assert.equal(b.ticketNote, 'n');
   assert.deepEqual(b.pushed, { title: 'T' });
 });
+test('publishSuccessBody: returns the lastPushAt it wrote', () => {
+  const b = publishSuccessBody({ ebId: '9', url: 'u', draftOnly: true, pushedJson: '{}', lastPushAt: '2026-11-15T10:00:00.000Z' });
+  assert.equal(b.lastPushAt, '2026-11-15T10:00:00.000Z');
+});

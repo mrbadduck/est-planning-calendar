@@ -398,7 +398,7 @@ const CodaSource = {
   },
   async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
-  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; throw e; } return j; },
+  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; e.lastPushAt=j.lastPushAt||null; throw e; } return j; },
   async ebPreview(rowId){ const r=await fetch(`${this.base}/eventbrite/preview?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(r.status===404 && j && j.linked===false) return null; if(!r.ok){ const e=new Error(j.error||`preview failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async refreshPeople(){ const r=await fetch(`${this.base}/admin/refresh-people`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`refresh failed (${r.status})`); e.status=r.status; throw e; } return j; },
@@ -982,7 +982,8 @@ function paintFieldMarks(){
   const c=document.getElementById('listingCard');
   if(c){
     paintInner(c, listingCardHTML(editing));
-    if(editing.eventbriteId && ebConflict(editing.id)) _conflictShown.add(editing.id);   // the next push may overwrite (D8)
+    // The next push may overwrite only right after a real notice was seen (D8).
+    if(editing.eventbriteId && ebConflict(editing.id)) _conflictShown.add(editing.id); else _conflictShown.delete(editing.id);
   }
   const lh=document.getElementById('listingHead'); if(lh) paintInner(lh, listingHeadHTML(editing));
   const dh=document.getElementById('f_pubdeschint'); if(dh) paintInner(dh, esc(pubDescHintText(!!editing.eventbriteId)));
@@ -1158,6 +1159,7 @@ function openEditor(ev, section){
   if(String(ev.id||'').startsWith('tmp-')){ toast('Still creating this event — try again in a moment'); return; }   // no row to save into yet
   if(editing && editing!==ev && leaveGuard(()=>openEditor(ev, section))) return;   // switching away from a linked event with unpushed edits
   hideLeaveGuard(); closePreview();
+  _pushChecks.delete(ev.id);   // the Worker's last "needs X" answer doesn't outlive the editor
   leaveForm();   // leaving an open editor (or rebuilding this one): queue its unsaved edits first
   editing = ev;
   _menuOpen = false;
@@ -2238,7 +2240,8 @@ function editorFooterModel(ev, ctx){
     past: ctx.past,
     role: ctx.role,
     checks: mergePushChecks(local, wc),
-    pending: pendingFor(ev.id) || _pushing.has(ev.id),   // a push in flight holds the primary at Saving… too
+    pending: pendingFor(ev.id) || _pushing.has(ev.id),   // a push under way holds the primary at Saving…
+    sending: _sending.has(ev.id),                        // …then Sending to Eventbrite… during the Worker call
     unpushed: R.unpushedFields(ev, ev.pushed || null),
     ebEditedElsewhere: ebConflict(ev.id),
     registrants: st && st.sold!=null ? Number(st.sold) : null,   // null until the live status loads
@@ -2475,13 +2478,23 @@ const PUSH_ACTS = {
   'publish-eb':     { draftOnly:false, ok:'Published. Registration is open' },
   'update-listing': { draftOnly:false, ok:'Eventbrite listing updated' },
 };
-const EB_CONFLICT_NOTICE = 'Someone changed this listing on Eventbrite since your last update. Updating will replace their changes.';
+const EB_CONFLICT_NOTICE = ListingRules.EB_CONFLICT_NOTICE;   // one text for the card and the footer
 const _ebStatus=new Map();      // event id → { editedSincePush, sold, liveStatus } from GET /eventbrite/status (session-local)
 const _ebStatusSeq=new Map();   // event id → latest request number (an older answer never overwrites a newer one)
 const _pushChecks=new Map();    // event id → { draftOnly, checks } the Worker's last readiness 409, until the next edit
 const _ebConflict=new Set();    // event ids whose last push got the conflict 409
 const _conflictShown=new Set(); // event ids whose conflict notice has been shown: the next push sends force
-const _pushing=new Set();       // event ids with a push in flight
+const _pushing=new Set();       // event ids with a push under way (saving first, then sending)
+const _sending=new Set();       // event ids whose Worker call is in flight (primary: Sending to Eventbrite…)
+const _lastPushAt=new Map();    // event id → Last EB push at our own last push wrote (from the success body)
+// A status/conflict answer that read Coda's Last EB push at from before our own last
+// push (Coda's apply lag, 13–30 s) can't say whether Eventbrite was edited since.
+// Treat it as no conflict. 2 s of slack covers Coda storing the time less precisely.
+function predatesOurPush(id, theirs){
+  const mine=_lastPushAt.get(id); if(!mine) return false;
+  const t=Date.parse(theirs||''); if(isNaN(t)) return true;
+  return t < Date.parse(mine) - 2000;
+}
 const _justChanged=new Map();   // event id → { fields, registrants } after an Update listing that moved date/time/venue
 const ebConflict = id => !!((_ebStatus.get(id)||{}).editedSincePush || _ebConflict.has(id));
 // The capacity Eventbrite has (the pushed one), else the form's.
@@ -2507,7 +2520,7 @@ async function refreshEbStatus(ev){
   let r=null;
   try{ r=await DB.ebStatus(id); }catch(_){ r=null; }
   if(_ebStatusSeq.get(id)!==seq || !r || !r.linked || !r.live) return;   // superseded, or nothing to show
-  _ebStatus.set(id, { editedSincePush: !!r.editedSincePush, sold: r.live.sold!=null ? Number(r.live.sold) : null, liveStatus: r.live.status || '' });
+  _ebStatus.set(id, { editedSincePush: !!r.editedSincePush && !predatesOurPush(id, r.lastPushAt), sold: r.live.sold!=null ? Number(r.live.sold) : null, liveStatus: r.live.status || '' });
   if(editing && editing.id===id) renderEditorFooter();   // footer + card; another open event ignores it
 }
 function dismissChangeNotice(){
@@ -2525,14 +2538,6 @@ async function settledForPush(id){
     if(pendingFor(id)) await new Promise(r=>setTimeout(r, 300));
   }
   return saveQueue.status(id)!=='error' && !_unconfirmed.has(id);
-}
-function pushedChangeText(n, after){
-  const F=ListingRules, parts=[];
-  for(const k of n.fields){
-    const v = k==='date' ? F.fmtDate(after.date) : k==='venue' ? (after.venueName || 'Online') : F.fmtTime(after[k]);
-    parts.push(`${(F.FIELDS[k] ? F.FIELDS[k].label : k).toLowerCase()} ${v}`);
-  }
-  return parts.join(', ');
 }
 async function pushToEventbrite(act){
   const spec=PUSH_ACTS[act], ev=editing;
@@ -2554,13 +2559,17 @@ async function pushToEventbrite(act){
       return;
     }
     toast(spec.draftOnly ? 'Sending to Eventbrite…' : 'Publishing…','busy');
+    _sending.add(id); if(editing===ev) renderEditorFooter();
     let res;
     try{ res=await DB.publishEventbrite(id, spec.draftOnly, force); }
     catch(err){
+      _sending.delete(id);
       if(err && err.status===401){ sessionExpired(); return; }
       if(err && err.status===409 && err.checks && err.checks.length){
         _pushChecks.set(id, { draftOnly: spec.draftOnly, checks: err.checks });
         toast(err.checks[0].message || err.message,'err');
+      } else if(err && err.status===409 && err.conflict && predatesOurPush(id, err.lastPushAt)){
+        toast('Eventbrite is still catching up with your last update. Try again in a few seconds.','err');   // Coda lag, not an edit
       } else if(err && err.status===409 && err.conflict){
         _ebConflict.add(id);
         toast(EB_CONFLICT_NOTICE,'err');
@@ -2570,7 +2579,9 @@ async function pushToEventbrite(act){
       }
       return;
     }
+    _sending.delete(id);
     const prevPushed=ev.pushed || null;
+    _lastPushAt.set(id, res.lastPushAt || new Date().toISOString());
     if(res.eventbriteId) ev.eventbriteId=String(res.eventbriteId);
     if(res.url) ev.eventbriteUrl=res.url;
     ev.publishStatus = res.publishStatus || (spec.draftOnly ? 'Draft' : 'Published');
@@ -2584,16 +2595,15 @@ async function pushToEventbrite(act){
     if(act==='update-listing' && prevPushed && ev.pushed){
       const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);
       if(n.fields.length){
-        msg += ': ' + pushedChangeText(n, ev.pushed);
         const sold = st && st.sold!=null ? Number(st.sold) : 0;
         if(sold > 0) _justChanged.set(id, { fields:n.fields, registrants:sold });
       }
     }
-    if(res.ticketNote) msg += '. ' + res.ticketNote;
+    if(res.ticketNote) msg += '. ' + res.ticketNote;   // R16: the toast is the action's copy, plus the ticket note as its own sentence
     toast(msg,'ok');
     refreshEbStatus(ev);
   }finally{
-    _busy.delete(id); _pushing.delete(id); guardUnload();
+    _busy.delete(id); _pushing.delete(id); _sending.delete(id); guardUnload();
     if(editing===ev) renderEditorFooter();     // footer + card only (D1); the form keeps focus and values
   }
 }
