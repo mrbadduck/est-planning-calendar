@@ -281,3 +281,25 @@ test('EB_CONFLICT_NOTICE is the footer sub text (one constant)', () => {
     assert.ok(m.sub.endsWith(R.EB_CONFLICT_NOTICE), stage + ': ' + m.sub);
   }
 });
+
+test('footerModel legacy row (pushed null): offers the update, not compared yet', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  const d = fm({ stage: 'onEventbrite', ev, pushed: null });
+  assert.equal(d.primary.label, 'Update draft');
+  assert.equal(d.primary.act, 'update-eb');
+  assert.equal(d.primary.enabled, true);
+  assert.equal(d.sub, 'Not compared with Eventbrite yet');
+  assert.equal(d.secondary.act, 'preview-eb');
+  const p = fm({ stage: 'published', ev, pushed: null, registrants: 2, capacity: 20 });
+  assert.equal(p.primary.label, 'Update listing');
+  assert.equal(p.primary.act, 'update-listing');
+  assert.equal(p.primary.enabled, true);
+  assert.equal(p.title, 'Published · registration open · 2 of 20 registered');
+  assert.equal(p.sub, 'Not compared with Eventbrite yet');
+  // a known snapshot with nothing changed keeps Publish / ✓ Saved
+  assert.equal(fm({ stage: 'onEventbrite', ev, pushed: {} }).primary.label, 'Publish');
+  assert.equal(fm({ stage: 'published', ev, pushed: {} }).primary.label, '✓ Saved');
+  // not for someone who can't edit, nor once the event is past
+  assert.equal(fm({ stage: 'published', ev, pushed: null, role: { canEdit: false } }).primary, null);
+  assert.equal(fm({ stage: 'published', ev, pushed: null, past: true }).primary, null);
+});

@@ -136,6 +136,10 @@
     const del = sub => ({ act: 'delete', label: 'Delete event', sub: sub || '', tone: 'danger' });
     const addFail = failing(checks && checks.add), pubFail = failing(checks && checks.publish);
     const nUn = unpushed.length;
+    // A row pushed before the pushed snapshot existed (input.pushed === null) can't
+    // be compared with Eventbrite: offer the update rather than claim it matches.
+    const notCompared = input.pushed === null && !nUn;
+    const NOT_COMPARED = 'Not compared with Eventbrite yet';
     const unNote = nUn === 1 ? "1 change isn't on Eventbrite yet" : nUn + " changes aren't on Eventbrite yet";
     const regLine = () => {
       const base = 'Published · registration open';
@@ -180,11 +184,12 @@
         break;
       case 'onEventbrite': {
         out.title = 'On Eventbrite as a private draft';
-        out.sub = 'Preview shows exactly what Eventbrite has. Publish makes it public and opens registration.';
+        out.sub = notCompared ? NOT_COMPARED
+          : 'Preview shows exactly what Eventbrite has. Publish makes it public and opens registration.';
         if (nUn) out.sub += ' ' + unNote + '.';
         if (ebEditedElsewhere) out.sub += ' ' + EB_CONFLICT_NOTICE;
         if (canEdit) {
-          if (nUn) {
+          if (nUn || notCompared) {
             out.primary = prim('Update draft', 'update-eb', addFail.length === 0, 'primary');
             out.links = toLinks(addFail);
           } else {
@@ -203,11 +208,11 @@
             unpushed.map(k => (FIELDS[k] ? FIELDS[k].label : k)).join(', ') + '.';
         } else {
           out.title = regLine();
-          out.sub = '';
+          out.sub = notCompared ? NOT_COMPARED : '';
         }
         if (ebEditedElsewhere) out.sub += (out.sub ? ' ' : '') + EB_CONFLICT_NOTICE;
         if (canEdit) {
-          if (nUn) {
+          if (nUn || notCompared) {
             out.primary = prim('Update listing', 'update-listing', pubFail.length === 0, 'primary');
             out.links = toLinks(pubFail);
           } else out.primary = savedText;

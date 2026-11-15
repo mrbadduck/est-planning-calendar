@@ -2261,6 +2261,7 @@ function editorFooterModel(ev, ctx){
     pending: pendingFor(ev.id) || _pushing.has(ev.id),   // a push under way holds the primary at Saving…
     sending: _sending.has(ev.id),                        // …then Sending to Eventbrite… during the Worker call
     unpushed: R.unpushedFields(ev, ev.pushed || null),
+    pushed: ev.pushed || null,     // null: pushed before the snapshot existed — offer the update (not compared)
     ebEditedElsewhere: ebConflict(ev.id),
     registrants: st && st.sold!=null ? Number(st.sold) : null,   // null until the live status loads
     capacity: ebCapacity(ev),
