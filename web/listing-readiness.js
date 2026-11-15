@@ -111,5 +111,169 @@
     return Object.keys(FIELDS).filter(k => s[k] === 'changed');
   }
 
-  root.ListingRules = { stageOf, FIELDS, readiness, addressVisibilityDefault, syncStatus, unpushedFields };
+  // ---- footer wizard model (spec 5.5) ----
+  const STEP_LABELS = ['Draft', 'Proposed', 'Approved', 'On Eventbrite', 'Published'];
+  const STAGE_INDEX = { draft: 0, proposed: 1, approved: 2, onEventbrite: 3, published: 4 };
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+
+  function footerModel(input) {
+    const { stage, past, checks, pending, ebEditedElsewhere, registrants, proposedBy, justChanged } = input;
+    const role = input.role || {};
+    const unpushed = input.unpushed || [];
+    const canEdit = !!role.canEdit, canApprove = !!role.canApprove;
+    const cur = STAGE_INDEX[stage];
+    const steps = STEP_LABELS.map((label, i) => ({ label,
+      state: cur == null ? 'todo' : i < cur ? 'done' : i === cur ? 'current' : 'todo' }));
+    const failing = list => (list || []).filter(c => !c.ok);
+    const toLinks = list => list.map(c => ({ field: c.field, label: c.message }));
+    const prim = (label, act, enabled, tone) => ({ label, act, enabled, tone });
+    const savedText = prim('✓ Saved', null, false, 'quiet');
+    const out = { steps, title: '', sub: '', links: [], primary: null, secondary: null, menu: [] };
+    const del = sub => ({ act: 'delete', label: 'Delete event', sub: sub || '', tone: 'danger' });
+    const addFail = failing(checks && checks.add), pubFail = failing(checks && checks.publish);
+    const nUn = unpushed.length;
+    const unNote = nUn === 1 ? "1 change isn't on Eventbrite yet" : nUn + " changes aren't on Eventbrite yet";
+    const regLine = () => {
+      const base = 'Published · registration open';
+      if (registrants == null) return base;
+      return input.capacity ? base + ' · ' + registrants + ' of ' + input.capacity + ' registered'
+        : base + ' · ' + plural(registrants, 'registered', 'registered');
+    };
+
+    switch (stage) {
+      case 'draft':
+        out.title = 'Draft: only leads can see this';
+        out.sub = 'Propose it when the plan is ready. Rough dates are fine for now.';
+        if (canEdit) { out.primary = prim('Propose to council', 'propose', true, 'primary'); out.menu.push(del()); }
+        break;
+      case 'proposed':
+        if (canApprove) {
+          out.title = 'Needs your approval';
+          const by = proposedBy && proposedBy.name, on = proposedBy && proposedBy.date;
+          out.sub = 'Proposed' + (on ? ' ' + on : '') + (by ? ' by ' + by : '') +
+            '. Approving lets the lead add it to Eventbrite and publish it.';
+          out.primary = prim('Approve', 'approve', true, 'primary');
+        } else {
+          out.title = 'Awaiting Tribal Council approval';
+          out.sub = 'You can keep editing meanwhile. This footer changes as soon as council approves.';
+          if (canEdit) out.primary = savedText;
+        }
+        if (canEdit) out.menu.push(del());
+        break;
+      case 'approved':
+        if (addFail.length) {
+          out.title = 'Approved. ' + plural(addFail.length, 'thing', 'things') + ' left before Eventbrite';
+          out.sub = 'Then Add to Eventbrite creates a private draft. Nobody sees it until you publish.';
+          out.links = toLinks(addFail);
+        } else {
+          out.title = 'Ready for Eventbrite';
+          out.sub = 'Adding creates a private draft listing. Nobody can see it until you publish.';
+        }
+        if (canEdit) {
+          out.primary = prim('Add to Eventbrite', 'add-eb', addFail.length === 0, 'go');
+          out.menu.push(del());
+        }
+        break;
+      case 'onEventbrite': {
+        out.title = 'On Eventbrite as a private draft';
+        out.sub = 'Preview shows exactly what Eventbrite has. Publish makes it public and opens registration.';
+        if (nUn) out.sub += ' ' + unNote + '.';
+        if (ebEditedElsewhere) out.sub += ' Someone changed this listing on Eventbrite since your last update; updating will replace their changes.';
+        if (canEdit) {
+          if (nUn) {
+            out.primary = prim('Update draft', 'update-eb', addFail.length === 0, 'primary');
+            out.links = toLinks(addFail);
+          } else {
+            out.primary = prim('Publish', 'publish-eb', pubFail.length === 0, 'go');
+            out.links = toLinks(pubFail);
+          }
+          out.secondary = { label: 'Preview listing', act: 'preview-eb' };
+          out.menu.push(del('Also deletes the Eventbrite draft'));
+        }
+        break;
+      }
+      case 'published':
+        if (nUn) {
+          out.title = unNote;
+          out.sub = regLine() + '. Not on Eventbrite yet: ' +
+            unpushed.map(k => (FIELDS[k] ? FIELDS[k].label : k)).join(', ') + '.';
+        } else {
+          out.title = regLine();
+          out.sub = '';
+        }
+        if (ebEditedElsewhere) out.sub += (out.sub ? ' ' : '') + 'Someone changed this listing on Eventbrite since your last update; updating will replace their changes.';
+        if (canEdit) {
+          if (nUn) {
+            out.primary = prim('Update listing', 'update-listing', pubFail.length === 0, 'primary');
+            out.links = toLinks(pubFail);
+          } else out.primary = savedText;
+          if (registrants == null || registrants === 0)
+            out.menu.push({ act: 'unpublish', label: 'Unpublish (back to private)', sub: 'Only possible while nobody has registered', tone: 'normal' });
+          out.menu.push({ act: 'cancel', label: 'Cancel event…', sub: 'Cancels the listing and notifies registrants', tone: 'danger' });
+        }
+        break;
+      case 'cancelled':
+        out.title = 'Cancelled';
+        out.sub = canApprove ? 'Reopen it to plan it again, or delete it for good.' : 'Tribal Council can reopen or delete it.';
+        if (canApprove) { out.primary = prim('Reopen', 'reopen', true, 'primary'); out.menu.push(del()); }
+        break;
+    }
+
+    if (past && (stage === 'published' || stage === 'onEventbrite')) {
+      out.primary = null; out.secondary = null; out.menu = []; out.links = [];
+    }
+    if (justChanged && justChanged.fields && justChanged.fields.length && (stage === 'published' || stage === 'onEventbrite') && canEdit) {
+      const names = justChanged.fields.map(k => (FIELDS[k] ? FIELDS[k].label : k).toLowerCase());
+      const what = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+      out.title = 'The ' + what + (names.length > 1 ? ' changed' : ' changed') + '. Let the ' +
+        plural(justChanged.registrants || 0, 'registrant', 'registrants') + ' know?';
+      out.sub = '';
+      out.primary = prim('Email registrants', 'email-registrants', true, 'primary');
+      out.secondary = { label: 'Not now', act: 'dismiss-notice' };
+    }
+    if (pending) out.primary = prim('Saving…', null, false, 'primary');
+    return out;
+  }
+
+  // ---- change notice for registrants (date/time/venue only) ----
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function fmtDate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(iso));
+    if (!m) return str(iso);
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return DAYS[d.getUTCDay()] + ', ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  function fmtTime(t) {
+    const m = /^(\d{1,2}):(\d{2})/.exec(str(t));
+    if (!m) return str(t);
+    const h = +m[1];
+    return ((h % 12) || 12) + ':' + m[2] + ' ' + (h < 12 ? 'AM' : 'PM');
+  }
+
+  function changeNotice(before, after, ev) {
+    before = before || {}; after = after || {};
+    const defs = [
+      ['date', 'Date', fmtDate, o => o.date],
+      ['start', 'Start time', fmtTime, o => o.start],
+      ['end', 'End time', fmtTime, o => o.end],
+      ['venue', 'Where', v => str(v) || 'Online', o => o.venueName],
+    ];
+    const fields = [], lines = [];
+    for (const [key, label, fmt, get] of defs) {
+      const a = str(get(before)), b = str(get(after));
+      if (a === b) continue;
+      fields.push(key);
+      lines.push(label + ': ' + fmt(a) + ' → ' + fmt(b));
+    }
+    const title = (ev && ev.title) || after.title || before.title || '';
+    const date = after.date || (ev && ev.date) || before.date;
+    return {
+      subject: 'Update: ' + title + ' on ' + fmtDate(date),
+      body: lines.join('\n') + (lines.length ? '\n\n' : '') + 'See you there!',
+      fields,
+    };
+  }
+
+  root.ListingRules = { stageOf, FIELDS, readiness, addressVisibilityDefault, syncStatus, unpushedFields, footerModel, changeNotice };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

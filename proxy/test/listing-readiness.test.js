@@ -108,3 +108,149 @@ test('syncStatus and unpushedFields', () => {
   assert.deepEqual(R.unpushedFields({ ...ev, capacity: '25' }, pushed), ['start', 'capacity']);
   assert.deepEqual(R.unpushedFields(ev, null), []);
 });
+
+// ---- footerModel / changeNotice (Task 3) ----
+const LEAD = { canEdit: true, canApprove: false };
+const COUNCIL = { canEdit: true, canApprove: true };
+const fm = (o) => {
+  const ev = o.ev || ready();
+  return R.footerModel({ stage: 'approved', past: false, role: LEAD, pending: false, unpushed: [],
+    ebEditedElsewhere: false, registrants: null, proposedBy: null, justChanged: null,
+    checks: R.readiness(ev, { todayISO: TODAY }), ...o });
+};
+const acts = m => m.menu.map(x => x.act);
+
+test('footerModel draft lead', () => {
+  const m = fm({ stage: 'draft' });
+  assert.equal(m.title, 'Draft: only leads can see this');
+  assert.equal(m.primary.label, 'Propose to council');
+  assert.equal(m.primary.act, 'propose');
+  assert.deepEqual(acts(m), ['delete']);
+  assert.deepEqual(m.steps.map(s => s.state), ['current', 'todo', 'todo', 'todo', 'todo']);
+});
+
+test('footerModel proposed lead and council', () => {
+  const l = fm({ stage: 'proposed' });
+  assert.equal(l.title, 'Awaiting Tribal Council approval');
+  assert.equal(l.primary.label, '✓ Saved');
+  assert.equal(l.primary.enabled, false);
+  assert.deepEqual(acts(l), ['delete']);
+  const c = fm({ stage: 'proposed', role: COUNCIL, proposedBy: { name: 'Dana', date: 'Nov 3' } });
+  assert.equal(c.title, 'Needs your approval');
+  assert.match(c.sub, /Proposed Nov 3 by Dana\./);
+  assert.equal(c.primary.act, 'approve');
+  assert.deepEqual(acts(c), ['delete']);
+});
+
+test('footerModel approved not ready', () => {
+  const ev = { ...ready(), end: '', capacity: '' };
+  const m = fm({ ev });
+  assert.equal(m.title, 'Approved. 2 things left before Eventbrite');
+  assert.deepEqual(m.links.map(l => l.field), ['end', 'capacity']);
+  assert.equal(m.primary.label, 'Add to Eventbrite');
+  assert.equal(m.primary.enabled, false);
+  assert.deepEqual(acts(m), ['delete']);
+  const one = fm({ ev: { ...ready(), capacity: '' } });
+  assert.equal(one.title, 'Approved. 1 thing left before Eventbrite');
+});
+
+test('footerModel approved ready', () => {
+  const m = fm({});
+  assert.equal(m.title, 'Ready for Eventbrite');
+  assert.equal(m.primary.enabled, true);
+  assert.equal(m.primary.act, 'add-eb');
+  assert.deepEqual(m.links, []);
+});
+
+test('footerModel onEventbrite: publish, update draft, disabled', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  const p = fm({ stage: 'onEventbrite', ev });
+  assert.equal(p.title, 'On Eventbrite as a private draft');
+  assert.equal(p.primary.label, 'Publish');
+  assert.equal(p.primary.enabled, true);
+  assert.equal(p.secondary.act, 'preview-eb');
+  assert.deepEqual(acts(p), ['delete']);
+  const d = fm({ stage: 'onEventbrite', ev, unpushed: ['start'] });
+  assert.equal(d.primary.label, 'Update draft');
+  assert.equal(d.primary.act, 'update-eb');
+  assert.match(d.sub, /1 change isn't on Eventbrite yet/);
+  const no = fm({ stage: 'onEventbrite' }); // no public description
+  assert.equal(no.primary.label, 'Publish');
+  assert.equal(no.primary.enabled, false);
+  assert.deepEqual(no.links.map(l => l.field), ['publicDescription']);
+});
+
+test('footerModel published', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  const u = fm({ stage: 'published', ev, unpushed: ['start', 'capacity'], registrants: 0 });
+  assert.equal(u.title, "2 changes aren't on Eventbrite yet");
+  assert.equal(u.primary.label, 'Update listing');
+  assert.equal(u.primary.act, 'update-listing');
+  assert.deepEqual(acts(u), ['unpublish', 'cancel']);
+  const s = fm({ stage: 'published', ev, registrants: 3, capacity: 20 });
+  assert.equal(s.title, 'Published · registration open · 3 of 20 registered');
+  assert.equal(s.primary.label, '✓ Saved');
+  assert.deepEqual(acts(s), ['cancel']); // registrants > 0: no unpublish
+  assert.deepEqual(acts(fm({ stage: 'published', ev, registrants: null })), ['unpublish', 'cancel']);
+});
+
+test('footerModel published, just changed', () => {
+  const m = fm({ stage: 'published', justChanged: { fields: ['start'], registrants: 4 } });
+  assert.equal(m.title, 'The start time changed. Let the 4 registrants know?');
+  assert.equal(m.primary.act, 'email-registrants');
+  assert.equal(m.secondary.act, 'dismiss-notice');
+  assert.ok(acts(m).includes('cancel'));
+});
+
+test('footerModel cancelled', () => {
+  const c = fm({ stage: 'cancelled', role: COUNCIL });
+  assert.equal(c.title, 'Cancelled');
+  assert.equal(c.primary.act, 'reopen');
+  assert.deepEqual(acts(c), ['delete']);
+  assert.ok(c.steps.every(s => s.state === 'todo'));
+  const l = fm({ stage: 'cancelled' });
+  assert.equal(l.primary, null);
+  assert.deepEqual(acts(l), []);
+});
+
+test('footerModel pending replaces primary only', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  const m = fm({ stage: 'onEventbrite', ev, pending: true });
+  assert.deepEqual(m.primary, { label: 'Saving…', act: null, enabled: false, tone: 'primary' });
+  assert.equal(m.title, 'On Eventbrite as a private draft');
+  assert.deepEqual(acts(m), ['delete']);
+});
+
+test('footerModel past: no primary, no menu, unless just changed', () => {
+  for (const stage of ['published', 'onEventbrite']) {
+    const m = fm({ stage, past: true });
+    assert.equal(m.primary, null);
+    assert.deepEqual(m.menu, []);
+  }
+  const j = fm({ stage: 'published', past: true, justChanged: { fields: ['date'], registrants: 2 } });
+  assert.equal(j.primary.act, 'email-registrants');
+  assert.deepEqual(j.menu, []);
+});
+
+test('footerModel never offers delete and cancel together', () => {
+  for (const stage of ['draft', 'proposed', 'approved', 'onEventbrite', 'published', 'cancelled'])
+    for (const role of [LEAD, COUNCIL, { canEdit: false, canApprove: false }])
+      for (const registrants of [null, 0, 5]) {
+        const a = acts(fm({ stage, role, registrants }));
+        assert.ok(!(a.includes('delete') && a.includes('cancel')), stage);
+        if (stage !== 'published') assert.ok(!a.includes('cancel'), stage);
+      }
+});
+
+test('changeNotice', () => {
+  const ev = { title: 'Shabbat dinner', date: '2027-03-01' };
+  const b = { date: '2027-03-01', start: '18:00', end: '20:00', venueName: 'Cafe A' };
+  const n = R.changeNotice(b, { ...b, start: '18:30' }, ev);
+  assert.deepEqual(n.fields, ['start']);
+  assert.equal(n.subject, 'Update: Shabbat dinner on Mon, Mar 1');
+  assert.ok(n.body.includes('Start time: 6:00 PM → 6:30 PM'));
+  assert.ok(n.body.endsWith('\n\nSee you there!'));
+  const v = R.changeNotice(b, { ...b, venueName: 'Cafe B' }, ev);
+  assert.ok(v.body.includes('Where: Cafe A → Cafe B'));
+  assert.deepEqual(R.changeNotice(b, { ...b, title: 'x' }, ev).fields, []);
+});
