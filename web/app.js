@@ -1067,6 +1067,7 @@ function venueRecord(ev){
   return v ? { name:v.name, type:v.type||'', hasAddress:false } : null;
 }
 // One context object per open editor (D2): who may do what, and where the event is.
+// (No `stage`: the footer reads stageOf live, since publish status can change while open.)
 // `locked` = Cancelled only — leads keep editing after approval (decision 5); a past
 // approved event's Details lock separately through `past`.
 function editorCtx(ev){
@@ -1075,7 +1076,6 @@ function editorCtx(ev){
     ev,
     role:{ canEdit: !isRef && !!(state.identity && state.identity.canWrite),
            canApprove: !isRef && !!(state.identity && state.identity.canApprove) },
-    stage: ListingRules.stageOf(ev),
     past: !isRef && isHistory(ev),
     locked: !isRef && ev.status==='cancelled',
   };
@@ -1138,10 +1138,10 @@ function openEditor(ev, section){
   actions.innerHTML = head;
 
   // footer wizard (spec 5.5): stable containers filled by renderEditorFooter (D1) —
-  // #edFoot = progress + what's next, then the save pill, then #edActs = the one
-  // primary action + ⋮. Dismissal is the header ✕/Esc/scrim.
+  // #edFoot = progress + what's next, then the save pill, #edActs = the one primary
+  // action, #edMenu = ⋮. Dismissal is the header ✕/Esc/scrim.
   const pill = (ev.id && canEdit && !locked && !pastLocked) ? `<span class="savestat clean" id="saveStatus">Saved</span>` : '';
-  document.getElementById('mFoot').innerHTML = `<div class="edmsg" id="edFoot"></div>${pill}<div class="edacts" id="edActs"></div>`;
+  document.getElementById('mFoot').innerHTML = `<div class="edmsg" id="edFoot"></div>${pill}<div class="edacts" id="edActs"></div><div class="kbwrap" id="edMenu"></div>`;
 
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
   document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
@@ -2153,41 +2153,43 @@ function footerMsgHTML(m){
   return `${steps}${m.title?`<b class="ftitle">${esc(m.title)}</b>`:''}${links}${m.sub?`<span class="fsub">${esc(m.sub)}</span>`:''}`;
 }
 function footerActsHTML(m, onDetails){
+  if(!onDetails) return '';
   let h='';
-  if(onDetails){
-    if(m.secondary) h += `<button type="button" class="btn fbtn sec" data-act="${esc(m.secondary.act)}">${esc(m.secondary.label)}</button>`;
-    const p=m.primary;
-    if(p && p.tone==='quiet'){
-      // "✓ Saved" as text — the save pill already says it when it's showing
-      if(!document.getElementById('saveStatus')) h += `<span class="fquiet">${esc(p.label)}</span>`;
-    } else if(p){
-      const wait = !p.act && !p.enabled;   // the model's "Saving…"
-      h += `<button type="button" class="btn fbtn ${p.tone==='go'?'go':'primary'}${wait?' wait':''}"${p.act?` data-act="${esc(p.act)}"`:''}${p.enabled?'':' disabled'}>${wait?SPIN_ICON:''}${esc(p.label)}</button>`;
-    }
+  if(m.secondary) h += `<button type="button" class="btn fbtn sec" data-act="${esc(m.secondary.act)}">${esc(m.secondary.label)}</button>`;
+  const p=m.primary;
+  if(p && p.tone==='quiet'){
+    // "✓ Saved" as text — the save pill already says it when it's showing
+    if(!document.getElementById('saveStatus')) h += `<span class="fquiet">${esc(p.label)}</span>`;
+  } else if(p){
+    const wait = !p.act && !p.enabled;   // the model's "Saving…"
+    h += `<button type="button" class="btn fbtn ${p.tone==='go'?'go':'primary'}${wait?' wait':''}"${p.act?` data-act="${esc(p.act)}"`:''}${p.enabled?'':' disabled'}>${wait?SPIN_ICON:''}${esc(p.label)}</button>`;
   }
-  if(m.menu.length){
-    h += `<div class="kbwrap"><button type="button" class="kb${_menuOpen?' on':''}" data-act="menu" aria-label="More actions" data-tip="More actions" aria-haspopup="menu" aria-expanded="${_menuOpen}">${KEBAB_ICON}</button>`
-      + `<div class="kmenu" role="menu" aria-label="More actions"${_menuOpen?'':' hidden'}>${m.menu.map(it=>
-        `<button type="button" class="mi${it.tone==='danger'?' danger':''}" role="menuitem" tabindex="-1" data-act="${esc(it.act)}"><b>${esc(it.label)}</b>${it.sub?`<span>${esc(it.sub)}</span>`:''}</button>`).join('')}</div></div>`;
-  } else _menuOpen=false;
   return h;
 }
+// The ⋮ menu has its own container (#edMenu): primary repaints never touch it, and it
+// is rebuilt (closed) only when its items change. Open/close just flips attributes.
+function footerMenuHTML(menu){
+  if(!menu.length) return '';
+  return `<button type="button" class="kb" data-act="menu" aria-label="More actions" data-tip="More actions" aria-haspopup="menu" aria-expanded="false">${KEBAB_ICON}</button>`
+    + `<div class="kmenu" role="menu" aria-label="More actions" hidden>${menu.map(it=>
+      `<button type="button" class="mi${it.tone==='danger'?' danger':''}" role="menuitem" tabindex="-1" data-act="${esc(it.act)}"><b>${esc(it.label)}</b>${it.sub?`<span>${esc(it.sub)}</span>`:''}</button>`).join('')}</div>`;
+}
+// Write a container's inner HTML only when it changed (the last write is cached on the
+// element): the pill repaints often, and a rewrite would drop focus.
+function paintInner(el, html){ if(el._html!==html){ el.innerHTML=html; el._html=html; return true; } return false; }
 function renderEditorFooter(){
-  const msgEl=document.getElementById('edFoot'), actEl=document.getElementById('edActs');
-  if(!msgEl || !actEl || !_ctx || !editing || _ctx.ev!==editing) return;
+  const msgEl=document.getElementById('edFoot'), actEl=document.getElementById('edActs'), menuEl=document.getElementById('edMenu');
+  if(!msgEl || !actEl || !menuEl || !_ctx || !editing || _ctx.ev!==editing) return;
   const m=editorFooterModel(editing, _ctx), onDetails = activeSection==='details';
-  const msg = onDetails ? footerMsgHTML(m) : '', acts = footerActsHTML(m, onDetails);
-  // Only touch the DOM when something changed: the pill repaints often, and a rewrite
-  // would drop keyboard focus from the ⋮ menu.
-  if(msgEl.innerHTML!==msg) msgEl.innerHTML=msg;
-  if(actEl._html!==acts){ actEl.innerHTML=acts; actEl._html=acts; }
+  paintInner(msgEl, onDetails ? footerMsgHTML(m) : '');
+  paintInner(actEl, footerActsHTML(m, onDetails));
+  if(paintInner(menuEl, footerMenuHTML(m.menu))) _menuOpen=false;   // items changed: it's a new (closed) menu
 }
 function kebabMenu(open, focusFirst){
-  const wrap=document.querySelector('#edActs .kbwrap'); if(!wrap){ _menuOpen=false; return; }
-  const btn=wrap.querySelector('.kb'), menu=wrap.querySelector('.kmenu');
+  const wrap=document.getElementById('edMenu'), btn=wrap && wrap.querySelector('.kb'), menu=wrap && wrap.querySelector('.kmenu');
+  if(!btn || !menu){ _menuOpen=false; return; }
   _menuOpen=!!open;
   menu.hidden=!open; btn.setAttribute('aria-expanded', String(!!open)); btn.classList.toggle('on', !!open);
-  document.getElementById('edActs')._html=null;   // the DOM no longer matches the last render string
   if(open){ hideTip(); if(focusFirst){ const f=menu.querySelector('[role="menuitem"]'); if(f) f.focus(); } }
 }
 // Footer links name a field that blocks the next step: bring it into view and focus it.
@@ -2326,6 +2328,7 @@ async function deleteEditor(){
   const ev=editing;
   if(!ev || !ev.id){ close(); return; }
   if(_busy.has(ev.id)) return;
+  if(!confirm('Delete this event? This can\'t be undone.' + (ev.eventbriteId ? ' Its private Eventbrite draft is deleted too.' : ''))) return;
   const id=ev.id;
   _busy.add(id);
   _form=null; _unsaved.delete(id); _authRetry.delete(id); guardUnload();   // its unsaved edits go with it — close() has nothing to queue or retry
@@ -2391,10 +2394,10 @@ document.getElementById('mFoot').addEventListener('click',e=>{
 const FOOTER_STUB_ACTS=['add-eb','update-eb','publish-eb','preview-eb','update-listing','email-registrants','dismiss-notice','unpublish'];
 // ⋮ menu: closes on an outside click or Esc (before Esc closes the modal); arrow keys
 // move between its items.
-document.addEventListener('click', e=>{ if(_menuOpen && !e.target.closest('#edActs .kbwrap')) kebabMenu(false); });
+document.addEventListener('click', e=>{ if(_menuOpen && !e.target.closest('#edMenu')) kebabMenu(false); });
 document.addEventListener('keydown', e=>{
   if(!_menuOpen) return;
-  const wrap=document.querySelector('#edActs .kbwrap'); if(!wrap){ _menuOpen=false; return; }
+  const wrap=document.getElementById('edMenu'); if(!wrap || !wrap.querySelector('.kb')){ _menuOpen=false; return; }
   const items=[...wrap.querySelectorAll('[role="menuitem"]')], i=items.indexOf(document.activeElement);
   if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); kebabMenu(false); wrap.querySelector('.kb').focus(); }
   else if(e.key==='ArrowDown' || e.key==='ArrowUp'){ e.preventDefault(); const n=items.length; items[((i<0?(e.key==='ArrowDown'?-1:0):i)+(e.key==='ArrowDown'?1:-1)+n)%n].focus(); }

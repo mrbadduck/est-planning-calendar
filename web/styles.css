@@ -388,6 +388,7 @@
   .btn.fbtn.wait svg{animation:ndoc-spin .9s linear infinite}
   .fquiet{font-size:12px;font-weight:600;color:#2F7D3B;white-space:nowrap}
   .kbwrap{position:relative;flex:none}
+  .kbwrap:empty{display:none}
   .kb{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;border:1px solid var(--hair-strong);background:var(--surface);color:var(--muted);padding:0;cursor:pointer}
   .kb:hover,.kb.on{border-color:var(--accent);color:var(--accent);background:var(--accent-tint)}
   .kmenu{position:absolute;right:0;bottom:calc(100% + 8px);width:280px;max-width:calc(100vw - 32px);z-index:5;background:var(--surface);border:1px solid var(--hair-strong);border-radius:10px;box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column}

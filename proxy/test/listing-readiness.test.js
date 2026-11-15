@@ -232,6 +232,17 @@ test('footerModel past: no primary, no menu, unless just changed', () => {
   assert.deepEqual(j.menu, []);
 });
 
+test('footerModel past clears actions at every stage (R10)', () => {
+  const pastEv = { ...ready(), date: '2000-01-01' };
+  for (const [stage, role] of [['approved', LEAD], ['draft', LEAD], ['proposed', COUNCIL], ['cancelled', COUNCIL]]) {
+    const m = fm({ stage, role, past: true, ev: pastEv });
+    assert.equal(m.primary, null, stage);
+    assert.equal(m.secondary, null, stage);
+    assert.deepEqual(m.menu, [], stage);
+    assert.deepEqual(m.links, [], stage);
+  }
+});
+
 test('footerModel never offers delete and cancel together', () => {
   for (const stage of ['draft', 'proposed', 'approved', 'onEventbrite', 'published', 'cancelled'])
     for (const role of [LEAD, COUNCIL, { canEdit: false, canApprove: false }])

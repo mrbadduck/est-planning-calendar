@@ -219,7 +219,9 @@
         break;
     }
 
-    if (past && (stage === 'published' || stage === 'onEventbrite')) {
+    // A past event has happened: nothing left to do at any stage (R10). The only
+    // exception is the offer to tell registrants about a change, below.
+    if (past) {
       out.primary = null; out.secondary = null; out.menu = []; out.links = [];
     }
     if (justChanged && justChanged.fields && justChanged.fields.length && (stage === 'published' || stage === 'onEventbrite') && canEdit) {
@@ -231,7 +233,7 @@
       out.primary = prim('Email registrants', 'email-registrants', true, 'primary');
       out.secondary = { label: 'Not now', act: 'dismiss-notice' };
     }
-    if (pending) out.primary = prim('Saving…', null, false, 'primary');
+    if (pending && out.primary) out.primary = prim('Saving…', null, false, 'primary');   // no action to hold back → nothing to show
     return out;
   }
 
