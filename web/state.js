@@ -15,6 +15,7 @@
 const PREFS_KEY = 'est-view-prefs';
 const prefs = (()=>{ try{ const p=JSON.parse(localStorage.getItem(PREFS_KEY)||'null'); return (p && typeof p==='object') ? p : {}; }catch(_){ return {}; } })();
 if(!prefs.layers || typeof prefs.layers!=='object') prefs.layers={};
+prefs.needsApproval = prefs.needsApproval===true;   // the List's Needs approval filter; off by default
 function savePrefs(){ try{ localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }catch(_){} }
 function savedLayer(id){ const v=prefs.layers[id]; return typeof v==='boolean' ? v : undefined; }
 

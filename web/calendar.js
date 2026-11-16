@@ -1,7 +1,7 @@
 /* calendar.js — the Calendar (months), Overview and List views, and the #listView click listener.
-   Owns: buildWeekHead, chipHTML, renderMonths, renderOverview, renderList, sortEv
-   Reads: state (state.js)
-   Writes: nothing
+   Owns: buildWeekHead, chipHTML, renderMonths, renderOverview, renderList, listBarHTML, sortEv
+   Reads: state, prefs, savePrefs (state.js); PageRules (page-rules.js); paintInner (status-panel.js, call time)
+   Writes: prefs.needsApproval (the List's Needs approval toggle)
    Loaded after: state.js (reads state, todayStr, eventsByDate, roughByMonth at call time) */
 
 
@@ -175,16 +175,23 @@ function lrowHTML(e){
       <span class="lt">${esc(e.title)||'(untitled)'}${xMark(e)}</span><span class="lm">${meta}</span>
     </button>`;
 }
+// The List's toolbar row (spec 5.8): the Needs approval toggle + how many Proposed events wait this year.
+function listBarHTML(count, on){
+  return `<button type="button" class="nbtn" id="needsBtn" aria-pressed="${on?'true':'false'}">Needs approval <span class="nb-count">${count}</span></button>`;
+}
 function renderList(){
   const box=document.getElementById('listView');
   const byDate=eventsByDate(), roughMap=roughByMonth();
+  const on=!!prefs.needsApproval; let waiting=0;
   let html='', anchored=false;
   for(const {y,m} of monthsOfYear()){
     const mk=monthKey(y,m), daysIn=new Date(y,m+1,0).getDate();
     let days='';
     for(let d=1; d<=daysIn; d++){
       const ds=ymd(y,m,d), evs=byDate[ds]; if(!evs) continue;
-      const plans=evs.filter(e=>e.source==='planning').sort(sortEv), refs=evs.filter(e=>e.source!=='planning');
+      let plans=evs.filter(e=>e.source==='planning').sort(sortEv), refs=evs.filter(e=>e.source!=='planning');
+      waiting += plans.filter(PageRules.needsApproval).length;
+      if(on){ plans=plans.filter(PageRules.needsApproval); refs=[]; if(!plans.length) continue; }   // Needs approval: Proposed events only, reference dates hidden
       const cls=[ds===todayStr?'today':'', ds<todayStr?'past':''];
       if(!anchored && ds>=todayStr){ anchored=true; cls.push('lnow'); }   // where the list opens: today, or the next day with anything on it
       days += `<div class="lday ${cls.join(' ')}">
@@ -192,15 +199,22 @@ function renderList(){
         <div class="litems">${plans.map(lrowHTML).join('')}${refs.length ? `<div class="lrefs">${refs.map(r=>`<button type="button" class="lref" style="--c:${cssColor(REF[r.refLayer].color,'var(--faint)')}" data-id="${r.id}">${esc(r.title)}</button>`).join('')}</div>` : ''}</div>
       </div>`;
     }
-    const rough=roughMap[mk]||[];
+    let rough=roughMap[mk]||[];
+    waiting += rough.filter(PageRules.needsApproval).length;
+    if(on) rough=rough.filter(PageRules.needsApproval);
     if(rough.length) days += `<div class="lday ltbd">
         <div class="ldate"><span class="lwd">Date</span><span class="ldn">TBD</span></div>
         <div class="litems">${rough.map(lrowHTML).join('')}</div>
       </div>`;
-    html += `<section class="lmonth" data-mk="${mk}"><h2 class="lmhead">${MONTHS[m]}<span class="ly">${y}</span></h2>${days || '<p class="lempty">Nothing on the calendar</p>'}</section>`;
+    html += `<section class="lmonth" data-mk="${mk}"><h2 class="lmhead">${MONTHS[m]}<span class="ly">${y}</span></h2>${days || `<p class="lempty">${on?'Nothing waiting for approval':'Nothing on the calendar'}</p>`}</section>`;
   }
   box.innerHTML=html;
+  paintInner(document.getElementById('listBar'), listBarHTML(waiting, on));
 }
+document.getElementById('listBar').addEventListener('click',e=>{
+  if(!e.target.closest('#needsBtn')) return;
+  prefs.needsApproval=!prefs.needsApproval; savePrefs(); renderList();
+});
 document.getElementById('listView').addEventListener('click',e=>{
   const row=e.target.closest('.lev,.lref'); if(!row) return;
   const ev=state.events.find(x=>x.id===row.dataset.id); if(ev) openEditor(ev);

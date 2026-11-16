@@ -111,6 +111,7 @@ function applyView(){
   document.getElementById('yearView').style.display = v==='year' ? '' : 'none';
   document.getElementById('quarter').classList.toggle('on', v==='overview');
   document.getElementById('listView').classList.toggle('on', v==='list');
+  document.getElementById('listBar').classList.toggle('on', v==='list');
   rerender(); updateNavLabel(); layoutSticky();
 }
 PHONE_MQ.addEventListener('change', ()=>{ phoneMenu(false); applyView(); layoutEventPage(); });   // rotated, or a window resized across 600px

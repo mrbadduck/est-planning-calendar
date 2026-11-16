@@ -530,6 +530,13 @@
   /* ---- list view (#listView, renderList) ---- */
   #listView{display:none;max-width:720px;margin:0 auto}
   #listView.on{display:block}
+  #listBar{display:none;max-width:720px;margin:0 auto;padding:10px 4px 0}
+  #listBar.on{display:block}
+  .nbtn{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:4px 12px;border:1px solid var(--hair-strong);border-radius:999px;background:var(--paper);color:var(--ink);font:600 12.5px Inter,sans-serif;cursor:pointer}
+  .nbtn:hover{border-color:var(--muted)}
+  .nbtn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .nb-count{font-weight:700;opacity:.75}
+  @media (max-width:600px){ .nbtn{min-height:44px;padding:4px 16px} }
   .lmhead{position:sticky;top:var(--bar-h,56px);z-index:20;margin:0;padding:16px 4px 6px;background:var(--paper);border-bottom:1px solid var(--hair-strong);
     font-family:Fraunces,serif;font-weight:600;font-size:17px;display:flex;justify-content:space-between;align-items:baseline}
   .lmhead .ly{font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;color:var(--faint)}
@@ -689,6 +696,7 @@
   .sp-rows .ok .sp-ic{color:#2F7D3B}
   .sp-rows .bad .sp-ic,.sp-rows .bad a{color:#B23B3B}
   .sp-rows .bad a{font-weight:600}
+  @media (max-width:600px){ .sp-rows .bad a{display:inline-flex;align-items:center;min-height:44px} }
   .sp-acts{position:relative;display:flex;align-items:center;gap:8px}
   .sp-acts:not(:has(button)){display:none}
   .ep-panel .edacts{flex-wrap:wrap}
