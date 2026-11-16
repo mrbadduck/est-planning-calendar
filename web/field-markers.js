@@ -1,6 +1,6 @@
-/* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the listing card (in the panel, or atop Listing).
-   Owns: ICON_PRIVATE, TIP_PRIVATE, ADDR_DEFAULT_HINT, ADDR_HOME_PUBLIC_WARN, fmkIcon, fieldMarkModel, fieldLabelHTML, fieldHintSlot, listingCardHome, listingCardHTML, paintFieldMarks
-   Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js); _ebStatus (eventbrite.js); PHONE_MQ (shell.js; at call time)
+/* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the listing row of the Status & next step card.
+   Owns: ICON_PRIVATE, TIP_PRIVATE, ADDR_DEFAULT_HINT, ADDR_HOME_PUBLIC_WARN, fmkIcon, fieldMarkModel, fieldLabelHTML, fieldHintSlot, listingCardHTML, paintFieldMarks
+   Reads: editing (editor-tabs.js); _ctx (editor.js)
    Writes: nothing
    Loaded after: notes-doc.js (file-map order; no load-time dependency) */
 
@@ -11,7 +11,7 @@
    pushed values, read-only here). Every region that changes while the editor is
    open has a stable container, repainted with paintInner: the field markers
    ([data-fmk]), their hints ([data-fhint]) and the
-   listing card (#listingCard, which Task 14 fills with the live status). */
+   listing row (#listingCard, inside the Status & next step card). */
 // One sync icon per public field (R20): a gray clock before the event is on
 // Eventbrite; once it is, a green check (matches), an amber sync arrow (changed
 // here) or a gray sync arrow (not compared yet). Private fields: the crossed eye.
@@ -86,43 +86,28 @@ function fieldLabelHTML(key, labelText, m){
   return `${labelText} <span class="fmk" data-fmk="${key}">${fieldMarksHTML(key, m || fieldMarkModel(editing || {}))}</span>`;
 }
 const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
-// Where the listing card (#listingCard) lives: 'panel' (the Status & next step panel,
-// under the status card, spec 5.3) or 'tab' (the top of the Listing tab, phones,
-// spec 5.6). The one switch: statusPanelHTML and renderDetails both ask it, so only
-// one #listingCard is ever in the DOM; layoutEventPage moves it when the page
-// crosses 600px.
-function listingCardHome(){ return PHONE_MQ.matches ? 'tab' : 'panel'; }
-// The listing card, at every stage, with Preview listing (R26). Before
-// the event is on Eventbrite it is one modest row ("Not on Eventbrite yet" + the
-// button; the preview is built from the form). Once it is, the registered
-// count comes from the live status (refreshEbStatus) and is left out until it
-// loads. Counts and the tickets line show what was pushed (what Eventbrite has),
-// never the form's Free tickets. The conflict notice (D8) shows when Eventbrite was
-// edited since our last push; once it has been shown, the next push overwrites.
-// Everyone gets Preview listing; Eventbrite's own copy (the Worker route,
-// write-role gated) only for leads and council — read-only viewers see the
+// The listing row (#listingCard), the Status & next step card's last line (spec 5.3,
+// polish 2026-11-16: one card, no separate listing card): a badge — Not on Eventbrite
+// yet / Private draft / Public — then small link-style actions, Preview listing (R26,
+// every stage) and, once public, View on Eventbrite ↗; then, once on Eventbrite, the
+// tickets line. No sentence of its own: the card's title and sub already say whether
+// people can register, and the sub carries the conflict notice (D8), so it isn't
+// repeated here. Tickets show what was pushed (what Eventbrite has), never the form's
+// Free tickets. Everyone gets Preview listing; Eventbrite's own copy (the Worker
+// route, write-role gated) only for leads and council — read-only viewers see the
 // version built from the fields (openPreview).
-const PREVIEW_BTN = `<button type="button" class="btn xs" data-pv-open>Preview listing</button>`;
+const PREVIEW_BTN = `<button type="button" class="lnk" data-pv-open>Preview listing</button>`;
 function listingCardHTML(ev){
-  if(!ev.eventbriteId){
-    const ended = ev.status==='cancelled' || !!(_ctx && _ctx.past);   // never going on Eventbrite now
-    return `<div class="ebrow"><span class="ftag pre lg">Not on Eventbrite yet</span>${ended?'':`<span class="hint">Nobody sees it until it's added and published.</span>`}<span class="ebacts">${PREVIEW_BTN}</span></div>`;
-  }
+  if(!ev.eventbriteId) return `<div class="sp-lrow"><span class="ftag pre">Not on Eventbrite yet</span><span class="sp-lacts">${PREVIEW_BTN}</span></div>`;
   const pub = ev.publishStatus==='Published';
-  const pill = pub ? `<span class="ftag ok lg">Public</span>` : `<span class="ftag chg lg">Private draft</span>`;
-  const st = _ebStatus.get(ev.id), sold = st && st.sold!=null ? Number(st.sold) : null;
-  const cap = ebCapacity(ev);
-  const count = sold==null ? '' : cap ? ` · ${sold} of ${cap} registered` : ` · ${sold} registered`;
-  const line = pub ? 'Registration open' + count : 'Nobody can see this listing or register yet.';
-  const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="ebview" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
+  const pill = pub ? `<span class="ftag ok">Public</span>` : `<span class="ftag chg">Private draft</span>`;
+  const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="lnk" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
   const qty = ev.pushed && Number(ev.pushed.capacity) > 0 ? ` · ${Number(ev.pushed.capacity)}` : '';
   const err = ev.publishStatus==='Error' && ev.lastPublishError ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
-  // In the panel the status card's sentence right above already carries the conflict notice.
-  const conflict = ebConflict(ev.id) && listingCardHome()==='tab' ? `<div class="ndoc-warn">${esc(EB_CONFLICT_NOTICE)}</div>` : '';
-  return `<div class="ebrow">${pill}<b>${esc(line)}</b><span class="ebacts">${view}${PREVIEW_BTN}</span></div>
-    <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span></div>${conflict}${err}`;
+  return `<div class="sp-lrow">${pill}<span class="sp-lacts">${PREVIEW_BTN}${view}</span></div>`
+    + `<div class="sp-ltix">Tickets: General Admission · free${qty}</div>${err}`;
 }
-// Repaint every marker, hint and the card from the open editor's event.
+// Repaint every marker, hint and the listing row from the open editor's event.
 // Called by renderStatusPanel (open, tab switch, every save-state change), so the
 // markers follow the same event state the panel reads. (Whether the conflict notice
 // was seen, D8, is decided there.)

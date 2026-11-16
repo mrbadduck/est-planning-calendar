@@ -8,21 +8,18 @@
    Description, When, Where (with Address on listing), Ticketing (Free tickets). Every field shows
    and is editable at every stage (R27); the approval gate is on Add to Eventbrite /
    Publish, not on the fields. Cancelled and past events keep their locks.
-   The listing card (#listingCard, a stable container repainted in place, with
-   Preview listing, R26) sits in the panel, or on top of this tab where
-   listingCardHome() says so (phones); #wpanel's click listener (editor.js) opens
-   its Preview. The fields always show the event's own
+   The listing row (#listingCard: badge, Preview listing, R26) is part of the
+   Status & next step card at every width. The fields always show the event's own
    (Coda) values (D4). */
 const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
   : 'If you copy the internal description, take out planning notes first. This text goes public.';
 function renderDetails(ev, canEdit, locked, canApprove){
   const dis = (!canEdit || locked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
   const linked = !!ev.eventbriteId;
-  const card = listingCardHome()==='tab' ? `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>` : '';   // else it's in the panel
   const summary = `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint" id="f_sumcount">${String(ev.publicSummary||'').length} / 140</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
-    <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
+    <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="lnk" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
       <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>`;
-  return card + titleFieldHTML(ev, dis, lab) + summary + whenGroupHTML(ev, dis)
+  return titleFieldHTML(ev, dis, lab) + summary + whenGroupHTML(ev, dis)
     + whereGroupHTML(ev, dis, lab, relOK, true) + ticketingGroupHTML(ev, dis, lab)
     + lockNotesHTML(ev, canEdit, locked, relOK, REL_NOTE.where);
 }

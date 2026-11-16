@@ -601,9 +601,10 @@
   :is(.event-page,.modal.create) .fieldgroup{padding:9px 10px;gap:8px;border-radius:8px}
   :is(.event-page,.modal.create) .fieldgroup-h{font-size:10.5px}
   :is(.event-page,.modal.create) .timerow{gap:8px;margin-top:8px}
-  :is(.event-page,.modal.create) .whenseg button{padding:4px 9px}
+  /* segmented toggles (When, Address on listing): hug their buttons, 32px tall; phones 40px, still not stretched */
+  :is(.event-page,.modal.create) .whenseg{width:fit-content}
+  :is(.event-page,.modal.create) .whenseg button{flex:none;min-height:32px;padding:0 11px;font-size:12px}
   :is(.event-page,.modal.create) .locknote{padding:6px 9px}
-  .event-page .ebcard{padding:9px 12px;gap:6px}
   :is(.event-page,.modal.create) .mfoot{padding:8px 14px 10px;margin-top:0}
   .event-page .btn.fbtn{min-height:34px;padding:0 13px;font-size:12.5px}
   .event-page .ndoc-frame{height:300px}
@@ -611,11 +612,11 @@
     /* phones: ≥44px tap targets for the controls a thumb hits */
     :is(.event-page,.modal.create) .mhead{padding:10px 12px 9px}
     .event-page .wrail{flex-basis:auto;padding:6px 12px 4px}
-    /* 44px icons leave no room beside the title: title block on row 1, then the
-       badge (left) and the icons + close (right) on row 2 */
-    :is(.event-page,.modal.create) .mhead{flex-wrap:wrap;row-gap:4px}
-    :is(.event-page,.modal.create) .mhead-title{flex:1 1 calc(100% - 20px)}
-    :is(.event-page,.modal.create) .mhead-badges{margin-right:auto;margin-left:14px}
+    /* the create modal: 44px icons leave no room beside the title: title block on row 1,
+       then the badge (left) and the icons + close (right) on row 2 */
+    .modal.create .mhead{flex-wrap:wrap;row-gap:4px}
+    .modal.create .mhead-title{flex:1 1 calc(100% - 20px)}
+    .modal.create .mhead-badges{margin-right:auto;margin-left:14px}
     /* the title gets the whole row; the program tag drops under it */
     .mhead-ttlrow{flex-wrap:wrap;row-gap:3px}
     .mhead-ttlrow :is(h1,h2){flex:1 1 100%}
@@ -626,8 +627,11 @@
     .event-page .kb{width:44px;height:44px}
     :is(.event-page,.modal.create) .mhead-ico,:is(.event-page,.modal.create) .mhead-close{width:44px;height:44px}
     :is(.event-page,.modal.create) .fld .btn.xs{min-height:44px;padding:0 10px}
+    /* link-style actions (.lnk): a 44px tap target from padding that a matching negative
+       margin cancels, so they read as normal text with no gap around them */
+    .event-page .lnk{padding:12px 4px;margin:-12px -4px}
     :is(.event-page,.modal.create) .fld label.msel-opt{min-height:44px}
-    :is(.event-page,.modal.create) .whenseg button{min-height:44px}
+    :is(.event-page,.modal.create) .whenseg button{min-height:40px;padding:0 12px}
     :is(.event-page,.modal.create) .fld input:not([type=checkbox]):not(.ta-input),:is(.event-page,.modal.create) .fld select,:is(.event-page,.modal.create) .msel-btn,:is(.event-page,.modal.create) .typeahead{min-height:44px}
     .modal.create .mfoot .btn{min-height:44px}
   }
@@ -639,13 +643,16 @@
      body.event-open hides the calendar chrome with display:none, so its DOM, view and
      year survive (the window scroll is saved and restored by the page code). The page
      scrolls with the document: a sticky top bar, then tabs | main | panel. */
-  .event-page{display:none}
+  .event-page{display:none;container:ep / inline-size}   /* the layouts below query the page's own width */
   body.event-open .event-page{display:block}
   body.event-open .bar,body.event-open .wrap,body.event-open .fab{display:none}
+  /* top bar, one row at every width: ← Calendar, the program stripe, the title, ⋮ */
   .event-page .mhead.ep-top{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--hair-strong);padding:9px 18px}
   .ep-back{flex:none;white-space:nowrap}
   #epTitle:focus:not(:focus-visible){outline:none}   /* focused on open for screen readers; no ring after a click */
-  .ep-grid{display:grid;grid-template-columns:150px minmax(0,1fr) 300px;gap:0 22px;align-items:start;max-width:1400px;margin:0 auto;padding:14px 18px 80px}
+  .ep-menu .kmenu{top:calc(100% + 6px);bottom:auto;right:0;width:220px}   /* the top bar's ⋮ opens downward */
+  .ep-menu .kmenu a.mi{text-decoration:none}
+  .ep-grid{--ep-layout:wide;display:grid;grid-template-columns:150px minmax(0,1fr) 300px;gap:0 22px;align-items:start;max-width:1400px;margin:0 auto;padding:14px 18px 80px}
   .event-page .wrail.ep-tabs{position:sticky;top:calc(var(--ep-top-h,52px) + 14px);flex-basis:auto;padding:0;border-right:0;overflow:visible}
   .ep-main{min-width:0;width:100%;max-width:760px;justify-self:center;display:flex;flex-direction:column;gap:10px}
   .ep-head:empty{display:none}
@@ -658,7 +665,7 @@
   /* Listing's red dot: a readiness item for the next step is on that tab */
   .tab-dot-slot:empty{display:none}
   .tab-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#C94444;margin-left:6px;vertical-align:middle}
-  /* the right panel (spec 5.3): Status & next step card, the listing card, a failed save */
+  /* the right panel (spec 5.3): the one Status & next step card, then a failed save */
   .ep-panel{position:sticky;top:calc(var(--ep-top-h,52px) + 14px);display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - var(--ep-top-h,52px) - 28px);overflow:auto}   /* a tall panel scrolls instead of being cut off */
   .event-page .ep-panel:empty{display:none}   /* (beats the narrower layouts' display) */
   .sp-card{display:flex;flex-direction:column;gap:10px;padding:12px 13px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:10px}
@@ -688,7 +695,9 @@
   .sp-rows .ok .sp-ic{color:#2F7D3B}
   .sp-rows .bad .sp-ic,.sp-rows .bad a{color:#B23B3B}
   .sp-rows .bad a{font-weight:600}
-  @media (max-width:600px){ .sp-rows .bad a{display:inline-flex;align-items:center;min-height:44px} }
+  /* phones: a 44px tap target from padding that the negative margin cancels — the row
+     keeps its text height, no gap above or below */
+  @media (max-width:600px){ .sp-rows .bad a{padding:12px 0;margin:-12px 0} }
   .sp-acts{position:relative;display:flex;align-items:center;gap:8px}
   .sp-acts:not(:has(button)){display:none}
   .ep-panel .edacts{flex-wrap:wrap}
@@ -699,43 +708,48 @@
   .sp-sub:empty,.sp-bars:empty{display:none}
   .sp-bar{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:9px 11px;background:#FBF3E4;border:1px solid #EAD9B5;border-radius:8px}
   .sp-bar .edguard-msg{min-width:0}
+  /* the card's listing row (#listingCard): badge + small link actions, then the tickets line */
+  .sp-listing{display:flex;flex-direction:column;gap:4px;padding-top:9px;border-top:1px solid var(--hair)}
+  .sp-listing:empty{display:none}
+  .sp-lrow{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px}
+  .sp-lacts{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+  .sp-ltix{font-size:11px;color:var(--muted)}
   .ep-panel .savestat.error{align-self:flex-start;margin:0}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-  /* narrower screens (incl. ≥1000px with Help open): the panel drops under the tabs */
-  @media (max-width:1100px){
-    .ep-grid{grid-template-columns:130px minmax(0,1fr);row-gap:12px}
-    .event-page .wrail.ep-tabs{grid-row:1 / span 2}
-    .ep-panel{grid-column:2;grid-row:1;position:static;max-height:none;overflow:visible;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}   /* status card and listing card side by side when there's room */
-    .ep-main{grid-column:2;grid-row:2;justify-self:stretch}
-  }
-  @media (min-width:1000px) and (max-width:1500px){   /* Help open beside the page: same two columns */
-    body.help-open .ep-grid{grid-template-columns:130px minmax(0,1fr);row-gap:12px}
-    body.help-open .event-page .wrail.ep-tabs{grid-row:1 / span 2}
-    body.help-open .ep-panel{grid-column:2;grid-row:1;position:static;max-height:none;overflow:visible;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
-    body.help-open .ep-main{grid-column:2;grid-row:2;justify-self:stretch}
-  }
   /* phones only: the step-list toggle and the sticky bottom bar (spec 5.6) */
   .sp-more,.ep-phonebar{display:none}
-  @media (max-width:600px){   /* phones (spec 5.6): top bar, status card, tab strip, the tab, sticky bar */
-    /* top bar: ← and the title on row 1; tag, badge and the icons on row 2; the subtitle under them */
-    .event-page .mhead.ep-top{padding:4px 12px 8px;column-gap:8px;row-gap:2px}
-    #epTop .mhead-title,#epTop .mhead-ttlrow{display:contents}
-    #epTop .ep-back{order:0;min-height:44px;padding:0 8px;margin-left:-8px}
-    #epTop .stripe{order:1;height:24px}
-    #epTop h1{order:2;flex:1 1 0;min-width:0}
-    #epTop::after{content:"";order:3;flex:0 0 100%;height:0}   /* the row break */
-    #epTop .mhead-tag{order:4;flex:0 1 auto;min-width:0;max-width:none;overflow:hidden}
-    #epTop .mhead-badges{order:5;margin:0}
-    #epTop .mhead-actions{order:6;margin-left:auto}
-    #epTop .mhead-sub{order:7;flex:1 1 100%}
-    /* one column: the status card, then the tab strip, then the active tab */
-    body.event-open .event-page{display:flex;flex-direction:column;min-height:100dvh}   /* short tabs still put the bar at the bottom */
-    .ep-grid{flex:1 0 auto;margin:0;grid-template-columns:minmax(0,1fr);padding:0 0 16px;row-gap:0}
-    .ep-panel{grid-column:1;grid-row:1;position:static;margin:10px 12px 0;display:flex}
-    .event-page .wrail.ep-tabs{grid-column:1;grid-row:2;position:static;margin-top:10px;padding:0 12px;border-bottom:.5px solid var(--hair);overflow-x:auto}
-    .ep-main{grid-column:1;grid-row:3;padding:12px 12px 0}
+
+  /* ---- event page layouts: the ONE place their breakpoints live ----------------
+     Container queries on the page's own width (#eventPage, container "ep"), so Help
+     open beside the page (body.help-open padding) counts the same as a narrower window.
+     epLayout() (status-panel.js) reads the answer back from --ep-layout; nothing else
+     repeats these numbers.
+       wide   ≥ 1100px   tab list | main | panel (300px)                     (above)
+       mid    760–1099   tab strip under the top bar, then main | panel (280px)
+       phone  < 760px    status card, tab strip, the tab, sticky bottom bar
+     760 = the narrowest page where main keeps ≥ 420px beside the 280px panel
+     (420 + 280 + 22 gap + 2×18 padding = 758). Touch tap targets (44px) stay on the
+     600px media queries: they follow the device, not the layout. */
+  @container ep (max-width:1099.98px){
+    .ep-grid{--ep-layout:mid;display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 22px;padding-top:0}
+    /* the tab strip: full width, sticks under the top bar */
+    .event-page .wrail.ep-tabs{flex:0 0 100%;flex-direction:row;gap:2px;position:sticky;top:var(--ep-top-h,52px);z-index:30;margin:0 -18px;padding:6px 18px;
+      background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:.5px solid var(--hair);overflow-x:auto;scrollbar-width:none}
+    .event-page .wrail.ep-tabs::-webkit-scrollbar{display:none}
+    .event-page .ep-tabs .wrail-item{flex:0 0 auto;white-space:nowrap}
+    .event-page .ep-tabs .wrail-soon{display:none}
+    .ep-main{flex:1 1 0;max-width:none}
+    .ep-panel{flex:0 0 280px;min-width:0;top:calc(var(--ep-top-h,52px) + var(--ep-tabs-h,40px) + 12px);max-height:calc(100vh - var(--ep-top-h,52px) - var(--ep-tabs-h,40px) - 24px)}
+  }
+  @container ep (max-width:759.98px){
+    /* one column: the status card, then the tab strip (sticky), then the active tab;
+       min-height keeps the bottom bar at the bottom on a short tab */
+    .ep-grid{--ep-layout:phone;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:0;padding:0 0 16px;min-height:calc(100dvh - var(--ep-top-h,52px) - 61px)}
+    .ep-panel{order:-1;flex:none;position:static;max-height:none;overflow:visible;margin:10px 12px 0}
+    .event-page .wrail.ep-tabs{flex:none;margin:10px 0 0;padding:0 12px}
+    .ep-main{flex:none;padding:12px 12px 0}
     /* the status card: title + the first failing row, "Step N of 5 · see all steps", then
-       (when open) the whole step list and every row; the sentence and bars stay */
+       (when open) the whole step list and every row; the sentence, bars and listing row stay */
     .sp-card{gap:8px;padding:10px 12px}
     .sp-card .sp-h{display:none}
     .sp-card #edChecks{order:1}
@@ -747,6 +761,7 @@
     .sp-card .sp-acts{order:4}
     .sp-card #edSub{order:5}
     .sp-card #edBars{order:6}
+    .sp-card #listingCard{order:7;padding-top:7px}
     .sp-card:not(.open) #edStatus,.sp-card:not(.open) .sp-rows li.ok,.sp-card:not(.open) .sp-rows li.bad ~ li.bad{display:none}
     /* the sticky bottom bar: the primary (and Not now) + ⋮, moved here by placePhoneBar */
     .ep-phonebar{position:sticky;bottom:0;z-index:40;align-items:center;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--hair-strong)}
@@ -757,6 +772,34 @@
     .ep-phonebar .kmenu{left:12px;right:12px;width:auto;max-width:none;top:auto;bottom:calc(100% + 6px);max-height:calc(100dvh - 140px);overflow-y:auto}
     .ep-phonebar .kmenu .mi{min-height:44px;justify-content:center}
   }
+  @media (max-width:600px){
+    .event-page .mhead.ep-top{padding:4px 12px;gap:8px}
+    #epTop .ep-back{min-height:44px;padding:0 8px;margin-left:-8px}
+    #epTop .stripe{height:24px}
+  }
+
+  /* ---- list tabs (SECTIONS[].fill: Potluck & Volunteers, Attendees) --------------
+     The page doesn't scroll: it is exactly the viewport tall, and the tab's area takes
+     what the top bar, tabs and heading (on phones also the status card and the bottom
+     bar) leave. Only the list scrolls inside it: the filters and the potluck/volunteer
+     group headings stay at its top, the Attendees selection footer at its bottom. */
+  body.event-open .event-page.ep-fill{display:flex;flex-direction:column;height:100dvh}
+  .ep-fill .ep-grid{flex:1 1 auto;min-height:0;width:100%;padding-bottom:14px;grid-template-rows:minmax(0,1fr)}
+  .ep-fill .ep-main{align-self:stretch;min-height:0}
+  .event-page.ep-fill .wpanel{flex:1 1 auto;min-height:0}
+  .ep-fill .wpanel > .roster-wrap,.ep-fill .wpanel > .slots-wrap{flex:1 1 auto;min-height:0}
+  .ep-fill .slots-list{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}
+  .ep-fill .roster-body{overscroll-behavior:contain}
+  @container ep (max-width:1099.98px){
+    .ep-fill .ep-grid{display:grid;grid-template-columns:minmax(0,1fr) 280px;grid-template-rows:auto minmax(0,1fr)}
+    .ep-fill .wrail.ep-tabs{grid-column:1 / -1}
+    .ep-fill .ep-panel{position:static;max-height:100%}
+  }
+  @container ep (max-width:759.98px){
+    .ep-fill .ep-grid{display:flex;padding-bottom:0;min-height:0}
+    .ep-fill .ep-panel{max-height:38dvh;overflow:auto}   /* an opened step list mustn't squeeze the list away */
+    .ep-fill .ep-main{flex:1 1 auto;padding-bottom:8px}
+  }
   /* Planning tab: Program(s) + Leads side by side, then Internal description, then the doc */
   .frow2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .frow2 > .fld.full{grid-column:auto}
@@ -766,6 +809,11 @@
   .soon-h{font-weight:500;margin-bottom:4px}
   .soon-teaser{display:flex;flex-direction:column;gap:8px}
   .btn.xs{font-size:11px;padding:1px 7px;font-weight:500}
+  /* link-style small action (Preview listing, View on Eventbrite, Copy internal description) */
+  .lnk{font:inherit;font-size:11.5px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;text-decoration:none;white-space:nowrap}
+  .lnk:hover{text-decoration:underline}
+  .lnk:disabled{color:var(--faint);cursor:not-allowed;text-decoration:none}
+  .fld label .lnk{margin-left:6px}
 
   /* feedback / ideas board */
   .fbboard{margin-top:10px}
@@ -788,8 +836,9 @@
   .slots-loading{display:flex;align-items:center;gap:9px;padding:14px 4px;font-size:13px;color:var(--muted)}
   .slots-list{display:flex;flex-direction:column;gap:14px}
   .slot-group{display:flex;flex-direction:column;gap:6px}
-  .slot-group-h{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-    align-self:flex-start;padding:2px 8px;border-radius:20px;white-space:nowrap}
+  .slot-group-hd{position:sticky;top:0;z-index:1;background:var(--paper);padding:0 0 2px}   /* sticks to the top of the list while its group scrolls */
+  .slot-group-h{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 8px;border-radius:20px;white-space:nowrap}
   .slot-group-h.pot{background:#F6EDDF;color:#8A5A0B}
   .slot-group-h.vol{background:#E7EEF9;color:#2F5FA3}
   .slot-item{display:flex;flex-direction:column;gap:4px;padding:7px 9px;border:1px solid var(--hair);
@@ -950,13 +999,7 @@
   .fld .hint.warn{color:#7A5F1E;font-weight:500}
   .fld .hint.warn[hidden]{display:none}
   .fieldgroup-h .fmk{margin-left:4px}
-  .ebcard{display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:9px}
-  .ebrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px}
-  .ebrow.hint{font-size:12px;color:var(--muted)}
-  .ebacts{margin-left:auto;display:flex;align-items:center;gap:10px}
   .ftag.pre{background:var(--soft);color:var(--muted)}
-  .ebview{color:var(--accent);font-weight:500;text-decoration:none}
-  .ebview:hover{text-decoration:underline}
   /* leave guard: an in-modal confirm bar above the footer */
   .edguard{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 18px;background:#FBF3E4;border-top:1px solid #EAD9B5;flex-shrink:0}
   .edguard[hidden]{display:none}

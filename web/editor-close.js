@@ -1,6 +1,6 @@
 /* editor-close.js — leaving: the leave guard, requestClose/closeModal (the modal), leaveEventPage/← Calendar (the event page), the modal footer's and the panel's action dispatch, ⋮ menu keys, header actions.
-   Owns: show, leaveGuard, hideLeaveGuard, closeModal, leaveEventPage, onPopState, footerAct
-   Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen, openedInApp, eventUrl, calendarUrl, openFromUrl (editor.js); _form, _unconfirmed (save.js); scrollCalendarToToday (shell.js)
+   Owns: show, leaveGuard, hideLeaveGuard, closeModal, leaveEventPage, onPopState, footerAct, _headMenuOpen, headMenuHTML, headMenu
+   Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen, openedInApp, eventUrl, calendarUrl, openFromUrl (editor.js); _form, _unconfirmed (save.js); scrollCalendarToToday (shell.js); KEBAB_ICON, kebabMenu (status-panel.js; call time)
    Writes: editing (editor-tabs.js; closeModal, leaveEventPage); _epState (editor.js; leaveEventPage); _ndocGen (notes-doc.js; leaveEventPage); _menuOpen (status-panel.js); _regFetch (eventbrite.js)
    Loaded after: eventbrite.js (file-map order; its Escape and click listeners keep their order after preview.js and before help.js's) */
 
@@ -86,7 +86,7 @@ function leaveEventPage(how){
   // change — including a field still being typed in (no blur yet).
   // The queue writes it after the page is gone.
   const id=editing && editing.id;
-  hideTip(); kebabMenu(false);
+  hideTip(); kebabMenu(false); headMenu(false);
   leaveForm();   // (retries the open form's failed save once)
   document.getElementById('eventPage').hidden=true;
   document.getElementById('eventPage').classList.remove('loading');
@@ -172,24 +172,49 @@ function footerAct(act){
   else if(act==='email-registrants') emailAfterChange();
   else if(act==='unpublish') unpublishEvent();
 }
-// ⋮ menu: closes on an outside click or Esc (before Esc closes the modal); arrow keys
-// move between its items.
-document.addEventListener('click', e=>{ if(_menuOpen && !e.target.closest('#edMenu')) kebabMenu(false); });
+// The two ⋮ menus — the panel's (#edMenu, kebabMenu) and the top bar's (#epMenu,
+// headMenu) — close on an outside click or Esc (before Esc does anything else); arrow
+// keys, Home and End move between the open one's items; Tab closes it.
+document.addEventListener('click', e=>{
+  if(_menuOpen && !e.target.closest('#edMenu')) kebabMenu(false);
+  if(_headMenuOpen && !e.target.closest('#epMenu')) headMenu(false);
+});
 document.addEventListener('keydown', e=>{
-  if(!_menuOpen) return;
-  const wrap=document.getElementById('edMenu'); if(!wrap || !wrap.querySelector('.kb')){ _menuOpen=false; return; }
+  if(!_menuOpen && !_headMenuOpen) return;
+  const head=!_menuOpen, close = head ? headMenu : kebabMenu;
+  const wrap=document.getElementById(head ? 'epMenu' : 'edMenu');
+  if(!wrap || !wrap.querySelector('.kb')){ close(false); return; }
   const items=[...wrap.querySelectorAll('[role="menuitem"]')], i=items.indexOf(document.activeElement);
-  if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); kebabMenu(false); wrap.querySelector('.kb').focus(); }
+  if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); close(false); wrap.querySelector('.kb').focus(); }
   else if(e.key==='ArrowDown' || e.key==='ArrowUp'){ e.preventDefault(); const n=items.length; items[((i<0?(e.key==='ArrowDown'?-1:0):i)+(e.key==='ArrowDown'?1:-1)+n)%n].focus(); }
   else if(e.key==='Home' || e.key==='End'){ e.preventDefault(); items[e.key==='Home'?0:items.length-1].focus(); }
-  else if(e.key==='Tab') kebabMenu(false);
+  else if(e.key==='Tab') close(false);
 }, true);
-// header actions: ? (help for the active tab) + copy-link. The status badge opens
-// the lifecycle guide through data-help; transitions are in the panel.
+// The top bar's ⋮ (polish 2026-11-16): Help for this tab (the active tab's guide), View
+// in gather, Copy link. Same markup and keys as the panel's ⋮ (footerMenuHTML), its own
+// id (#epMenu) and state.
+let _headMenuOpen=false;
+function headMenuHTML(gatherUrl){
+  return `<button type="button" class="kb" data-act="head-menu" aria-label="More" data-tip="More" aria-haspopup="menu" aria-expanded="false">${KEBAB_ICON}</button>`
+    + `<div class="kmenu" role="menu" aria-label="More" hidden>`
+    + `<button type="button" class="mi" role="menuitem" tabindex="-1" data-act="help"><b>Help for this tab</b></button>`
+    + `<a class="mi" role="menuitem" tabindex="-1" href="${esc(gatherUrl)}" target="_blank" rel="noopener"><b>View in gather</b></a>`
+    + `<button type="button" class="mi" role="menuitem" tabindex="-1" data-act="copylink"><b>Copy link</b></button></div>`;
+}
+function headMenu(open, focusFirst){
+  const wrap=document.getElementById('epMenu'), btn=wrap && wrap.querySelector('.kb'), menu=wrap && wrap.querySelector('.kmenu');
+  if(!btn || !menu){ _headMenuOpen=false; return; }
+  _headMenuOpen=!!open;
+  menu.hidden=!open; btn.setAttribute('aria-expanded', String(!!open)); btn.classList.toggle('on', !!open);
+  if(open){ hideTip(); if(focusFirst){ const f=menu.querySelector('[role="menuitem"]'); if(f) f.focus(); } }
+}
+// Top bar ⋮ and the create form's ? (#mActions): help for the active tab, copy link.
 function onHeadClick(e){
-  const btn=e.target.closest('[data-act]'); const act=btn?.dataset.act; if(!act) return;
+  const btn=e.target.closest('[data-act]'), act=btn?.dataset.act;
+  if(act==='head-menu'){ headMenu(!_headMenuOpen, true); return; }
+  if(e.target.closest('.kmenu')) headMenu(false);   // any item (View in gather too) closes the menu
   if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it
-  else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', btn); }
+  else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', document.querySelector('#epMenu .kb')); }
 }
 document.getElementById('mActions').addEventListener('click', onHeadClick);
-document.getElementById('epActions').addEventListener('click', onHeadClick);
+document.getElementById('epMenu').addEventListener('click', onHeadClick);

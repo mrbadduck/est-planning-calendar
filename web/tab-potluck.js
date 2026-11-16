@@ -102,7 +102,7 @@ async function wireSlots(panel, ev, canEdit){
     list.innerHTML=[...KINDS, ...extra].map(k=>{
       const gs=groupSlots(k);
       return `<div class="slot-group" data-kind="${esc(k)}">
-          <div class="slot-group-h ${k==='Volunteer'?'vol':'pot'}">${esc(k)}</div>
+          <div class="slot-group-hd"><span class="slot-group-h ${k==='Volunteer'?'vol':'pot'}">${esc(k)}</span></div>
           ${gs.map((s,i)=>slotHTML(s,i,gs.length)).join('')}
           ${canEdit && KINDS.includes(k) ? ghostHTML(k) : (gs.length?'':`<div class="hint" style="margin:0">None yet.</div>`)}
         </div>`;

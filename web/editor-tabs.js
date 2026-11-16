@@ -15,14 +15,17 @@ let whenType='exact';
 // guide.md) the editor header's ? opens for that tab. No icon webfont — text labels.
 // `foot`: the tab's one-line description, under its name in the main column's
 // heading (#epHead). The first tab's id stays 'details' (old links, syncUrl).
+// `fill`: a list tab that fills the viewport and scrolls inside (its filters, group
+// headings and footer stay put) instead of scrolling the page (renderSection sets
+// #eventPage.ep-fill; styles.css → "list tabs").
 const SECTIONS = [
   { id:'details',   label:'Listing',              live:true,  help:'edit-details',
     foot:'What people see on Eventbrite. Edits save here first; send them to Eventbrite with the next-step button.' },
   { id:'planning',  label:'Planning',             live:true,  help:'planning-notes',
     foot:'Private planning space for leads and council; nothing here goes on Eventbrite.' },
-  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups',
+  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups', fill:true,
     foot:'Set up potluck dishes and volunteer shifts that members sign up for in gather.' },
-  { id:'attendees', label:'Attendees',            live:true,  help:'attendees',
+  { id:'attendees', label:'Attendees',            live:true,  help:'attendees', fill:true,
     foot:"See who's coming, from Eventbrite registrations and gather sign-ups, and email them." },
   { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback',
     foot:'Budget tracking is coming soon: vote on ideas or suggest your own.' },
@@ -95,6 +98,7 @@ function renderSection(id, ctx){
   const head=document.getElementById('epHead'); if(head) paintInner(head, tabHeadHTML(id));
   const { ev, locked, past:pastLocked } = ctx, { canEdit, canApprove } = ctx.role;
   const sec=SECTIONS.find(s=>s.id===id);
+  const page=document.getElementById('eventPage'); if(page) page.classList.toggle('ep-fill', !!(sec && sec.fill));
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }

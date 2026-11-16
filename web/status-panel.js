@@ -1,8 +1,8 @@
 /* status-panel.js — the event page's Status & next step panel: ListingRules.footerModel painted into stable containers, the ⋮ menu, field focus.
-   Owns: _menuOpen, editorFooterModel, paintInner, statusPanelHTML, renderStatusPanel, kebabMenu, toggleSteps, placePhoneBar, layoutEventPage, focusField
-   Reads: editing, activeSection (editor-tabs.js); _ctx, pageOpen (editor.js); PageRules (page-rules.js); PHONE_MQ (shell.js; at call time);
+   Owns: _menuOpen, editorFooterModel, paintInner, statusPanelHTML, renderStatusPanel, kebabMenu, toggleSteps, epLayout, placePhoneBar, layoutEventPage, focusField
+   Reads: editing, activeSection (editor-tabs.js); _ctx, pageOpen (editor.js); PageRules (page-rules.js); layoutSticky (shell.js; at call time);
           _busy, _busyLabel, _slow (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged, _conflictShown, ebConflict, EB_CONFLICT_NOTICE (eventbrite.js);
-          listingCardHome, paintFieldMarks (field-markers.js; call time)
+          paintFieldMarks (field-markers.js; call time); headMenu (editor-close.js; call time)
    Writes: _conflictShown (eventbrite.js; add/delete)
    Loaded after: save.js (file-map order; no load-time dependency) */
 
@@ -101,20 +101,19 @@ function paintInner(el, html){ if(el._html!==html){ el.innerHTML=html; el._html=
 // The panel's stable containers (D1), built once per open (spec 5.3, top to bottom):
 // the Status & next step card — #edStatus steps, #edChecks title + readiness rows,
 // #edActs primary + #edMenu ⋮, #edSub one sentence, #edBars the registrant/
-// Eventbrite-cancel bar — then the listing card (when listingCardHome() puts it
-// here) and the save pill (a failed save only).
-// Phones (spec 5.6) restyle the same card, one model → one paint: CSS puts it above
-// the tab strip and orders it title + first failing row (#edChecks), the
-// "Step N of 5 · see all steps" toggle (#edMore, toggleSteps), then the step list
-// (#edStatus, collapsed until toggled), #edSub and #edBars; placePhoneBar moves
-// #edActs and #edMenu into the sticky bottom bar (#epPhoneBar).
+// Eventbrite-cancel bar, #listingCard the listing row (badge, Preview listing, View on
+// Eventbrite, tickets; listingCardHTML) — then the save pill (a failed save only).
+// The phone layout (spec 5.6; epLayout()==='phone') restyles the same card, one model →
+// one paint: CSS puts it above the tab strip and orders it title + first failing row
+// (#edChecks), the "Step N of 5 · see all steps" toggle (#edMore, toggleSteps), then the
+// step list (#edStatus, collapsed until toggled), #edSub, #edBars and the listing row;
+// placePhoneBar moves #edActs and #edMenu into the sticky bottom bar (#epPhoneBar).
 function statusPanelHTML(withPill){
   return `<section class="sp-card" aria-labelledby="spHead"><h2 class="sp-h" id="spHead">Status & next step</h2>`
     + `<ol class="sp-steps" id="edStatus"></ol><div class="sp-checks" id="edChecks"></div>`
     + `<button type="button" class="sp-more" id="edMore" aria-expanded="false" aria-controls="edStatus"></button>`
     + `<div class="sp-acts"><div class="edacts" id="edActs"></div><div class="kbwrap" id="edMenu"></div></div>`
-    + `<p class="sp-sub" id="edSub"></p><div class="sp-bars" id="edBars"></div></section>`
-    + (listingCardHome()==='panel' ? `<div class="ebcard" id="listingCard"></div>` : '')
+    + `<p class="sp-sub" id="edSub"></p><div class="sp-bars" id="edBars"></div><div class="sp-listing" id="listingCard"></div></section>`
     + (withPill ? `<span class="savestat clean" id="saveStatus" role="status"></span>` : '');
 }
 // Listing's red dot: a readiness item for the next step is a field on Listing.
@@ -128,19 +127,17 @@ function renderStatusPanel(){
   paintInner(document.getElementById('edSub'), m.sub ? esc(m.sub) : '');
   const cur=m.steps.findIndex(s=>s.state==='current');   // phones' toggle; none when the stage has no step (Cancelled)
   paintInner(document.getElementById('edMore'), cur<0 ? '' : `Step ${cur+1} of ${m.steps.length} · see all steps <span class="sp-chev" aria-hidden="true">▾</span>`);
-  const bEl=document.getElementById('epBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
   paintInner(actEl, footerActsHTML(m));
   if(paintInner(menuEl, footerMenuHTML(m.menu, m.busy))) _menuOpen=false;   // items changed: it's a new (closed) menu
   paintEbBlock();
   const dot=document.querySelector('#epTabs [data-dot="details"]');
   if(dot) paintInner(dot, m.links.some(l=>l.field && (FIELD_SECTION[l.field] || 'details')==='details') ? TAB_DOT : '');
-  paintFieldMarks();   // field markers/tags and the listing card follow the same event state
+  paintFieldMarks();   // field markers/tags and the listing row follow the same event state
   // D8: the next push may overwrite Eventbrite's edits only once the conflict notice
-  // was really on screen — in the sentence (#edSub), or the listing card on Listing
-  // (phones; listingCardHTML adds it there only).
+  // was really on screen: the card's sentence (#edSub) is its one place, at every width.
   const ev=editing;
   if(!ev.eventbriteId || !ebConflict(ev.id)) _conflictShown.delete(ev.id);
-  else if((m.sub||'').includes(EB_CONFLICT_NOTICE) || (listingCardHome()==='tab' && document.getElementById('listingCard'))) _conflictShown.add(ev.id);
+  else if((m.sub||'').includes(EB_CONFLICT_NOTICE)) _conflictShown.add(ev.id);
 }
 // Phones: "Step N of 5 · see all steps" shows or hides the step list inline. The
 // state lives on the card (class + aria-expanded), so it resets when the panel is
@@ -162,25 +159,33 @@ function placePhoneBar(){
   if(!home) return;
   const a=acts || bar.querySelector('#edActs'), k=home.querySelector('#edMenu') || bar.querySelector('#edMenu');
   if(!a || !k) return;
-  const to = PHONE_MQ.matches ? bar : home;
+  const to = epLayout()==='phone' ? bar : home;
   if(a.parentNode!==to) to.append(a, k);
 }
-// The open page across the 600px line (rotation, a resized window): the bar's
-// buttons and the listing card change homes (listingCardHome), then repaint.
+// The event page's layout — 'wide' (tab list | main | panel), 'mid' (tab strip, then
+// main | panel) or 'phone' (status card, tab strip, the tab, bottom bar) — is decided
+// by CSS container queries on the page's own width (styles.css → "event page
+// layouts", the one place the numbers live), so Help open beside the page counts. JS
+// reads the answer back from --ep-layout rather than repeating the numbers.
+function epLayout(){
+  const g=document.querySelector('#eventPage .ep-grid');
+  return (g && getComputedStyle(g).getPropertyValue('--ep-layout').trim()) || 'wide';
+}
+// The open page across a layout line (rotation, a resized window, Help opening): the
+// bar's buttons change homes, the sticky offsets are re-measured, then a repaint.
 function layoutEventPage(){
   if(!pageOpen() || !editing || !_ctx || _ctx.ev!==editing) return;
-  kebabMenu(false);
+  kebabMenu(false); headMenu(false);
   placePhoneBar();
-  const side=document.getElementById('epPanel'), card=document.getElementById('listingCard');
-  const sc=side.querySelector('.sp-card'), wantPanel=listingCardHome()==='panel';
-  if(sc && (!card || side.contains(card)!==wantPanel)){
-    if(card) card.remove();
-    const el=document.createElement('div'); el.className='ebcard'; el.id='listingCard';
-    if(wantPanel) sc.after(el);
-    else if(activeSection==='details') document.getElementById('wpanel').prepend(el);   // other tabs: Listing paints its own when opened
-  }
-  renderStatusPanel();   // fills the card where it now lives
+  layoutSticky();
+  renderStatusPanel();
 }
+let _epLayoutSeen='';
+new ResizeObserver(()=>{
+  if(!pageOpen()) return;
+  const l=epLayout(); if(l===_epLayoutSeen) return;
+  _epLayoutSeen=l; layoutEventPage();
+}).observe(document.getElementById('eventPage'));
 function kebabMenu(open, focusFirst){
   const wrap=document.getElementById('edMenu'), btn=wrap && wrap.querySelector('.kb'), menu=wrap && wrap.querySelector('.kmenu');
   if(!btn || !menu){ _menuOpen=false; return; }

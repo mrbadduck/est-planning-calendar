@@ -84,6 +84,8 @@ function layoutSticky(){
   if(bar && bar.offsetHeight) document.documentElement.style.setProperty('--bar-h', bar.offsetHeight+'px');   // (0 while the event page hides it)
   const ept=document.getElementById('epTop');
   if(ept && ept.offsetHeight) document.documentElement.style.setProperty('--ep-top-h', ept.offsetHeight+'px');   // the event page's own sticky offset
+  const eptabs=document.getElementById('epTabs');
+  if(eptabs && eptabs.offsetHeight) document.documentElement.style.setProperty('--ep-tabs-h', eptabs.offsetHeight+'px');   // the tab strip's height (mid layout: the panel sticks under it)
   if(wh && wh.offsetHeight) document.documentElement.style.setProperty('--wh-h', wh.offsetHeight+'px');
 }
 window.addEventListener('resize', layoutSticky);

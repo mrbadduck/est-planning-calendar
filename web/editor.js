@@ -1,34 +1,26 @@
 /* editor.js — the editor shell: stage badge, editorCtx, header meta, openEditor → the event page (openEventPage) or the reference-event modal, the create flow and URL sync.
-   Paints the event page (ids in index.html): epStripe, epTitle, epTag, epSub, epBadges, epActions, epTabs, wpanel, epPanel (and epPhoneBar, via placePhoneBar); and, for the
+   Paints the event page (ids in index.html): epStripe, epTitle, epMenu, epTabs, wpanel, epPanel (and epPhoneBar, via placePhoneBar); and, for the
    reference event, the create form and its loading state, the modal: mStripe, mTitle, mBadges, mActions, mBody, mFoot.
-   Owns: statusInfo, badgesHTML, isPastEvent, isHistory, venueRecord, editorCtx, _ctx, paintHeadMeta, openEditor, pageOpen, _calScrollY, openNewEventForm, createFromForm, _epState, eventUrl, calendarUrl, openedInApp, openFromUrl
-   Reads: state, _refsSettled (state.js); reference lists (data.js); _form (save.js); _calPlaced (shell.js)
-   Writes: editing, activeSection (editor-tabs.js); _form (save.js); _menuOpen (status-panel.js); _ebBlock (transitions.js; reassigned); _pushChecks (eventbrite.js; Map .delete); owns _ctx, _creating
+   Owns: statusInfo, isPastEvent, isHistory, venueRecord, editorCtx, _ctx, paintHeadMeta, openEditor, pageOpen, _calScrollY, openNewEventForm, createFromForm, _epState, eventUrl, calendarUrl, openedInApp, openFromUrl
+   Reads: state, _refsSettled (state.js); reference lists (data.js); _form (save.js); _calPlaced (shell.js); headMenuHTML (editor-close.js; call time)
+   Writes: editing, activeSection (editor-tabs.js); _form (save.js); _menuOpen (status-panel.js); _headMenuOpen (editor-close.js); _ebBlock (transitions.js; reassigned); _pushChecks (eventbrite.js; Map .delete); owns _ctx, _creating
    Loaded after: preview.js (file-map order; calls renderSection, readForm at call time) */
 
 /* ---- status state machine (draft → proposed → approved; bail → cancelled) ----
    Status stores 4 states; "Live" (approved + EB published) and "Past" (date has
    passed) are DERIVED for display, not stored. */
-// The status label, from the same stage the footer's steps read (ListingRules.stageOf),
-// so the header badge and the footer never disagree (R21).
+// The status label, from the same stage the panel's steps read (ListingRules.stageOf),
+// so the List view's badge and the panel never disagree (R21).
 const STAGE_BADGE = {
   cancelled:{label:'Cancelled', cls:'cancelled'}, published:{label:'Live', cls:'live'},
   onEventbrite:{label:'On Eventbrite', cls:'approved'}, approved:{label:'Approved', cls:'approved'},
   proposed:{label:'Proposed', cls:'proposed'}, draft:{label:'Draft', cls:'draft'},
 };
 function statusInfo(ev){ return STAGE_BADGE[ListingRules.stageOf(ev)] || STAGE_BADGE.draft; }
-function badgesHTML(ev){
-  const si=statusInfo(ev);
-  let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;
-  if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
-  return badges;
-}
 function isPastEvent(ev){ return ev.scheduling==='exact' && ev.date && ev.date < todayStr && ev.status!=='cancelled'; }
 // An approved (or live) event whose date has passed: it happened, so its Listing tab locks
 // and it can't be cancelled or deleted (Notes, sign-ups and Attendees keep working).
 function isHistory(ev){ return isPastEvent(ev) && ev.status==='approved'; }
-const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
-const EXT_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
 const GATHER_BASE = 'https://gather.eastsidetribe.org/';   // member app; #/event/<rowId> deep-links (auth is per-origin, so no session hand-off)
 // The venue record readiness checks against. null when the event has no listed venue.
 function venueRecord(ev){
@@ -50,26 +42,14 @@ function editorCtx(ev){
   };
 }
 let _ctx=null;   // the open workspace editor's ctx (renderStatusPanel reads it)
-// Header (R23): the title, a tag for the first program in its own color (+N for
-// more) and, under it, the first line of the internal description. Reads the form, so it
-// follows edits as they're typed; fields on other tabs fall back to the event.
+// Top bar (polish 2026-11-16): just the title and its program-color stripe; the
+// program tag, status badge and subtitle are gone (the panel says the status). Reads
+// the form, so it follows edits as they're typed.
 function paintHeadMeta(){
-  const tagEl=document.getElementById('epTag'), subEl=document.getElementById('epSub');
-  if(!tagEl || !subEl || !editing || !_ctx || _ctx.ev!==editing) return;
+  if(!editing || !_ctx || _ctx.ev!==editing) return;
   const f=readForm();
   document.getElementById('epTitle').textContent = f.title || 'Untitled';
   document.getElementById('epStripe').style.setProperty('--c', progColor(f.program));
-  const t=EditorHead.programTag(f.programs, PROG);
-  const more = t && t.more>0 ? `<span class="ptag-more" data-tip="${esc(f.programs.map(id=>(PROG[id]||{}).name).filter(Boolean).join(', '))}">+${t.more}</span>` : '';
-  paintInner(tagEl, t ? `<span class="ptag" style="--c:${esc(t.color)}">${esc(t.name)}</span>${more}` : '');
-  const sub=EditorHead.subtitle(f.description), wasHidden=subEl.hidden;
-  subEl.textContent=sub; subEl.hidden=!sub;
-  if(subEl.hidden!==wasHidden) layoutSticky();   // the top bar's height changed: re-measure --ep-top-h
-}
-function clearHeadMeta(){
-  const tagEl=document.getElementById('epTag'), subEl=document.getElementById('epSub');
-  if(tagEl) paintInner(tagEl, '');
-  if(subEl){ subEl.textContent=''; subEl.hidden=true; }
 }
 // Every opener calls this: a reference event opens in the modal, a planning event's
 // workspace is the event page. `how` (history, spec 5.1): the calendar, List and day
@@ -144,13 +124,12 @@ function openEventPage(ev, section, how){
   panel.inert=false;   // a failed delete left it inert
   document.getElementById('epStripe').style.setProperty('--c', progColor(ev.program));
   document.getElementById('epTitle').textContent = ev.title || 'Untitled';
-  clearHeadMeta();
   // First visit: the reference lists may still be loading. Wait for them rather than
   // offer relation pickers that could save a partial Program(s)/Leads/Venue.
   if(ev._lossy) mapRelations(ev);
   if(canEdit && !locked && !pastLocked && !relationsReady(ev) && !_refsSettled){
     page.classList.add('loading');
-    for(const id of ['epBadges','epActions','epHead']) paintInner(document.getElementById(id), '');
+    for(const id of ['epMenu','epHead']) paintInner(document.getElementById(id), '');
     paintInner(tabs, ''); paintInner(side, ''); placePhoneBar();   // no panel: the phone bar empties too
     panel.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Loading…</div>`;
     afterRefs(()=>{ if(editing===ev) openEventPage(ev, section, 'none'); });   // try again as each list lands (its entry is written)
@@ -158,14 +137,9 @@ function openEventPage(ev, section, how){
   }
   page.classList.remove('loading');
 
-  // top bar: ← Calendar, title + program tag, the notes subtitle under them
-  // (paintHeadMeta), then the derived status badge (a button that opens the lifecycle
-  // guide) and the icons — ? (help for the active tab), view-in-gather, copy-link.
-  paintInner(document.getElementById('epBadges'), badgesHTML(ev));
-  let head = `<button type="button" class="mhead-ico q" data-act="help" data-tip="Help for this tab" aria-label="Help for this tab">?</button>`;
-  head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" data-tip="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
-  head += `<button class="mhead-ico" data-act="copylink" data-tip="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
-  paintInner(document.getElementById('epActions'), head);
+  // top bar: ← Calendar, the title (paintHeadMeta), then ⋮ (headMenuHTML, editor-close.js):
+  // Help for this tab, View in gather, Copy link.
+  if(paintInner(document.getElementById('epMenu'), headMenuHTML(`${GATHER_BASE}#/event/${encodeURIComponent(ev.id)}`))) _headMenuOpen=false;   // a new (closed) menu
 
   // the Status & next step panel: stable containers (statusPanelHTML), filled by
   // renderStatusPanel (D1); the save pill only where the form saves.
@@ -204,7 +178,6 @@ document.getElementById('epTabs').addEventListener('click', e=>{
   const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live) syncUrl(ev, id);
 });
 document.getElementById('wpanel').addEventListener('focusout', ()=>scheduleAutosave());   // no-op unless an editable form is bound
-document.getElementById('wpanel').addEventListener('click', e=>{ if(e.target.closest('#listingCard [data-pv-open]')) openPreview(); });   // the listing card atop Listing (phones)
 // Placeholder while the reference lists load, for the create form (a first visit only — see relationsReady).
 function showModalLoading(title, color){
   document.getElementById('mStripe').style.setProperty('--c', color);
