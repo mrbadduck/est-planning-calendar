@@ -27,11 +27,21 @@ past) are derived too. They lock fields; they are not stages.
 
 | On screen | `SECTIONS` id | What it holds |
 |---|---|---|
-| Details (the spec renames it **Listing**, pending Eric's OK) | `details` | The Eventbrite listing fields, in listing order, plus the listing card and Preview. Deep links `?section=details`. |
+| Listing (was "Details" until 2026-11) | `details` | The Eventbrite listing fields, in listing order. A red dot on the tab means a readiness item for the next step is a Listing field. On phones the listing card and Preview sit at the top. Deep links `?section=details` and `?section=listing`. |
 | Planning | `planning` | Private fields: Program(s), Leads, Internal description, and the planning notes doc. Old links `?section=notes` land here. |
 | Potluck & Volunteers | `volunteers` | Sign-up slots and claims (the gather app's data). |
 | Attendees | `attendees` | Lead-only roster: Eventbrite orders and gather claimants. |
 | Budget, Comms, Feedback | — | Muted "Coming soon" tabs that host the feedback board. |
+
+## Event page
+
+| On screen | Code | Meaning |
+|---|---|---|
+| event page | `#eventPage`, `openEventPage`, `leaveEventPage` | An open planning event: a full page in place of the calendar (not a modal). **← Calendar** or Back returns to the calendar where you left it. |
+| **Status & next step** panel | `#epPanel`, `statusPanelHTML`, `renderStatusPanel` (`web/status-panel.js`) | The panel on every tab: the checklist, the readiness rows, the one primary action and ⋮, one sentence of help, the listing card, and the failed-save pill. Painted from `footerModel` (D6). On phones: a status card at the top plus the bottom bar `#epPhoneBar`. |
+| checklist (the steps) | `footerModel(...).steps` → `#edStatus`; who/when from `PageRules.stepNotes` | The five lifecycle steps, top to bottom: done ✓, current, to do, with who/when where the row records it. |
+| checklist rows (what's left) | `footerModel(...).checklist` → `#edChecks` | The readiness items for the next push, one per field group: ✓ label, or ✗ a link that focuses the field (`focusField`). |
+| **Needs approval** | `#listBar`, `listBarHTML`, `prefs.needsApproval`, `PageRules.needsApproval` | The List view's toggle: shows only Proposed planning events, with a count. Visible to everyone. |
 
 ## Fields
 
@@ -51,12 +61,12 @@ past) are derived too. They lock fields; they are not stages.
 
 | Term | Where | Meaning |
 |---|---|---|
-| **Add to Eventbrite** | footer primary, `act: 'add-eb'` | Creates a *private* Eventbrite draft. Needs the `add` readiness checks. Stage becomes On Eventbrite. |
-| **Update draft** | footer primary, `act: 'update-eb'` | Re-sends the listing to the private draft. |
-| **Publish** | footer primary, `act: 'publish-eb'` | Makes the listing public. Needs the `publish` readiness checks. |
-| **Update listing** | footer primary, `act: 'update-listing'` | Re-sends a published listing. May offer to email registrants. |
+| **Add to Eventbrite** | panel primary, `act: 'add-eb'` | Creates a *private* Eventbrite draft. Needs the `add` readiness checks. Stage becomes On Eventbrite. |
+| **Update draft** | panel primary, `act: 'update-eb'` | Re-sends the listing to the private draft. |
+| **Publish** | panel primary, `act: 'publish-eb'` | Makes the listing public. Needs the `publish` readiness checks. |
+| **Update listing** | panel primary, `act: 'update-listing'` | Re-sends a published listing. May offer to email registrants. |
 | Unpublish | ⋮ menu | Takes a published listing back to private. |
-| **readiness** | `ListingRules.readiness(ev, {venue, todayISO})` → `{add, publish}` | The checks for the next push, each `{key, field, ok, message}`. The footer, the field markers and the Worker all use the same list (D5). |
+| **readiness** | `ListingRules.readiness(ev, {venue, todayISO})` → `{add, publish}` | The checks for the next push, each `{key, field, ok, message}`. The panel, the field markers and the Worker all use the same list (D5). |
 | **footerModel** | `ListingRules.footerModel(input)` | Pure function → what the Status & next step panel shows: steps, title, sub line, links to failing fields, the readiness checklist, the one primary action, ⋮ items. `renderStatusPanel` only paints it (D6). |
 | **pushed snapshot** | Coda `Last EB pushed values` → `ev.pushed` | What the Worker last sent to Eventbrite. Written only by the Worker. Field sync status compares the form with it (`syncStatus`, `unpushedFields`), never with live Eventbrite data (D4). |
 | Last EB push at / Last published at | Coda columns of those names | ISO text, written by the Worker. |
@@ -67,5 +77,5 @@ past) are derived too. They lock fields; they are not stages.
 |---|---|---|
 | Saved | `applied`, `CodaApplied` | Coda has *applied* the write, not just accepted it (D3). Takes 25–35 s. |
 | Saving… / Still saving… | `pendingFor(id)` | Something for this event is queued, in flight or not yet applied. "Still saving…" after 20 s. |
-| Save failed — retry | `#saveStatus` | The only save state with its own pill. Click to retry. |
+| Save failed — retry | `#saveStatus` | The only save state with its own pill, in the Status & next step panel. Click to retry. |
 | save queue | `saveQueue` (`web/save-queue.js`) | Per event: one write in flight, later edits coalesce. |

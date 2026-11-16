@@ -1,6 +1,6 @@
-/* shell.js — the app shell: layer toggles, month/quarter click delegation, day picker, sticky offsets, view switch, nav, ⚙ and ☰ menus.
+/* shell.js — the app shell: layer toggles, month/quarter click delegation, day picker, sticky offsets, view switch (applyView also shows #listBar, the List's Needs approval row), nav, ⚙ and ☰ menus.
    Owns: renderLayers, layoutSticky, scrollCalendarToToday, _calPlaced, PHONE_MQ, rerender, applyView, updateNavLabel, ovfMenu, phoneMenu, wirePhoneMenu
-   Reads: state, prefs (state.js); REF_LAYERS (data.js)
+   Reads: state, prefs (state.js); REF_LAYERS (data.js); layoutEventPage (status-panel.js; call time, when the 600px line is crossed)
    Writes: state, prefs (state.js); editing (editor-tabs.js; the day picker)
    Loaded after: editor-close.js (statement order: its listeners register before help.js's; the ⚙/☰ menu functions sit here though they came from the auth region) */
 

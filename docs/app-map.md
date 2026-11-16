@@ -29,6 +29,33 @@ Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
   too; neither stops propagation.)
 - Update the file's header and this page when you add, move or rename things.
 
+## The event page (2026-11)
+
+A planning event opens as a full page, `#eventPage` (`index.html`), shown in place of
+the calendar; the calendar DOM stays mounted and hidden (`body.event-open` hides its
+chrome), so its view, year and scroll survive. Spec:
+`docs/superpowers/specs/2026-11-16-event-page-design.md`.
+
+- **Containers** (stable, filled with `innerHTML`, D1): `#epTop` (← Calendar `#epBack`,
+  title/tag/subtitle, `#epBadges` status badge, `#epActions` ? / View in gather / Copy
+  link), `#epTabs` (the tab list, `railHTML`; a horizontal strip on phones), `#epMain`
+  (`#edGuard` leave bar, `#epHead` tab heading = label + `SECTIONS[].foot`, `#wpanel`
+  the active tab), `#epPanel` (the Status & next step panel, `statusPanelHTML`), and
+  `#epPhoneBar` (phones: `placePhoneBar` moves `#edActs` + `#edMenu` here).
+- **Still modals** (`#scrim`/`#modal`): the create form, reference events, the day
+  picker, Feedback, other loading states; Preview stays an overlay above the page.
+- **Routing**: see `editor.js` → *URL deep-links + history* below. Esc doesn't leave
+  the page (it only hides the leave bar); ← Calendar, Back and other openers go through
+  `leaveGuard` → `leaveEventPage`/`leaveForm`.
+- **Phones (≤600px)**: no side panel; the status card sits above the tab strip
+  ("Step N of 5 · see all steps", `toggleSteps`), the listing card moves to the top of
+  Listing (`listingCardHome()`), and the next-step button + ⋮ sit in `#epPhoneBar`.
+  `layoutEventPage()` re-homes them when the 600px line is crossed.
+- **List view: Needs approval** (`calendar.js`): `#listBar` (shown with the List view
+  by `applyView`) holds the toggle (`listBarHTML`); on, `renderList` keeps only
+  `PageRules.needsApproval` events (Proposed planning events) and hides reference
+  dates. Per device in `est-view-prefs` (`prefs.needsApproval`).
+
 ## File map (load order)
 
 Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
@@ -62,9 +89,11 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   one row per day with anything on it, refs collapsed to one muted line, undated
   ideas closing out their month). `applyView()` shows `curView()`, which is
   `state.view` — except **phones (≤600px, `PHONE_MQ`) always get the list**.
+  The List's **Needs approval** toggle (`#listBar`, `listBarHTML`) is described under
+  *The event page* above.
 6. **`editor-tabs.js`** — the open event (`editing`), the `SECTIONS` registry, the tab list, the tab heading (`#epHead`: label + `SECTIONS[].foot`), `renderSection`. The editor files `editor.js`, `fields.js` and `tabs-listing-planning.js` (files 10–12, loaded after `notes-doc.js`, `field-markers.js` and `preview.js`) and the tab files share this editor description:
-- **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
-  live sections **Listing** (SECTIONS id `details`; labeled "Details" until 2026-11; the Eventbrite listing only, in listing order:
+- **Editor = a section-model page** (`SECTIONS` registry; tab list `#epTabs` + `#wpanel`):
+  live sections **Listing** (SECTIONS id `details`; labeled "Details" until 2026-11; a red dot (`.tab-dot`) when a readiness link is a Listing field; the Eventbrite listing only, in listing order:
   Title, Summary, Description, When, Where — with the Address on listing toggle
   and its hints inside the Where block — and **Ticketing** (`ticketingGroupHTML`:
   the "Free tickets" field = Coda column `Capacity`, plus a muted "Paid tickets and

@@ -1,5 +1,5 @@
 /* calendar.js — the Calendar (months), Overview and List views, and the #listView click listener.
-   Owns: buildWeekHead, chipHTML, renderMonths, renderOverview, renderList, listBarHTML, sortEv
+   Owns: buildWeekHead, chipHTML, renderMonths, renderOverview, renderList, sortEv
    Reads: state, prefs, savePrefs (state.js); PageRules (page-rules.js); paintInner (status-panel.js, call time)
    Writes: prefs.needsApproval (the List's Needs approval toggle)
    Loaded after: state.js (reads state, todayStr, eventsByDate, roughByMonth at call time) */
