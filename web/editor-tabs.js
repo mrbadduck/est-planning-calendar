@@ -17,11 +17,13 @@ let whenType='exact';
 // heading (#epHead). The first tab's id stays 'details' (old links, syncUrl).
 // `fill`: a list tab that fills the viewport and scrolls inside (its filters, group
 // headings and footer stay put) instead of scrolling the page (renderSection sets
-// #eventPage.ep-fill; styles.css → "list tabs").
+// #eventPage.ep-fill; styles.css → "list tabs"). `fill:'scroll'` (Planning): the same
+// viewport-tall page, but the tab itself scrolls inside #wpanel, and the notes doc
+// takes the height that's left (#eventPage.ep-fill.ep-scroll; styles.css → "Planning").
 const SECTIONS = [
   { id:'details',   label:'Listing',              live:true,  help:'edit-details',
     foot:'What people see on Eventbrite. Edits save here first; send them to Eventbrite with the next-step button.' },
-  { id:'planning',  label:'Planning',             live:true,  help:'planning-notes',
+  { id:'planning',  label:'Planning',             live:true,  help:'planning-notes', fill:'scroll',
     foot:'Private planning space for leads and council; nothing here goes on Eventbrite.' },
   { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups', fill:true,
     foot:'Set up potluck dishes and volunteer shifts that members sign up for in gather.' },
@@ -98,7 +100,7 @@ function renderSection(id, ctx){
   const head=document.getElementById('epHead'); if(head) paintInner(head, tabHeadHTML(id));
   const { ev, locked, past:pastLocked } = ctx, { canEdit, canApprove } = ctx.role;
   const sec=SECTIONS.find(s=>s.id===id);
-  const page=document.getElementById('eventPage'); if(page) page.classList.toggle('ep-fill', !!(sec && sec.fill));
+  const page=document.getElementById('eventPage'); if(page){ page.classList.toggle('ep-fill', !!(sec && sec.fill)); page.classList.toggle('ep-scroll', !!(sec && sec.fill==='scroll')); }
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }

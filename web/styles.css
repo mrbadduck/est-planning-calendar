@@ -822,8 +822,14 @@
   /* Planning tab: Program(s) + Leads side by side, then Internal description, then the doc */
   .frow2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .frow2 > .fld.full{grid-column:auto}
-  .ndoc-fld{flex:1 0 auto;min-height:300px}
+  /* the notes doc fills what the fields leave (SECTIONS fill:'scroll' → .ep-scroll, the
+     list tabs' viewport-tall page), at least 420px; when the fields + 420px don't fit,
+     the tab scrolls inside #wpanel (padding/margin keep focus rings unclipped). The
+     create / setting-up / no-doc states keep their natural height. */
+  .ndoc-fld{flex:1 0 auto}
+  .ndoc-fld:has(.ndoc-full.has-doc){min-height:420px}
   .ndoc-fld .ndoc-full.has-doc{flex:1}
+  .event-page.ep-scroll .wpanel{overflow-y:auto;overscroll-behavior:contain;padding:3px;margin:-3px}
   @media (max-width:600px){ .frow2{grid-template-columns:minmax(0,1fr)} }
   .soon-h{font-weight:500;margin-bottom:4px}
   .soon-teaser{display:flex;flex-direction:column;gap:8px}

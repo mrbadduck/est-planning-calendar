@@ -151,7 +151,7 @@ function openEventPage(ev, section, how){
   // offer relation pickers that could save a partial Program(s)/Leads/Venue.
   if(ev._lossy) mapRelations(ev);
   if(canEdit && !locked && !pastLocked && !relationsReady(ev) && !_refsSettled){
-    page.classList.add('loading'); page.classList.remove('ep-fill');   // the tab isn't rendered yet
+    page.classList.add('loading'); page.classList.remove('ep-fill', 'ep-scroll');   // the tab isn't rendered yet
     for(const id of ['epBadges','epActions','epMenu','epHead']) paintInner(document.getElementById(id), '');
     paintInner(tabs, ''); paintInner(side, ''); placePhoneBar();   // no panel: the phone bar empties too
     panel.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Loading…</div>`;

@@ -89,7 +89,7 @@ function leaveEventPage(how){
   hideTip(); kebabMenu(false); headMenu(false);
   leaveForm();   // (retries the open form's failed save once)
   document.getElementById('eventPage').hidden=true;
-  document.getElementById('eventPage').classList.remove('loading', 'ep-fill');
+  document.getElementById('eventPage').classList.remove('loading', 'ep-fill', 'ep-scroll');
   document.body.classList.remove('event-open');
   editing=null; _epState=null;
   if(how==='goBack') history.back();
