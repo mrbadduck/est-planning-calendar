@@ -39,7 +39,7 @@ test('a fully ready approved event passes add; publish needs the description', (
   const r = R.readiness(ready(), { venue: null, todayISO: TODAY });
   assert.ok(r.add.every(c => c.ok));
   assert.deepEqual(r.publish.filter(c => !c.ok).map(c => c.key), ['publicDescription']);
-  assert.equal(r.publish.filter(c => !c.ok)[0].message, 'Add a public description (Eventbrite requires one to publish)');
+  assert.equal(r.publish.filter(c => !c.ok)[0].message, 'Add a description (Eventbrite requires one to publish)');
   assert.equal(failing({ ...ready(), publicDescription: 'Hi' }, null, 'publish').length, 0);
 });
 

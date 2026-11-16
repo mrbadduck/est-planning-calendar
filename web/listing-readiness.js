@@ -28,15 +28,15 @@
   const pub = label => ({ label, public: true });
   const FIELDS = {
     title: pub('Title'),
-    description: { label: 'Internal description', public: false },
+    description: { label: 'Internal notes', public: false },
     programs: { label: 'Program(s)', public: false },
     leads: { label: 'Leads', public: false },
     date: pub('Date'),
     start: pub('Start time'),
     end: pub('End time'),
     venue: pub('Venue'),
-    publicSummary: pub('Public summary'),
-    publicDescription: pub('Public description'),
+    publicSummary: pub('Summary'),
+    publicDescription: pub('Description'),
     capacity: pub('Capacity'),
     addressVisibility: pub('Address visibility'),
   };
@@ -75,7 +75,7 @@
     ];
     const publish = add.concat([
       chk('publicDescription', 'publicDescription', !blank(ev.publicDescription),
-        'Add a public description (Eventbrite requires one to publish)'),
+        'Add a description (Eventbrite requires one to publish)'),
     ]);
     return { add, publish };
   }

@@ -775,7 +775,7 @@ let whenType='exact';
 // guide.md) the editor header's ? opens for that tab. No icon webfont — text labels.
 const SECTIONS = [
   { id:'details',   label:'Details',              live:true,  help:'edit-details' },
-  { id:'notes',     label:'Planning Notes',       live:true,  help:'planning-notes' },
+  { id:'notes',     label:'Planning',             live:true,  help:'planning-notes' },   // id kept: ?section=notes links
   { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups' },
   { id:'attendees', label:'Attendees',            live:true,  help:'attendees' },
   { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback' },
@@ -847,7 +847,7 @@ const NDOC_CREATE_HTML = `<div class="ndoc-empty">
   <button type="button" class="btn sm primary" data-act="ndoc-create">Create notes doc</button>
   <span class="hint">Generates a Google Doc from the planning template.</span>
 </div>`;
-// The Planning Notes rail section — a Google Doc, full-panel height.
+// The Planning tab's Google Doc block (under the private fields; see renderPlanningTab).
 function renderNotes(ev, canEdit){
   let inner;
   if(ev.notesDocUrl)          inner = notesDocEmbedHTML(ev.notesDocUrl);
@@ -999,7 +999,6 @@ function paintFieldMarks(){
     // The next push may overwrite only right after a real notice was seen (D8).
     if(editing.eventbriteId && ebConflict(editing.id)) _conflictShown.add(editing.id); else _conflictShown.delete(editing.id);
   }
-  const lh=document.getElementById('listingHead'); if(lh) paintInner(lh, listingHeadHTML(editing));
   const dh=document.getElementById('f_pubdeschint'); if(dh) paintInner(dh, esc(pubDescHintText(!!editing.eventbriteId)));
 }
 
@@ -1361,7 +1360,8 @@ function openFromUrl(){
 }
 
 /* ---- editor workspace: rail + section panels ------------------------------
-   The planning editor is a rail of sections. Two are live (Planning / Publish);
+   The planning editor is a rail of sections. The live ones are Details, Planning,
+   Potluck & Volunteers and Attendees;
    the rest render a muted "coming soon" teaser. Each section owns its own render
    (markup) + wire (post-render listeners) pair. Field ids stay globally unique
    within the open editor, so readForm()/collectWhen() still find them by id. */
@@ -1380,36 +1380,42 @@ function renderSection(id, ctx){
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
-  if(id==='notes'){ panel.innerHTML=renderNotes(ev, canEdit && !locked); wireNotes(panel, ev, canEdit && !locked); return; }
-  const detailsLocked = locked || !!pastLocked;   // a past approved event's Details are history (decided when it opened); other tabs don't take this lock
+  const detailsLocked = locked || !!pastLocked;   // a past approved event's fields are history (decided when it opened); sign-ups, Attendees and the notes doc don't take this lock
+  if(id==='notes'){ panel.innerHTML=renderPlanningTab(ev, canEdit, detailsLocked, locked); wirePlanningTab(panel, ev, canEdit, detailsLocked, locked); return; }
   panel.innerHTML=renderDetails(ev, canEdit, detailsLocked, canApprove); wireDetails(panel, ev, canEdit, detailsLocked, canApprove);
 }
 
-/* Planning section — every planning field EXCEPT capacity / address-visibility /
-   the publish panel (those live in the Details tab's listing subsection now).
-   `#whenFields` is filled by wirePlanning after render. */
-function renderPlanning(ev, canEdit, locked, canApprove){
-  const dis = (!canEdit || locked) ? 'disabled' : '';
-  const sched = ev.scheduling || 'exact';
+/* Event fields, one builder each. The Details tab (the listing), the Planning tab
+   (the private fields) and the create form (openNewEventForm) each pick the ones
+   they show. Field ids stay unique within the open editor, so readForm() finds
+   whatever is rendered and falls back to the event's own values for the rest. */
+// Until the reference lists load and this event's stored names all map, relations
+// show as plain read-only text: a picker would show — and a save would write — a
+// partial list. (readForm falls back to the event's own values for them.)
+const roFieldHTML = v => `<input value="${esc(v||'—')}" disabled>`;
+function titleFieldHTML(ev, dis, lab){
+  return `<div class="fld full"><label>${lab('title','Title')}</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat">${fieldHintSlot('title')}</div>`;
+}
+function internalNotesFieldHTML(ev, dis, lab){
+  return `<div class="fld full"><label>${lab('description','Internal notes')} <span class="hint">(planning team only, never shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>`;
+}
+function programsFieldHTML(ev, dis, lab, relOK){
   const progList = PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id))));
   const progSel = (ev.programs&&ev.programs.length?ev.programs:[ev.program]).filter(Boolean);
-  // Until the reference lists load and this event's stored names all map, show its
-  // relations as plain read-only text: a picker would show — and a save would write —
-  // a partial list. (readForm falls back to the event's own values for them.)
-  const relOK = relationsReady(ev);
-  const roText = v => `<input value="${esc(v||'—')}" disabled>`;
-  const fm = fieldMarkModel(ev), lab = (k, t) => fieldLabelHTML(k, t, fm);
-  return `
-    <div class="fld full"><label>${lab('title','Title')}</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat">${fieldHintSlot('title')}</div>
-    <div class="fld full"><label>${lab('description','Internal description')} <span class="hint">(planning copy — not shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>
-    <div class="fld full"><label>${lab('programs','Program(s)')}</label>
+  return `<div class="fld full"><label>${lab('programs','Program(s)')}</label>
       ${relOK ? `<div class="msel${dis?' dis':''}" id="f_progs" data-sel="${esc(progSel.join(','))}">
         <button type="button" class="msel-btn" ${dis} aria-haspopup="listbox" aria-expanded="false"><span class="msel-label"></span><span class="msel-caret">▾</span></button>
         <div class="msel-menu" role="listbox" hidden>${progList.map(p=>`<label class="msel-opt"><input type="checkbox" value="${p.id}" ${progSel.includes(p.id)?'checked':''} ${dis}><span>${esc(p.name)}</span></label>`).join('')}</div>
-      </div>` : roText((ev.programNames||[]).join(', '))}
-    </div>
-    <div class="fld full"><label>${lab('leads','Leads')} <span class="hint">(program leads auto-added)</span></label>${relOK ? `<div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div>` : roText((ev.leadNames||[]).join(', '))}</div>
-    <div class="fieldgroup">
+      </div>` : roFieldHTML((ev.programNames||[]).join(', '))}
+    </div>`;
+}
+function leadsFieldHTML(ev, dis, lab, relOK){
+  return `<div class="fld full"><label>${lab('leads','Leads')} <span class="hint">(program leads auto-added)</span></label>${relOK ? `<div class="typeahead${dis?' dis':''}" id="f_leads"><input class="ta-input" type="text" placeholder="Search leads…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div></div>` : roFieldHTML((ev.leadNames||[]).join(', '))}</div>`;
+}
+// `#whenFields` is filled by wireEventFields after render.
+function whenGroupHTML(ev, dis){
+  const sched = ev.scheduling || 'exact';
+  return `<div class="fieldgroup">
       <div class="fieldgroup-h">When <span class="fmk" data-fmk="when"></span></div>
       <div class="whenseg" id="f_when">
         <button type="button" data-when="exact" aria-pressed="${sched==='exact'}" ${dis}>Exact date</button>
@@ -1417,24 +1423,47 @@ function renderPlanning(ev, canEdit, locked, canApprove){
         <button type="button" data-when="month" aria-pressed="${sched==='month'}" ${dis}>Whole month</button>
       </div>
       <div class="fld full" id="whenFields"></div>
-    </div>
-    <div class="fieldgroup">
+    </div>`;
+}
+// Where: venue type + venue, the street-address note and — on an approved event's
+// Details — the Address on listing toggle with its hints, all in one block.
+function whereGroupHTML(ev, dis, lab, relOK, listing){
+  const av = ev.addressVisibility || '';
+  const addr = listing ? `<div class="fld full addrvis"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span><span class="hint warn" id="f_addrwarn" hidden>${esc(ADDR_HOME_PUBLIC_WARN)}</span></div>` : '';
+  return `<div class="fieldgroup">
       <div class="fieldgroup-h">${lab('venue','Where')}</div>
       ${relOK ? `<div class="fld full"><label for="f_vtype">Venue type</label><select id="f_vtype" ${dis}>
         <option value="" ${!ev.venueType?'selected':''}>Any</option>
         ${VENUE_TYPES.map(t=>`<option value="${esc(t.id)}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}
       </select></div>
       <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>`
-      : `<div class="fld full">${roText([ev.venueTypeName, ev.venueName||ev.venueOther].filter(Boolean).join(' · '))}</div>`}
+      : `<div class="fld full">${roFieldHTML([ev.venueTypeName, ev.venueName||ev.venueOther].filter(Boolean).join(' · '))}</div>`}
       <div class="fld full"><span class="hint">The street address is saved on the venue.</span>${fieldHintSlot('venue')}</div>
-    </div>
-    ${(!relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
+      ${addr}
+    </div>`;
+}
+// Why the fields can't be edited, if they can't. `relations` = this view shows a picker.
+function lockNotesHTML(ev, canEdit, locked, relOK, relations){
+  return `${(relations && !relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked ? (isHistory(ev) ? `<div class="locknote">🔒 This event has happened, so its details are locked.</div>`
       : ev.status==='cancelled' ? `<div class="locknote">🔒 This event is cancelled, so its details are locked.</div>` : '') : ''}`;
 }
+const fieldLab = ev => { const fm=fieldMarkModel(ev); return (k, t) => fieldLabelHTML(k, t, fm); };
 
-function wirePlanning(panel, ev, canEdit, locked, canApprove){
+/* The create form (openNewEventForm): every field a new event starts with, in the
+   order it always had. */
+function renderPlanning(ev, canEdit, locked, canApprove){
+  const dis = (!canEdit || locked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
+  return titleFieldHTML(ev, dis, lab) + internalNotesFieldHTML(ev, dis, lab)
+    + programsFieldHTML(ev, dis, lab, relOK) + leadsFieldHTML(ev, dis, lab, relOK)
+    + whenGroupHTML(ev, dis) + whereGroupHTML(ev, dis, lab, relOK, false)
+    + lockNotesHTML(ev, canEdit, locked, relOK, true);
+}
+function wirePlanning(panel, ev, canEdit, locked, canApprove){ wireEventFields(panel, ev, canEdit, locked); }
+
+// Wires whichever event fields are rendered (each one is optional).
+function wireEventFields(panel, ev, canEdit, locked){
   const sched = ev.scheduling || 'exact';
   // leads (leadership cohort) + venue typeaheads
   const resolveIds = (ids, names) => (ids && ids.length) ? ids : (names||[]).map(n=>peopleIdByName[n]).filter(Boolean);
@@ -1456,74 +1485,90 @@ function wirePlanning(panel, ev, canEdit, locked, canApprove){
           const p=PROG[cb.value];
           (p && p.currentLeadNames || []).forEach(nm=>{ const id=peopleIdByName[nm]; if(id) leadsBox.addPerson(id); });
         }
-        syncLabel(); scheduleAutosave();
+        syncLabel(); paintHeadMeta(); scheduleAutosave();
       });
     }
   }
+  // The header's title, program tag and subtitle follow the form as you type.
+  const tEl=document.getElementById('f_title'), dEl=document.getElementById('f_desc');
+  if(tEl) tEl.addEventListener('input', paintHeadMeta);
+  if(dEl) dEl.addEventListener('input', paintHeadMeta);
 
   // Where: venue type — filters the venue search; saves like any field
   const vtSel=document.getElementById('f_vtype');   // absent while the relations show read-only (relationsReady)
   if(vtSel && canEdit && !locked) vtSel.addEventListener('change', scheduleAutosave);
 
   // when control: mode switch + all-day toggle both re-render the time fields
-  whenType = sched;
   const wf=document.getElementById('whenFields');
-  wf.innerHTML = whenFieldsHTML(whenType, ev, (!canEdit || locked) ? 'disabled' : '');
-  if(canEdit && !locked){
-    document.getElementById('f_when').addEventListener('click',e=>{
-      const b=e.target.closest('button[data-when]'); if(!b) return;
-      const cur=collectWhen();
-      whenType=b.dataset.when;
-      [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
-      wf.innerHTML=whenFieldsHTML(whenType, Object.assign({},ev,cur), '');
-      scheduleAutosave();
-    });
-    wf.addEventListener('change', e=>{                 // All-day toggled → show/hide the times
-      if(e.target.id!=='f_allday') return;
-      wf.innerHTML=whenFieldsHTML('exact', Object.assign({},ev,collectWhen()), '');
-      scheduleAutosave();
-    });
+  if(wf){
+    whenType = sched;
+    wf.innerHTML = whenFieldsHTML(whenType, ev, (!canEdit || locked) ? 'disabled' : '');
+    if(canEdit && !locked){
+      document.getElementById('f_when').addEventListener('click',e=>{
+        const b=e.target.closest('button[data-when]'); if(!b) return;
+        const cur=collectWhen();
+        whenType=b.dataset.when;
+        [...b.parentElement.children].forEach(x=>x.setAttribute('aria-pressed', x===b));
+        wf.innerHTML=whenFieldsHTML(whenType, Object.assign({},ev,cur), '');
+        scheduleAutosave();
+      });
+      wf.addEventListener('change', e=>{                 // All-day toggled → show/hide the times
+        if(e.target.id!=='f_allday') return;
+        wf.innerHTML=whenFieldsHTML('exact', Object.assign({},ev,collectWhen()), '');
+        scheduleAutosave();
+      });
+    }
   }
-}
 
-/* Listing subsection (bottom of Details): the public listing copy, capacity and
-   address visibility, plus — once the event is on Eventbrite — the listing card
-   (#listingCard). The fields always show the event's own (Coda) values (D4). */
-function publishFieldsHTML(vals, dis, linked, fm){
-  const lab = (k, t) => fieldLabelHTML(k, t, fm);
-  const av = vals.addressVisibility || '';
-  return `
-    <div class="fld full"><label>${lab('publicSummary','Public summary')} <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(vals.summary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
-    <div class="fld full"><label>${lab('publicDescription','Public description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(vals.description||'')}</textarea>${fieldHintSlot('publicDescription')}
-      <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>
-    <div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${vals.capacity!==''&&vals.capacity!=null?esc(vals.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>
-    <div class="fld"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span><span class="hint warn" id="f_addrwarn" hidden>${esc(ADDR_HOME_PUBLIC_WARN)}</span></div>`;
-}
-const listingHeadHTML = ev => ev.eventbriteId ? 'Eventbrite listing'
-  : 'Public listing <span class="wsub-h-sub">· what people see on Eventbrite</span>';
-const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
-  : 'If you copy the internal description, take out planning notes first. This text goes public.';
-function renderListingSection(ev, canEdit, locked, canApprove){
-  const linked=!!ev.eventbriteId;
-  if(ev.status!=='approved')
-    return `<div class="wsub muted"><div class="wsub-h">Public listing</div><div class="locknote">Available once approved — public summary, description, capacity, and the Eventbrite publish action live here. ${canApprove ? 'Approve it to unlock the public listing.' : 'Unlocks once Tribal Council approves it.'}</div></div>`;
-  const dis=(!canEdit||locked)?'disabled':'';
-  const fm=fieldMarkModel(ev);
-  const vals={summary:ev.publicSummary||'', description:ev.publicDescription||'', capacity:ev.capacity, addressVisibility:ev.addressVisibility};
-  // Stable containers (D1): the heading, card and description hint change when the
-  // event gets linked (Add to Eventbrite) while the editor stays open.
-  const h = `<div class="wsub-h" id="listingHead">${listingHeadHTML(ev)}</div>`;
-  const card = `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>`;
-  return `<div class="wsub">${h}${card}${publishFieldsHTML(vals, dis, linked, fm)}</div>`;
-}
-function wireListingSection(panel, ev, canEdit, locked){
-  if(ev.status!=='approved') return;                 // muted state has no controls
+  // Listing fields (an approved event's Details)
   const ci=panel.querySelector('[data-act="copy-internal"]');
   if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; t.dispatchEvent(new Event('input',{bubbles:true})); scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
-  if(av && canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; setAddressVisibility(b.dataset.addrvis); const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=true; paintAddrWarn(); scheduleAutosave(); });
-  paintAddrWarn();
+  if(av){
+    if(canEdit && !locked) av.addEventListener('click', e=>{ const b=e.target.closest('button[data-addrvis]'); if(!b) return; setAddressVisibility(b.dataset.addrvis); const hint=document.getElementById('f_addrhint'); if(hint) hint.hidden=true; paintAddrWarn(); scheduleAutosave(); });
+    paintAddrWarn();
+  }
 }
+
+/* Details tab = the listing, in the order Eventbrite shows it: Title, Summary,
+   Description, When, Where (with Address on listing), Capacity. Summary,
+   Description, Capacity and the address toggle open once the event is approved.
+   The listing card (#listingCard, a stable container: empty and hidden until the
+   event is on Eventbrite) sits on top. The fields always show the event's own
+   (Coda) values (D4). */
+const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
+  : 'If you copy the internal notes, take out anything private first. This text goes public.';
+function renderDetails(ev, canEdit, locked, canApprove){
+  const dis = (!canEdit || locked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
+  const listing = ev.status==='approved', linked = !!ev.eventbriteId;
+  const card = listing ? `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>` : '';
+  const summary = listing ? `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
+    <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal notes</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
+      <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>` : '';
+  const capacity = listing ? `<div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>`
+    : `<div class="locknote">After council approves, you'll write what the public sees here: a one-line summary, the listing description, capacity, and whether the address is public. Nothing is on Eventbrite until you add it.</div>`;
+  return card + titleFieldHTML(ev, dis, lab) + summary + whenGroupHTML(ev, dis)
+    + whereGroupHTML(ev, dis, lab, relOK, listing) + capacity
+    + lockNotesHTML(ev, canEdit, locked, relOK, true);
+}
+function wireDetails(panel, ev, canEdit, locked, canApprove){ wireEventFields(panel, ev, canEdit, locked); }
+
+/* Planning tab: the private fields — Program(s), Leads, Internal notes — then the
+   event's Google Doc. The fields take the Details lock (cancelled, or a past
+   approved event); the notes doc only the cancelled one. */
+function renderPlanningTab(ev, canEdit, fieldsLocked, docLocked){
+  const dis = (!canEdit || fieldsLocked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
+  return `<div class="frow2">${programsFieldHTML(ev, dis, lab, relOK)}${leadsFieldHTML(ev, dis, lab, relOK)}</div>`
+    + internalNotesFieldHTML(ev, dis, lab)
+    + `<div class="fld full ndoc-fld"><label>Planning notes doc <span class="fmk">${fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private, never on Eventbrite')}</span></label>${renderNotes(ev, canEdit && !docLocked)}</div>`
+    + lockNotesHTML(ev, canEdit, fieldsLocked, relOK, false)
+    + ((!relOK && canEdit && !fieldsLocked) ? `<div class="locknote">Program(s) and Leads can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>` : '');
+}
+function wirePlanningTab(panel, ev, canEdit, fieldsLocked, docLocked){
+  wireEventFields(panel, ev, canEdit, fieldsLocked);
+  wireNotes(panel, ev, canEdit && !docLocked);
+}
+
 // The venue the form currently names: the picker's pick, else the event's own.
 function formVenueRecord(){
   const box=document.getElementById('f_venue_box');
@@ -1569,15 +1614,6 @@ function applyAddressDefault(venBox){
   paintAddrWarn();
 }
 
-// The Details tab: stable event subsection (draft/internal fields) on top,
-// stage-aware listing subsection below. One surface that transforms by stage.
-function renderDetails(ev, canEdit, locked, canApprove){
-  return `<div class="wsub">${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked, canApprove)}`;
-}
-function wireDetails(panel, ev, canEdit, locked, canApprove){
-  wirePlanning(panel, ev, canEdit, locked, canApprove);
-  wireListingSection(panel, ev, canEdit, locked);
-}
 
 function comingSoonHTML(sec){
   return `<div class="soon-teaser"><div class="soon-h">${esc(sec.label)} — coming soon</div><div class="hint">On our roadmap. Tell us what you'd want here, or +1 an idea below.</div>${typeof feedbackBoardHTML==='function'?feedbackBoardHTML(sec.id):''}</div>`;
