@@ -7,7 +7,7 @@
 
 ## 2026-11-16
 - **Events open as a page.** Clicking an event opens it as its own page instead of a pop-up. **← Calendar** or your browser's Back button takes you back to the calendar just as you left it. A copied link opens the event's page directly.
-- **Status & next step.** On a computer, a panel beside every tab shows the five steps as a checklist, with who and when where the app knows; what's left before the next step, each linked to its field; the one next-step button and **⋮**; and the listing box with **Preview listing**. On a phone, it's a box at the top of the event, and the next-step button sits at the bottom of the screen.
+- **Status & next step.** On a computer, a panel on every tab shows the five steps as a checklist, with who and when where the app knows; what's left before the next step, each linked to its field; the one next-step button and **⋮**; and the listing box with **Preview listing**. On a phone, it's a box at the top of the event, and the next-step button sits at the bottom of the screen.
 - **Details is now Listing.** The first tab of an event is called **Listing**. A dot on it means something there is holding up the next step.
 - **Needs approval.** In the List view, **Needs approval** shows only the events waiting for Tribal Council, with a count. Anyone can use it.
 - **Preview any time.** **Preview listing** is now in the listing box, and it works at every stage. Before the event is on Eventbrite, it shows how the listing will look from your own fields.

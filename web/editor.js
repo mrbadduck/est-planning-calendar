@@ -24,7 +24,7 @@ function badgesHTML(ev){
   return badges;
 }
 function isPastEvent(ev){ return ev.scheduling==='exact' && ev.date && ev.date < todayStr && ev.status!=='cancelled'; }
-// An approved (or live) event whose date has passed: it happened, so its Details lock
+// An approved (or live) event whose date has passed: it happened, so its Listing tab locks
 // and it can't be cancelled or deleted (Notes, sign-ups and Attendees keep working).
 function isHistory(ev){ return isPastEvent(ev) && ev.status==='approved'; }
 const LINK_ICON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
@@ -38,7 +38,7 @@ function venueRecord(ev){
 // One context object per open editor (D2): who may do what, and where the event is.
 // (No `stage`: the footer reads stageOf live, since publish status can change while open.)
 // `locked` = Cancelled only — leads keep editing after approval (decision 5); a past
-// approved event's Details lock separately through `past`.
+// approved event's Listing tab locks separately through `past`.
 function editorCtx(ev){
   const isRef = ev.source==='ref';
   return {
@@ -106,7 +106,6 @@ function openRefEvent(ev){
 // but hidden (body.event-open). `how` is for history (spec 5.1, 8.3–8.4):
 //   'push'    an in-app open — a new entry stamped {event, inApp:true}, so Back (and
 //             ← Calendar, via history.back()) returns to where it was opened from;
-//   'replace' stamps the current entry instead;
 //   'none'    the entry already exists (a deep link, Back/Forward, a rebuild): only the
 //             URL's section is brought in line, the entry's state is kept.
 let _calScrollY=null;   // the calendar's window scroll (leaveEventPage restores it); null = not placed yet (a fresh deep link)
@@ -136,7 +135,7 @@ function openEventPage(ev, section, how){
   const ctx = editorCtx(ev);
   const { canEdit } = ctx.role;
   const locked = ctx.locked;        // Cancelled: read-only until Council reopens it
-  const pastLocked = ctx.past;      // Details only — see renderSection
+  const pastLocked = ctx.past;      // the Listing tab only — see renderSection
   _ctx = ctx;
   showEventPage();
   writeHistory(ev, activeSection, how);   // before the loading wait, so Back works from "Loading…" too
@@ -263,9 +262,8 @@ async function createFromForm(){
     _creating=false;
     if(editing===seed){   // land in the workspace for the just-created event
       closeModal();
-      // 'push', not 'replace': the create form never had a history entry, so replacing
-      // would overwrite the calendar's and Back would leave the app (spec 8.4: Back
-      // returns to the calendar, not the form).
+      // A new entry: the create form never had one of its own, so Back returns to the
+      // calendar, not the form (spec 8.4).
       if(!String(e.id).startsWith('tmp-')) openEventPage(e, undefined, 'push');   // (a tmp id: no row id came back — it appears on the next refresh; don't invite a second Create)
     }
   }catch(err){
@@ -291,9 +289,9 @@ function calendarUrl(){
 }
 function writeHistory(ev, section, how){
   if(!ev || !ev.id) return;
-  if(how==='push' || how==='replace'){
+  if(how==='push'){
     _epState={event:ev.id, inApp:true};
-    history[how==='push'?'pushState':'replaceState'](_epState, '', eventUrl(ev, section));
+    history.pushState(_epState, '', eventUrl(ev, section));
   } else syncUrl(ev, section);
 }
 // The open page's URL follows its tab; the entry and its state stay.

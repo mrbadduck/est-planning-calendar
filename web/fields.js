@@ -4,7 +4,7 @@
    Writes: whenType (editor-tabs.js)
    Loaded after: editor.js (file-map order; no load-time dependency) */
 
-/* Event fields, one builder each. The Details tab (the listing), the Planning tab
+/* Event fields, one builder each. The Listing tab, the Planning tab
    (the private fields) and the create form (openNewEventForm) each pick the ones
    they show. Field ids stay unique within the open editor, so readForm() finds
    whatever is rendered and falls back to the event's own values for the rest. */
@@ -45,7 +45,7 @@ function whenGroupHTML(ev, dis){
     </div>`;
 }
 // Where: venue type + venue, the street-address note and — on an approved event's
-// Details — the Address on listing toggle with its hints, all in one block.
+// Listing tab — the Address on listing toggle with its hints, all in one block.
 function whereGroupHTML(ev, dis, lab, relOK, listing){
   const av = ev.addressVisibility || '';
   const addr = listing ? `<div class="fld full addrvis"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span><span class="hint warn" id="f_addrwarn" hidden>${esc(ADDR_HOME_PUBLIC_WARN)}</span></div>` : '';
@@ -152,7 +152,7 @@ function wireEventFields(panel, ev, canEdit, locked){
     }
   }
 
-  // Listing fields (an approved event's Details)
+  // Listing fields (an approved event's Listing tab)
   const sumEl=document.getElementById('f_pubsummary'), sumCount=document.getElementById('f_sumcount');
   if(sumEl && sumCount) sumEl.addEventListener('input', ()=>{ sumCount.textContent=`${sumEl.value.length} / 140`; });
   const ci=panel.querySelector('[data-act="copy-internal"]');

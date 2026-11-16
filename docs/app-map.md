@@ -156,12 +156,12 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 - **Tooltips**: any element with `data-tip` gets the shared bubble (`showTip`/
   `hideTip`) on hover and keyboard focus — use it, not `title=`, for icon buttons.
 17. **`save.js`** — the save model, the save pill, `leaveForm`, the unload guard.
-- **Save model (create-then-workspace + on-blur autosave):** a NEW event opens a
-  one-shot compact Planning modal (`openNewEventForm`, Cancel/Create) — not the
-  workspace, so no premature empty rows; on Create it persists once and
-  opens the event's page via `openEventPage(saved)`. An EXISTING event's
-  workspace **autosaves every field on blur** (`autosaveEditor`, debounced 800ms,
-  in place — the page stays open) and **writes only the columns whose form value
+- **Save model (create-then-page + on-blur autosave):** a NEW event opens a
+  one-shot compact create modal (`openNewEventForm`, Cancel/Create) — not the
+  event page, so no premature empty rows; on Create it persists once, closes the
+  modal (`closeModal`) and opens the event's page via `openEventPage(saved)`. An
+  EXISTING event's page **autosaves every field on blur** (`autosaveEditor`,
+  debounced 800ms, in place — the page stays open) and **writes only the columns whose form value
   changed**: `formCells(readForm())` vs `_form.base` (the form as last queued;
   `_form` = `{ev, base}`, bound to its event), diffed by `SaveQueue.changedCells`.
   That's only the user's edits: nothing read from Eventbrite is ever put into the
@@ -175,7 +175,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   `_unsaved` (`id → {ev, before}`) keeps an edited event's local copy through
   re-fetches until it saves (then the `_recent` guard; `scheduleReconcile` pulls
   server truth). A failed save stays retryable only while its editor is open; when
-  the editor goes (`leaveForm`/`close`, after one more try) `dropFailedEdits` puts
+  the page goes (`leaveEventPage` — ← Calendar, Back, opening another event — via
+  `leaveForm`, after one more try) `dropFailedEdits` puts
   back only the fields the failed edits changed — what did save (a create, a status
   change) stays, re-guarded by `_recent` against Coda's list lag — and toasts. A
   stale local copy must never linger (one once let a Propose undo an approval). A
