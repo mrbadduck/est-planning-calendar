@@ -14,6 +14,8 @@ Start here in a new session. Read this file first, then the spec, then CLAUDE.md
 
 ## First task: maintainability groundwork (agreed with Eric; do before Phase 1)
 
+> **Done 2026-11-16:** PR #36 (`chore/groundwork`, worktree `.worktrees/groundwork`), base `feat/publish-wizard`; `feat/event-page` is restacked on it. Plan: `docs/superpowers/plans/2026-11-16-event-page.md`.
+
 Do this as its own small PR, stacked between #35 and the event page. It changes docs, scripts, hooks and settings only, with no app behavior changes. It comes from a research digest on agent-era dev practice: verification in the loop, small batches, context as a budget, rules enforced in code, a shared vocabulary.
 
 1. **Shrink CLAUDE.md** (about 12k tokens, loaded on every task, partly stale).
