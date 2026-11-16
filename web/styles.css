@@ -139,8 +139,6 @@
   .seg{display:inline-flex;border:1px solid var(--hair-strong);border-radius:6px;overflow:hidden;background:var(--surface)}
   .seg button{font:inherit;font-size:11.5px;font-weight:500;border:0;background:transparent;padding:6px 10px;cursor:pointer;color:var(--muted)}
   .seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
-  .roleline{display:flex;align-items:center;gap:7px}
-  .roleline .lbl{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.6px}
 
   /* ---- layer toggles (inside the ⚙ pop-over) ---- */
   .layers{display:flex;flex-direction:column;gap:1px}
@@ -292,8 +290,6 @@
     display:flex;align-items:center;justify-content:center;
   }
   .mhead-close:hover{background:var(--soft);color:var(--ink);border-color:var(--hair-strong)}
-  .statussel{font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--ink);background:var(--surface);border:1px solid var(--hair-strong);border-radius:6px;padding:5px 7px;cursor:pointer}
-  .statussel:focus{outline:2px solid var(--accent-tint);border-color:var(--accent)}
   .btn.sm{padding:5px 10px;font-size:11.5px}
   .badge.b-idea{background:#F0F0F3;color:#75747F}
   .badge.b-draft{background:#FBF3E4;color:#9A7B2E}
@@ -317,12 +313,6 @@
   .fld input:focus,.fld select:focus,.fld textarea:focus{outline:2px solid var(--accent-tint);border-color:var(--accent)}
   .fld textarea{resize:vertical;min-height:52px}
   .fld input:disabled,.fld select:disabled,.fld textarea:disabled{background:var(--soft2);color:var(--muted);cursor:not-allowed}
-  .leadchips{display:flex;flex-wrap:wrap;gap:4px}
-  .leadchip{font-size:11px;padding:3px 7px;border-radius:20px;border:1px solid var(--hair-strong);cursor:pointer;background:var(--surface);color:var(--muted)}
-  .leadchip[aria-pressed="true"]{background:var(--accent-tint);border-color:var(--accent);color:var(--accent-dk);font-weight:500}
-  .leadchip:disabled{cursor:not-allowed;opacity:.6}
-  .leadchips.pick{max-height:120px;overflow:auto;padding:5px;border:1px solid var(--hair);border-radius:8px}
-  .leadchips.pick:empty::after,.picknote{content:attr(data-empty);font-size:11px;color:var(--faint)}
   /* typeahead (Volunteers): selected chips + search input + suggestion menu */
   .typeahead{position:relative;display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:var(--surface);border:1px solid var(--hair-strong);border-radius:8px;padding:5px}
   .typeahead.dis{background:var(--soft2);cursor:not-allowed}
@@ -400,7 +390,7 @@
   }
   .danger{color:#B23B3B;border-color:#E7C9C9}
   .danger:hover{background:#FBEEEE;border-color:#B23B3B;color:#B23B3B}
-  /* autosave status indicator (workspace footer) */
+  /* save-failed pill (#saveStatus, in the event page's status panel) */
   .savestat{font-size:11.5px;font-weight:500;letter-spacing:.2px;padding:5px 4px;white-space:nowrap;user-select:none}
   .savestat:not(.error){display:none}    /* the pill is only for a failed save (R21) */
   .savestat.error{align-self:flex-end;margin:0 10px 5px 0;padding:4px 10px;border-radius:12px;background:#FBEEEE}
@@ -588,7 +578,7 @@
   .wrail-item.on{background:var(--accent-tint);color:var(--accent);font-weight:500}
   .wrail-item.soon{color:var(--muted)}
   .wrail-soon{font-size:10px;color:var(--faint);padding:10px 9px 3px;letter-spacing:.04em}
-  /* Compact editor (R23): the workspace and create modals run ~15-20% tighter than
+  /* Compact editor (R23): the event page and the create modal run ~15-20% tighter than
      the base form styles — smaller padding, labels and inputs, 34px footer buttons.
      Calendar views are untouched; phones get their tap targets back below. */
   :is(.event-page,.modal.create){font-size:12.5px}
@@ -951,7 +941,6 @@
   .ftag.req{background:#FBE9E7;color:#B3261E}
   .ftag.chg{background:#FBF3E4;color:#7A5F1E}
   .ftag.ok{background:#E7F4E9;color:#2F7D3B}
-  .ftag.mgd{background:var(--soft);color:var(--muted);white-space:normal}
   .fhint:empty{display:none}
   .fhint{display:flex;flex-direction:column;gap:2px;font-size:11.5px}
   .fhint .hint{color:var(--muted)}
@@ -1033,8 +1022,8 @@
     .badge.b-confirmed{background:#23352B;color:#82C89D}
     .badge.b-live{background:#20392A;color:#74C48C}
     .b-draft{background:#252F42;color:#8FB4E8;border-color:#2F3E58}
-    .slot-group-h.pot,.slot-kind.pot{background:#3A2F1E;color:#D8A85C}
-    .slot-group-h.vol,.slot-kind.vol{background:#222B3E;color:#8FB4E8}
+    .slot-group-h.pot{background:#3A2F1E;color:#D8A85C}
+    .slot-group-h.vol{background:#222B3E;color:#8FB4E8}
     .fbst-new{background:#252F42;color:#8FB4E8}
     .fbst-planned{background:#3A3322;color:#D9B96C}
     .fbst-shipped{background:#23352B;color:#82C89D}
