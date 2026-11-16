@@ -1,7 +1,7 @@
 /* state.js — per-device prefs, the `state` object, program-year dates, loadEvents,
    the _recent/_unsaved local-copy guards, refs settling and date bucketing.
    Owns: prefs, savePrefs, savedLayer, state, MONTHS, WD, pad, ymd, todayStr, _recent, markRecent, _unsaved, loadEvents, onRefsLoaded, relationsReady, _refsSettled, settleRefs, afterRefs, eventsByDate, monthKey, roughByMonth
-   Reads: DB, CodaSource, mapRelations and reference lists (data.js); editing, _applying, paintSaveStatus, rerender (app.js)
+   Reads: _live (data.js, in relationsReady); editing, _applying (app.js)
    Writes: _unconfirmed (app.js; deletes entries), state (declares it)
    Loaded after: pickers.js (file-map order; no load-time dependency beyond data.js) */
 

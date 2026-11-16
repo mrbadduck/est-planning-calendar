@@ -1,7 +1,7 @@
 /* data.js — reference lists (programs, people, venues, refs), the local cache, the
    Coda row <-> event seam (planningRowToEvent / eventToCodaCells) and CodaSource (DB).
    Owns: PROGRAMS, PROG, REF_LAYERS, REF, rebuildRefs, _live, progColor, cacheGet, loadPrograms, loadPeople, loadVenues, PEOPLE_LIST, LEADS_LIST, peopleById, peopleIdByName, VENUES, VENUE_TYPES, PROXY_BASE, mapRelations, planningRowToEvent, eventToCodaCells, CodaSource, DB
-   Reads: state (state.js), onRefsLoaded (state.js), refresh (app.js), renderLayers (app.js); all only when called, not at load
+   Reads: state.layers, state.idToken (state.js; only when called, not at load)
    Writes: state.layers (rebuildRefs)
    Loaded after: editor-head.js (nothing needed at load) */
 
