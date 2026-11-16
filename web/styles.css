@@ -916,7 +916,7 @@
     .pv-body{padding:12px}
   }
 
-  /* ---- tooltips (data-tip — one shared bubble, see showTip in app.js) ---- */
+  /* ---- tooltips (data-tip — one shared bubble, see showTip in ui.js) ---- */
   .tip{position:fixed;z-index:90;pointer-events:none;padding:4px 8px;border-radius:6px;background:var(--ink);color:var(--surface);font-size:11.5px;font-weight:500;line-height:1.35;white-space:nowrap;box-shadow:var(--shadow)}
   .tip[hidden]{display:none}
 

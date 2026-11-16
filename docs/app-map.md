@@ -30,13 +30,15 @@ Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
 
 ## File map (load order)
 
-Before `util.js` (pure helpers, node-tested where noted): `auth-firebase.js` (module;
-Firebase bridge, mirrored from `shared/`), `roster-lib.js` (attendee segments + mailto
-helpers), `help/help-lib.js` (guide parser/renderer), `listing-readiness.js` (shared
-publish rules; also imported by the Worker, so no DOM), `listing-html.js` (description
-sanitizer), `listing-preview.js` (preview model before Eventbrite), `coda-applied.js`
-(honest-save poller), `save-queue.js` (per-event save queue), `editor-head.js` (header
-meta).
+Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
+`proxy/test/`): `auth-firebase.js` (module; Firebase bridge, mirrored from `shared/`),
+`roster-lib.js` **[node-tested]** (attendee segments + mailto helpers),
+`help/help-lib.js` **[node-tested]** (guide parser/renderer), `listing-readiness.js`
+**[node-tested]** (shared publish rules; also imported by the Worker, so no DOM),
+`listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
+**[node-tested]** (preview model before Eventbrite), `coda-applied.js` **[node-tested]**
+(honest-save poller), `save-queue.js` **[node-tested]** (per-event save queue),
+`editor-head.js` **[node-tested]** (header meta).
 
 1. **`util.js`** — pure helpers: `esc`, `cap`, date/time formatting, `linkify`, `cssColor`.
 2. **`data.js`** — reference lists, local cache, the Coda seam, `CodaSource`.
@@ -59,7 +61,7 @@ meta).
   one row per day with anything on it, refs collapsed to one muted line, undated
   ideas closing out their month). `applyView()` shows `curView()`, which is
   `state.view` — except **phones (≤600px, `PHONE_MQ`) always get the list**.
-6. **`editor-tabs.js`** — the open event (`editing`), the `SECTIONS` registry, the rail, `renderSection`. The next three files (`fields.js`, `tabs-listing-planning.js`, `editor.js`) and the tab files share this editor description:
+6. **`editor-tabs.js`** — the open event (`editing`), the `SECTIONS` registry, the rail, `renderSection`. The editor files `editor.js`, `fields.js` and `tabs-listing-planning.js` (files 10–12, loaded after `notes-doc.js`, `field-markers.js` and `preview.js`) and the tab files share this editor description:
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
   live sections **Details** (the Eventbrite listing only, in listing order:
   Title, Summary, Description, When, Where — with the Address on listing toggle

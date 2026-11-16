@@ -2,7 +2,7 @@
    Owns: help, openHelp, loadNews, paintHelpDot
    Reads: state (state.js); REF_LAYERS (data.js)
    Writes: nothing
-   Loaded after: shell.js (its Escape keydown listener keeps its place after preview.js, requestClose and the ⋮ menu; it registers before main.js's init()) */
+   Loaded after: auth.js, which loads after shell.js (its Escape keydown listener keeps its place after preview.js, requestClose and the ⋮ menu; it registers before main.js's init()) */
 
 /* =========================================================================
    HELP — the Help drawer. Guides live in web/help/guide.md and What's new in
