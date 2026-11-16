@@ -22,7 +22,8 @@ Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
   (`const`/`let` are not yet defined there). `init();` (main.js) is the last statement.
   Functions only used at call time can live anywhere.
 - The four Escape `keydown` handlers run in this order: `preview.js` (closes only the
-  preview) → `editor-close.js` `requestClose` → `editor-close.js` ⋮ menu → `help.js`.
+  preview) → `editor-close.js` (`requestClose` when the modal is open; on the event page
+  it only hides the leave bar) → `editor-close.js` ⋮ menu → `help.js`.
   Three of them call `stopImmediatePropagation`, so reordering changes which one
   wins. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
   too; neither stops propagation.)
@@ -95,12 +96,13 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   **Header**: title, then the first program as a tag in its own color (+N), the
   first line of the Internal description as a subtitle (`paintHeadMeta`, helpers in
   `web/editor-head.js`, live as you type), then the status badge and icons. The
-  editor runs a compact scale (`:is(.modal.ws,.modal.create)` rules in
+  editor runs a compact scale (`:is(.event-page,.modal.create)` rules in
   `styles.css`); phones keep 44px tap targets.
 7. **`notes-doc.js`** — the Planning tab's Google Doc notes block (embed/create button, polling, the Coda button push).
 8. **`field-markers.js`** — Eventbrite sync icons, hints and tags on field labels; `listingCardHTML`.
 9. **`preview.js`** — the Preview listing overlay and its Esc-closes-only-the-preview listener.
-10. **`editor.js`** — stage badge, `editorCtx`, header meta, `openEditor`, the create flow, URL sync.
+10. **`editor.js`** — stage badge, `editorCtx`, header meta, `openEditor` (a planning event → `openEventPage`, the
+    event page `#eventPage` in place of the calendar; a reference event → the modal), the create flow, URL sync.
 - **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
   `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
 11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
@@ -121,9 +123,9 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 - **Save model (create-then-workspace + on-blur autosave):** a NEW event opens a
   one-shot compact Planning modal (`openNewEventForm`, Cancel/Create) — not the
   workspace, so no premature empty rows; on Create it persists once and
-  transitions into the workspace via `openEditor(saved)`. An EXISTING event's
+  opens the event's page via `openEventPage(saved)`. An EXISTING event's
   workspace **autosaves every field on blur** (`autosaveEditor`, debounced 800ms,
-  in place — modal stays open) and **writes only the columns whose form value
+  in place — the page stays open) and **writes only the columns whose form value
   changed**: `formCells(readForm())` vs `_form.base` (the form as last queued;
   `_form` = `{ev, base}`, bound to its event), diffed by `SaveQueue.changedCells`.
   That's only the user's edits: nothing read from Eventbrite is ever put into the
@@ -152,8 +154,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   Propose/Approve/Reopen/Cancel/Delete/Unpublish/push) shows there too, with the
   secondary and ⋮ disabled, and no busy toast. The `#saveStatus` pill shows only
   **Save failed — retry** (click to retry); when nothing says Saving, it's saved.
-  `close()` — and every opener that replaces the modal, via `leaveForm()` —
-  queues a pending edit so a fast Done/Esc/✕ can't drop the last change;
+  `leaveEventPage()` (← Calendar) — and every opener that replaces the page or the
+  modal, via `leaveForm()` — queues a pending edit so a fast exit can't drop the last change;
   `beforeunload` (listened for only while an editor is open or a save is pending —
   `guardUnload`) queues the form and asks. Typeahead/venue pickers take an
   `onChange` (guarded against initial seeding) so chip/segment mutations schedule
@@ -192,7 +194,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   check it (#32), and `todayStr` is fixed at page load. Design:
   `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
 20. **`eventbrite.js`** — the Eventbrite push (`pushToEventbrite`), registrants/edited status, publish checks.
-21. **`editor-close.js`** — the leave guard, `requestClose`, `close`, footer-action dispatch, ⋮ menu keys, header actions.
+21. **`editor-close.js`** — the leave guard, `requestClose`/`closeModal` (the modal), `leaveEventPage`/← Calendar (the
+    event page: shows the calendar again at its scroll position), footer-action dispatch, ⋮ menu keys, header actions.
 22. **`shell.js`** — the app shell: layer toggles, `#months`/`#quarter` click delegation, day picker, `layoutSticky`, view switch (`curView`, `applyView`, `PHONE_MQ`), year nav, `addEvent`, and the ⚙ (`ovfMenu`) and ☰ (`phoneMenu`) menus.
 - **Header + calendar settings (⚙)**: row 2 is view switch + year picker, then ↻,
   ⚙ (`#ovfBtn`) and **+ New event** at the far right. ⚙ opens `#ovfPanel`, which

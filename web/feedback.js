@@ -56,10 +56,10 @@ function openFeedback(){
   if(leaveGuard(()=>openFeedback())) return;
   leaveForm();   // (reachable by keyboard while an event is open — its edits must not be lost or misfiled)
   editing={id:'__feedback__'};
-  document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
+  document.getElementById('modal').classList.remove('create');
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent='Feedback & ideas';
-  document.getElementById('mBadges').innerHTML=''; clearHeadMeta(); document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
   const body=document.getElementById('mBody'); body.innerHTML=`<div class="fld full"><div class="hint">Suggest anything, or +1 an idea. For section-specific ideas, open an event and visit that section.</div>${feedbackBoardHTML('General')}</div>`;
   wireFeedback(body,'General'); show();
 }

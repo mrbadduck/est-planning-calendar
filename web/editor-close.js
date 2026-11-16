@@ -1,7 +1,7 @@
-/* editor-close.js — closing the editor: the leave guard, requestClose, close, footer-action dispatch, ⋮ menu keys, header actions.
-   Owns: show, leaveGuard, hideLeaveGuard, close, footerAct
-   Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx (editor.js); _form, _unconfirmed (save.js)
-   Writes: editing (editor-tabs.js; close); _ndocGen (notes-doc.js; close); _menuOpen (footer.js); _regFetch (eventbrite.js)
+/* editor-close.js — leaving: the leave guard, requestClose/closeModal (the modal), leaveEventPage/← Calendar (the event page), footer-action dispatch, ⋮ menu keys, header actions.
+   Owns: show, leaveGuard, hideLeaveGuard, closeModal, leaveEventPage, footerAct
+   Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen (editor.js); _form, _unconfirmed (save.js)
+   Writes: editing (editor-tabs.js; closeModal, leaveEventPage); _ndocGen (notes-doc.js; leaveEventPage); _menuOpen (footer.js); _regFetch (eventbrite.js)
    Loaded after: eventbrite.js (file-map order; its Escape and click listeners keep their order after preview.js and before help.js's) */
 
 /* =========================================================================
@@ -37,12 +37,18 @@ function hideLeaveGuard(){
   const bar=document.getElementById('edGuard'); if(bar && !bar.hidden){ bar.hidden=true; bar.innerHTML=''; }
 }
 const leaveGuardShown = () => { const b=document.getElementById('edGuard'); return !!(b && !b.hidden); };
-// ✕, Esc, a click on the scrim and the modals' Close/Cancel buttons come here.
+// The modal's ✕, Esc, a click on the scrim and the modals' Close/Cancel buttons come
+// here. (The event page has no ✕ and Esc doesn't leave it: ← Calendar does.)
 function requestClose(viaEsc){
   if(closePreview()) return;                     // the preview sits on top: close it first
   if(leaveGuardShown()){ if(viaEsc) hideLeaveGuard(); return; }   // Esc again = keep editing
-  if(leaveGuard(()=>close())) return;
-  close();
+  if(leaveGuard(()=>closeModal())) return;
+  closeModal();
+}
+// ← Calendar: the page's way out, through the leave guard like every other exit.
+function backToCalendar(){
+  if(leaveGuard(()=>leaveEventPage('back'))) return;
+  leaveEventPage('back');
 }
 document.getElementById('edBlock').addEventListener('click', e=>{
   if(!e.target.closest('[data-block="email"]') || !editing) return;
@@ -57,28 +63,49 @@ document.getElementById('edGuard').addEventListener('click', e=>{
     try{ then(); } finally{ _guardBypass=false; }   // (a proceed that never re-checks mustn't leave it armed)
   }
 });
-function close(){
+// The modal (create form, reference event, day picker, Feedback) goes away.
+function closeModal(){
+  hideTip();
+  leaveForm();   // (the create form binds no _form; harmless)
+  document.getElementById('scrim').classList.remove('open');
+  document.body.classList.remove('modal-open');
+  document.getElementById('modal').classList.remove('create');
+  editing=null;
+}
+// The event page goes away and the calendar comes back as it was: view, year and
+// scroll. `how` is for history (Task 10); ignored for now.
+function leaveEventPage(how){
   _ndocGen++;
   hideLeaveGuard(); closePreview(); clearEbBlock();
   if(editing && editing.id) _regFetch.delete(editing.id);   // a registrants read doesn't outlive the editor
-  // Queue any edit before tearing down so a fast Done/Esc/✕ can't drop the last
-  // change — including a field still being typed in (Esc closes without its blur).
-  // The queue writes it after the editor is gone.
+  // Queue any edit before tearing down so a fast ← Calendar can't drop the last
+  // change — including a field still being typed in (no blur yet).
+  // The queue writes it after the page is gone.
   const id=editing && editing.id;
-  hideTip();
+  hideTip(); kebabMenu(false);
   leaveForm();   // (retries the open form's failed save once)
-  document.getElementById('scrim').classList.remove('open');
-  document.body.classList.remove('modal-open');
-  document.getElementById('modal').classList.remove('ws','create'); document.getElementById('mBody').classList.remove('ws');
+  document.getElementById('eventPage').hidden=true;
+  document.getElementById('eventPage').classList.remove('loading');
+  document.body.classList.remove('event-open');
   editing=null; clearUrl();
   if(id) retryFailedSave(id);   // …and a read-only editor's, whose form wasn't bound
+  layoutSticky();
+  window.scrollTo(0, _calScrollY);
 }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') requestClose(); });
 document.getElementById('mClose').addEventListener('click', ()=>requestClose());   // dedicated top-right ✕ (avoids mis-hitting Approve)
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') requestClose(true); });
+document.getElementById('epBack').addEventListener('click', backToCalendar);
+// Esc: the modal closes; on the page it only takes down the leave bar (the preview,
+// ⋮ and Help peel off first in their own capture-phase listeners).
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  if(document.getElementById('scrim').classList.contains('open')) requestClose(true);
+  else if(pageOpen() && leaveGuardShown()) hideLeaveGuard();
+});
 
-document.getElementById('mFoot').addEventListener('click',e=>{
+// The footer's actions: in #mFoot for the modals, in #epPanel on the event page.
+function onFootClick(e){
   if(e.target.id==='saveStatus' && e.target.classList.contains('error')){
     if(editing && _unconfirmed.has(editing.id)) retryCreateConfirm(editing.id);
     if(!editing || saveQueue.status(editing.id)==='error' || !_unconfirmed.has(editing.id)) flushAutosave().catch(()=>{});
@@ -90,7 +117,9 @@ document.getElementById('mFoot').addEventListener('click',e=>{
   if(act==='menu'){ kebabMenu(!_menuOpen, true); return; }
   if(e.target.closest('.kmenu')) kebabMenu(false);
   footerAct(act);
-});
+}
+document.getElementById('mFoot').addEventListener('click', onFootClick);
+document.getElementById('epPanel').addEventListener('click', onFootClick);
 // One dispatcher for the footer's and the preview's actions.
 function footerAct(act){
   if(act==='close') requestClose();
@@ -119,8 +148,10 @@ document.addEventListener('keydown', e=>{
 }, true);
 // header actions: ? (help for the active tab) + copy-link. The status badge opens
 // the lifecycle guide through data-help; transitions are in the footer.
-document.getElementById('mActions').addEventListener('click',e=>{
+function onHeadClick(e){
   const btn=e.target.closest('[data-act]'); const act=btn?.dataset.act; if(!act) return;
   if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it
   else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', btn); }
-});
+}
+document.getElementById('mActions').addEventListener('click', onHeadClick);
+document.getElementById('epActions').addEventListener('click', onHeadClick);

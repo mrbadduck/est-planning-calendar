@@ -1,6 +1,6 @@
 /* auth.js — Firebase sign-in: token lifecycle, /me identity + roles, the sign-in gate, account menu, editor role refresh.
    Owns: SUPPORT_EMAIL, sessionExpired, acctMenu, initAuth
-   Reads: state (state.js); editing, activeSection (editor-tabs.js); _ctx (editor.js); _busy (save.js)
+   Reads: state (state.js); editing, activeSection (editor-tabs.js); _ctx (editor.js); _busy (save.js); #eventPage (index.html)
    Writes: state (state.js)
    Loaded after: shell.js (no load-time dependency; initAuth runs from init() in main.js) */
 
@@ -127,7 +127,8 @@ async function fetchMe(){
 // Worker refuses the writes, and a network blip mustn't yank the form mid-edit.
 function refreshEditorRole(){
   if(!editing || !_ctx || _ctx.ev!==editing || !editing.id || _busy.has(editing.id)) return;
-  if(!document.getElementById('modal').classList.contains('ws')) return;   // not the workspace (e.g. still loading)
+  const page=document.getElementById('eventPage');
+  if(page.hidden || page.classList.contains('loading')) return;   // not the event page (or it's still loading)
   const now=editorCtx(editing).role, was=_ctx.role;
   if((now.canEdit && !was.canEdit) || (now.canApprove && !was.canApprove)) openEditor(editing, activeSection);
 }

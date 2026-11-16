@@ -72,12 +72,12 @@ async function cancelEvent(){
 }
 async function deleteEditor(){
   const ev=editing;
-  if(!ev || !ev.id){ close(); return; }
+  if(!ev || !ev.id) return;   // (only a saved event's page offers Delete)
   if(_busy.has(ev.id)) return;
   if(!confirm('Delete this event? This can\'t be undone.' + (ev.eventbriteId ? ' Its private Eventbrite draft is deleted too.' : ''))) return;
   const id=ev.id;
   _busy.add(id); _busyLabel.set(id, 'Deleting…');
-  _form=null; _unsaved.delete(id); _authRetry.delete(id); guardUnload();   // its unsaved edits go with it — close() has nothing to queue or retry
+  _form=null; _unsaved.delete(id); _authRetry.delete(id); guardUnload();   // its unsaved edits go with it — leaving the page has nothing to queue or retry
   const drained=saveQueue.discard(id);
   // The editor stays open (inert) while the delete runs: its footer button says
   // Deleting… (R21) instead of a busy toast. It closes once the row is gone.
@@ -89,7 +89,7 @@ async function deleteEditor(){
     await DB.remove(id);
     _unconfirmed.delete(id);
     markRecent(id, { deleted:true });
-    if(editing===ev) close();
+    if(editing===ev) leaveEventPage('back');   // the event is gone: back to the calendar
     toast('Deleted','ok'); scheduleReconcile();
   }catch(err){
     applyLocal(ev); rerender();

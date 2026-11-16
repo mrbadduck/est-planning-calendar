@@ -104,7 +104,7 @@ function renderEditorFooter(){
   // Other tabs: one line on what the tab is for, plus ⋮ (R28).
   const foot = (SECTIONS.find(x=>x.id===activeSection)||{}).foot;
   paintInner(msgEl, onDetails ? footerMsgHTML(m) : foot ? `<span class="fsub ftabdesc">${esc(foot)}</span>` : '');
-  const bEl=document.getElementById('mBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
+  const bEl=document.getElementById('epBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
   paintInner(actEl, footerActsHTML(m, onDetails));
   if(paintInner(menuEl, footerMenuHTML(m.menu, m.busy))) _menuOpen=false;   // items changed: it's a new (closed) menu
   paintFieldMarks();   // field markers/tags follow the same event state as the footer
@@ -123,7 +123,7 @@ const FOCUS_FIELD_EL = { title:'f_title', description:'f_desc', programs:'f_prog
 const FIELD_SECTION = { description:'planning', programs:'planning', leads:'planning' };
 function focusField(field){
   const sec=FIELD_SECTION[field] || 'details';
-  if(sec!==activeSection){ const b=document.querySelector(`#wrail [data-sect="${sec}"]`); if(b) b.click(); }   // the rail's own switch: autosave, render, footer, URL
+  if(sec!==activeSection){ const b=document.querySelector(`#epTabs [data-sect="${sec}"]`); if(b) b.click(); }   // the tab list's own switch: autosave, render, footer, URL
   let el=document.getElementById(FOCUS_FIELD_EL[field]||'');
   if(!el && (field==='date' || field==='start' || field==='end')) el=document.getElementById('f_when');   // not an exact date yet
   if(!el) return;

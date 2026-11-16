@@ -70,7 +70,7 @@ function openDayPicker(ds,list){
   editing={id:'__picker__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent=fmtDate(ds);
-  document.getElementById('mBadges').innerHTML=''; clearHeadMeta(); document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
   document.getElementById('mBody').innerHTML=`<div class="fld full"><div class="chips" id="dp">${list.map(chipHTML).join('')}</div></div>`;
   document.getElementById('mFoot').innerHTML=`<button class="btn primary" data-act="newhere">+ New on this day</button><span class="push"></span><button class="btn" data-act="close">Close</button>`;
   document.getElementById('dp').addEventListener('click',ev=>{ const c=ev.target.closest('.chip'); if(!c) return; const item=state.events.find(x=>x.id===c.dataset.id); if(item) openEditor(item); });
@@ -81,7 +81,9 @@ function openDayPicker(ds,list){
 /* keep sticky offsets correct as the (multi-row) header height changes */
 function layoutSticky(){
   const bar=document.querySelector('.bar'), wh=document.getElementById('weekhead');
-  if(bar) document.documentElement.style.setProperty('--bar-h', bar.offsetHeight+'px');
+  if(bar && bar.offsetHeight) document.documentElement.style.setProperty('--bar-h', bar.offsetHeight+'px');   // (0 while the event page hides it)
+  const ept=document.getElementById('epTop');
+  if(ept && ept.offsetHeight) document.documentElement.style.setProperty('--ep-top-h', ept.offsetHeight+'px');   // the event page's own sticky offset
   if(wh && wh.offsetHeight) document.documentElement.style.setProperty('--wh-h', wh.offsetHeight+'px');
 }
 window.addEventListener('resize', layoutSticky);

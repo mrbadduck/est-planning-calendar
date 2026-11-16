@@ -79,7 +79,7 @@ function railHTML(){
   const live=SECTIONS.filter(s=>s.live), soon=SECTIONS.filter(s=>!s.live);
   return live.map(item).join('') + `<div class="wrail-soon">Coming soon…</div>` + soon.map(item).join('');
 }
-function setActiveRail(id){ activeSection=id; document.querySelectorAll('#wrail .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
+function setActiveRail(id){ activeSection=id; document.querySelectorAll('#epTabs .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
 
 // Takes the editor's ctx (D2); the tabs still take positional args, adapted here.
 function renderSection(id, ctx){

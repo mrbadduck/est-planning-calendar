@@ -1,6 +1,6 @@
 /* help.js — the Help drawer: guides + What's new, legend embed, search, URL sync, the once-per-device Welcome.
    Owns: help, openHelp, loadNews, paintHelpDot
-   Reads: state (state.js); REF_LAYERS (data.js)
+   Reads: state (state.js); REF_LAYERS (data.js); pageOpen (editor.js)
    Writes: nothing
    Loaded after: auth.js, which loads after shell.js (its Escape keydown listener keeps its place after preview.js, requestClose and the ⋮ menu; it registers before main.js's init()) */
 
@@ -196,7 +196,7 @@ function maybeWelcome(){
   const p=new URL(location.href).searchParams;
   if(p.has('event') || p.has('help')){ if(!document.getElementById('helpDrawer').hidden) helpSet(HELP_WELCOMED_KEY,'1'); return; }   // arrived via a shared link — don't cover it (reading a guide already counts as welcomed)
   if(!document.getElementById('helpDrawer').hidden){ helpSet(HELP_WELCOMED_KEY,'1'); return; }   // already reading help (e.g. from the sign-in screen)
-  if(document.getElementById('scrim').classList.contains('open')) return;   // something is already open
+  if(document.getElementById('scrim').classList.contains('open') || pageOpen()) return;   // something is already open
   if(helpGet(HELP_WELCOMED_KEY)!==null) return;                             // welcomed before, or storage unavailable
   if(!helpSet(HELP_WELCOMED_KEY,'1')) return;
   if(!HELP_RETURNING) loadNews().then(markNewsSeen, ()=>{});                // brand-new here: nothing is "new" to them
