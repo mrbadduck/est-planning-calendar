@@ -798,8 +798,6 @@
   .fld .hint.warn{color:#7A5F1E;font-weight:500}
   .fld .hint.warn[hidden]{display:none}
   .fieldgroup-h .fmk{margin-left:4px}
-  .fkey{display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;width:fit-content;max-width:100%;font-size:12px;color:var(--muted);padding:5px 10px;background:var(--surface);border:1px solid var(--hair);border-radius:7px;margin-bottom:10px}
-  .fkey-i{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
   .wsub-h-sub{text-transform:none;letter-spacing:0;font-weight:500}
   .ebcard{display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:9px}
   .ebcard:empty{display:none}

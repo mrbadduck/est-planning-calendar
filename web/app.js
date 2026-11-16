@@ -881,7 +881,7 @@ function wireNotes(panel, ev, canEdit){
    the form with `ev.pushed`, the snapshot the Worker stores on each push (Last EB
    pushed values, read-only here). Every region that changes while the editor is
    open has a stable container, repainted with paintInner: the field markers
-   ([data-fmk]), their hints ([data-fhint]), the form key (#f_key) and the
+   ([data-fmk]), their hints ([data-fhint]) and the
    listing card (#listingCard, which Task 14 fills with the live status). */
 // One sync icon per public field (R20): a gray clock before the event is on
 // Eventbrite; once it is, a green check (matches), an amber sync arrow (changed
@@ -957,15 +957,6 @@ function fieldLabelHTML(key, labelText, m){
   return `${labelText} <span class="fmk" data-fmk="${key}">${fieldMarksHTML(key, m || fieldMarkModel(editing || {}))}</span>`;
 }
 const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
-// The key at the top of the form: one compact line, only the icons this form can
-// show (R20). Each icon+label pair never breaks across lines.
-function formKeyHTML(m){
-  const item = (cls, icon, tip, label) => `<span class="fkey-i">${fmkIcon(cls, icon, tip, label)}${label}</span>`;
-  const priv = item('', ICON_PRIVATE, TIP_PRIVATE, 'Private');
-  if(!m.linked) return priv + item(...SYNC_ICON.pending.slice(0,3), 'Goes to Eventbrite');
-  if(!m.pushed) return priv + item(...SYNC_ICON.unknown.slice(0,3), 'Not compared yet');
-  return priv + item(...SYNC_ICON.match.slice(0,3), 'Matches Eventbrite') + item(...SYNC_ICON.changed.slice(0,3), 'Changed here');
-}
 // The listing card (linked events; empty, and hidden, before that). The registered
 // count comes from the live status (refreshEbStatus) and is left out until it
 // loads. Counts and the tickets line show what was pushed (what Eventbrite has),
@@ -986,7 +977,7 @@ function listingCardHTML(ev){
   return `<div class="ebrow">${pill}<b>${esc(line)}</b>${view}</div>
     <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span><span class="ftag mgd">Paid tickets and discount codes: coming later</span></div>${conflict}${err}`;
 }
-// Repaint every marker, hint, the key and the card from the open editor's event.
+// Repaint every marker, hint and the card from the open editor's event.
 // Called with the footer (open, tab switch, every save-state change), so markers
 // follow the same event state the footer reads.
 function paintFieldMarks(){
@@ -1002,7 +993,6 @@ function paintFieldMarks(){
     paintInner(el, fieldMarksHTML(key, m));
   });
   panel.querySelectorAll('[data-fhint]').forEach(el=>paintInner(el, fieldHintHTML(el.dataset.fhint, m)));
-  const k=document.getElementById('f_key'); if(k) paintInner(k, formKeyHTML(m));
   const c=document.getElementById('listingCard');
   if(c){
     paintInner(c, listingCardHTML(editing));
@@ -1579,10 +1569,10 @@ function applyAddressDefault(venBox){
   paintAddrWarn();
 }
 
-// The Details tab: stable "Event" subsection (draft/internal fields) on top,
+// The Details tab: stable event subsection (draft/internal fields) on top,
 // stage-aware listing subsection below. One surface that transforms by stage.
 function renderDetails(ev, canEdit, locked, canApprove){
-  return `<div class="fkey" id="f_key">${formKeyHTML(fieldMarkModel(ev))}</div><div class="wsub"><div class="wsub-h">Event</div>${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked, canApprove)}`;
+  return `<div class="wsub">${renderPlanning(ev, canEdit, locked, canApprove)}</div>${renderListingSection(ev, canEdit, locked, canApprove)}`;
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){
   wirePlanning(panel, ev, canEdit, locked, canApprove);

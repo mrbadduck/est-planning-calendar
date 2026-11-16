@@ -6,6 +6,7 @@
 -->
 
 ## 2026-11-16
+- **Cleaner Details tab.** The little key and the **Event** heading at the top of the form are gone. Point at the icon next to a field to see where it goes.
 - **One icon per field.** Each field name now has a single icon: a crossed-out eye for private fields, a gray clock for fields that go on Eventbrite once the event is added, then a green check when it matches Eventbrite or amber arrows when your change isn't on Eventbrite yet.
 - **Quieter saving.** The **Saved** label is gone. While something saves, the button at the bottom says **Saving…** (or **Still saving…** when it's slow); otherwise it's saved. Only a failed save shows a message. Proposing, approving, cancelling and deleting show in that button too.
 - **Tidier bottom bar.** The five steps have their own row, the bar no longer jumps as its message changes, and the label at the top of an event changes at the same moment as the steps, including **On Eventbrite**.
