@@ -186,7 +186,7 @@
       case 'onEventbrite': {
         out.title = 'On Eventbrite as a private draft';
         out.sub = notCompared ? NOT_COMPARED
-          : 'Preview shows exactly what Eventbrite has. Publish makes it public and opens registration.';
+          : 'Preview listing (above the title) shows exactly what Eventbrite has. Publish makes it public and opens registration.';
         if (nUn) out.sub += ' ' + unNote + '.';
         if (ebEditedElsewhere) out.sub += ' ' + EB_CONFLICT_NOTICE;
         if (canEdit) {
@@ -197,7 +197,6 @@
             out.primary = prim('Publish', 'publish-eb', pubFail.length === 0, 'go');
             out.links = toLinks(pubFail);
           }
-          out.secondary = { label: 'Preview listing', act: 'preview-eb' };
           out.menu.push(del('Also deletes the Eventbrite draft'));
         }
         break;

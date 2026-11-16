@@ -168,7 +168,8 @@ test('footerModel onEventbrite: publish, update draft, disabled', () => {
   assert.equal(p.title, 'On Eventbrite as a private draft');
   assert.equal(p.primary.label, 'Publish');
   assert.equal(p.primary.enabled, true);
-  assert.equal(p.secondary.act, 'preview-eb');
+  assert.equal(p.secondary, null);   // Preview listing lives on the listing card (R26)
+  assert.match(p.sub, /Preview listing/);
   assert.deepEqual(acts(p), ['delete']);
   const d = fm({ stage: 'onEventbrite', ev, unpushed: ['start'] });
   assert.equal(d.primary.label, 'Update draft');
@@ -289,7 +290,7 @@ test('footerModel legacy row (pushed null): offers the update, not compared yet'
   assert.equal(d.primary.act, 'update-eb');
   assert.equal(d.primary.enabled, true);
   assert.equal(d.sub, 'Not compared with Eventbrite yet');
-  assert.equal(d.secondary.act, 'preview-eb');
+  assert.equal(d.secondary, null);
   const p = fm({ stage: 'published', ev, pushed: null, registrants: 2, capacity: 20 });
   assert.equal(p.primary.label, 'Update listing');
   assert.equal(p.primary.act, 'update-listing');
@@ -340,7 +341,7 @@ test('footerModel busy marks the footer busy (secondary and ⋮ get disabled); i
   const ev = { ...ready(), publicDescription: 'x' };
   const b = fm({ stage: 'onEventbrite', ev, busy: 'Deleting…' });
   assert.equal(b.busy, true);
-  assert.equal(b.secondary.act, 'preview-eb');   // still listed, rendered disabled
+  assert.equal(b.secondary, null);   // no footer secondary at any stage (R26)
   assert.deepEqual(acts(b), ['delete']);
   assert.equal(fm({ stage: 'onEventbrite', ev }).busy, false);
   assert.equal(fm({ stage: 'onEventbrite', ev, pending: true }).busy, false);
@@ -351,4 +352,10 @@ test('Capacity reads as Free tickets (R29)', () => {
   assert.equal(R.FIELDS.capacity.label, 'Free tickets');
   const m = fm({ stage: 'published', ev: { ...ready(), publicDescription: 'x' }, unpushed: ['capacity'] });
   assert.match(m.sub, /Not on Eventbrite yet: Free tickets\./);
+});
+
+test('footerModel: Preview listing is never a footer secondary (R26)', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  for (const stage of ['draft', 'proposed', 'approved', 'onEventbrite', 'published', 'cancelled'])
+    for (const pushed of [{}, null]) assert.equal(fm({ stage, ev, pushed }).secondary, null, stage);
 });
