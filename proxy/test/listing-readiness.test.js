@@ -389,6 +389,28 @@ test('footerModel checklist adds Description on Eventbrite and all-pass rows are
   assert.equal(bad.field, 'publicDescription');
 });
 
+test('footerModel checklist follows what the primary is gated on, not just the stage', () => {
+  // On Eventbrite with unpushed edits: the primary is Update draft, gated on the add
+  // checks, so a missing public description is no ✗ row (and no link).
+  const ev = ready();   // no public description
+  const upd = fm({ stage: 'onEventbrite', ev, unpushed: ['title'] });
+  assert.equal(upd.primary.act, 'update-eb');
+  assert.equal(upd.primary.enabled, true);
+  assert.equal(upd.checklist.find(r => r.key === 'publicDescription'), undefined);
+  assert.ok(upd.checklist.every(r => r.ok));
+  assert.deepEqual(upd.links, []);
+  // No unpushed edits: the primary is Publish, gated on the publish checks.
+  const pubm = fm({ stage: 'onEventbrite', ev });
+  assert.equal(pubm.primary.act, 'publish-eb');
+  const row = pubm.checklist.find(r => r.key === 'publicDescription');
+  assert.equal(row.ok, false);
+  assert.deepEqual(pubm.links.map(l => l.field), ['publicDescription']);
+  // Published with unpushed edits: Update listing is gated on the publish checks.
+  const ul = fm({ stage: 'published', ev, unpushed: ['title'] });
+  assert.equal(ul.primary.act, 'update-listing');
+  assert.equal(ul.checklist.find(r => r.key === 'publicDescription').ok, false);
+});
+
 test('footerModel checklist is empty for a past event (nothing left to do, R10)', () => {
   const m = R.footerModel({ stage: 'approved', past: true, role: LEAD, unpushed: [],
     checks: R.readiness({ ...ready(), end: '' }, { todayISO: TODAY }) });

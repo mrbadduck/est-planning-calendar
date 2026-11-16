@@ -7,7 +7,7 @@
    - FIELDS: field registry; `public` ones are what gets pushed to Eventbrite
    - readiness(ev, {venue, todayISO}): the checks the footer, fields and Worker share
    - addressVisibilityDefault(current, venue): Home venues default to Registrants only
-   - footerModel(input).checklist: one readiness row per field group for the stage's next push
+   - footerModel(input).checklist: one readiness row per field group for the checks the primary waits on
    - syncStatus / unpushedFields: compare the event with the last pushed snapshot */
 // Dates are YYYY-MM-DD and times zero-padded HH:MM: string comparison relies on it.
 (function (root) {
@@ -130,9 +130,15 @@
     { key: 'venue', label: 'Venue and address', field: 'venue', checks: ['venueOther', 'venueAddress'] },
     { key: 'publicDescription', label: 'Description', field: 'publicDescription', checks: ['publicDescription'] },
   ];
-  function checklistFor(stage, checks) {
-    const list = stage === 'approved' ? checks && checks.add
-      : (stage === 'onEventbrite' || stage === 'published') ? checks && checks.publish : null;
+  // The list is the one the primary action is gated on: Add to Eventbrite and Update
+  // draft need the add checks, Publish and Update listing the publish checks (so a
+  // ✗ row never shows for a check the button doesn't wait on). With no such action
+  // (a viewer, ✓ Saved) the stage decides.
+  const ADD_ACTS = ['add-eb', 'update-eb'], PUBLISH_ACTS = ['publish-eb', 'update-listing'];
+  function checklistFor(stage, checks, act) {
+    const which = ADD_ACTS.indexOf(act) >= 0 ? 'add' : PUBLISH_ACTS.indexOf(act) >= 0 ? 'publish'
+      : stage === 'approved' ? 'add' : (stage === 'onEventbrite' || stage === 'published') ? 'publish' : null;
+    const list = which && checks && checks[which];
     if (!list) return [];
     const rows = [];
     for (const def of CHECKLIST_ROWS) {
@@ -157,7 +163,7 @@
     const prim = (label, act, enabled, tone) => ({ label, act, enabled, tone });
     const savedText = prim('✓ Saved', null, false, 'quiet');
     const out = { steps, title: '', sub: '', links: [], primary: null, secondary: null, menu: [], busy: false,
-      checklist: checklistFor(stage, checks) };
+      checklist: [] };
     const del = sub => ({ act: 'delete', label: 'Delete event', sub: sub || '', tone: 'danger' });
     const addFail = failing(checks && checks.add), pubFail = failing(checks && checks.publish);
     const nUn = unpushed.length;
@@ -251,6 +257,8 @@
         if (canApprove) { out.primary = prim('Reopen', 'reopen', true, 'primary'); out.menu.push(del()); }
         break;
     }
+
+    out.checklist = checklistFor(stage, checks, out.primary && out.primary.act);
 
     // A past event has happened: nothing left to do at any stage (R10). The only
     // exception is the offer to tell registrants about a change, below.

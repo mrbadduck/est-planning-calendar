@@ -19,11 +19,21 @@
   }
 
   const str = v => (v == null ? '' : String(v).trim());
+  // A plain YYYY-MM-DD (approvedAt) passes through; an ISO timestamp (lastEbPushAt,
+  // lastPublishedAt) becomes its LOCAL date, not the UTC slice (an evening push in
+  // New York is already tomorrow in UTC).
+  const pad = n => String(n).padStart(2, '0');
+  function localDay(s) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s.slice(0, 10);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
   function stepNotes(ev, opts) {
     ev = ev || {};
     const o = opts || {};
     const fmt = typeof o.fmtDate === 'function' ? o.fmtDate : s => s;
-    const day = v => { const s = str(v); return s ? fmt(s.slice(0, 10)) : ''; };
+    const day = v => { const s = str(v); return s ? fmt(localDay(s)) : ''; };
     const draft = str(ev.createdBy) ? 'by ' + str(ev.createdBy) : '';
     const approved = [str(ev.approvedBy) ? 'by ' + str(ev.approvedBy) : '', day(ev.approvedAt)].filter(Boolean).join(' · ');
     const eb = day(ev.lastEbPushAt);
