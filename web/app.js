@@ -773,14 +773,21 @@ let whenType='exact';
 // Editor workspace sections (left rail). `live` sections have real panels;
 // the rest render a muted "coming soon" teaser. `help` = the guide (web/help/
 // guide.md) the editor header's ? opens for that tab. No icon webfont — text labels.
+// `foot`: the one line the footer shows on that tab (R28); Details shows the wizard.
 const SECTIONS = [
   { id:'details',   label:'Details',              live:true,  help:'edit-details' },
-  { id:'planning',  label:'Planning',             live:true,  help:'planning-notes' },
-  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups' },
-  { id:'attendees', label:'Attendees',            live:true,  help:'attendees' },
-  { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback' },
-  { id:'comms',     label:'Comms',                live:false, help:'feedback' },
-  { id:'feedback',  label:'Feedback',             live:false, help:'feedback' },
+  { id:'planning',  label:'Planning',             live:true,  help:'planning-notes',
+    foot:'Private planning space for leads and council; nothing here goes on Eventbrite.' },
+  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups',
+    foot:'Set up potluck dishes and volunteer shifts that members sign up for in gather.' },
+  { id:'attendees', label:'Attendees',            live:true,  help:'attendees',
+    foot:"See who's coming, from Eventbrite registrations and gather sign-ups, and email them." },
+  { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback',
+    foot:'Budget tracking is coming soon: vote on ideas or suggest your own.' },
+  { id:'comms',     label:'Comms',                live:false, help:'feedback',
+    foot:'Event emails and posts are coming soon: vote on ideas or suggest your own.' },
+  { id:'feedback',  label:'Feedback',             live:false, help:'feedback',
+    foot:'Post-event feedback is coming soon: vote on ideas or suggest your own.' },
 ];
 // Back-compat: the Planning tab was 'notes' (Planning Notes, until 2026-11);
 // Attendees was the 'attendance' stub; the Publish tab folded into Details (2026-09).
@@ -1295,7 +1302,7 @@ function openEditor(ev, section){
     const id=b.dataset.sect; if(id===activeSection) return;
     if(_form) autosaveEditor();   // save the outgoing section's edits before its fields leave the DOM
     setActiveRail(id); renderSection(id, ctx);
-    renderEditorFooter();         // the wizard shows on Details only; other tabs get ⋮
+    renderEditorFooter();         // the wizard shows on Details only; other tabs get their one line + ⋮
     // The new section can render stored values in a normalized form (e.g. program
     // order) — that isn't an edit, so it becomes the baseline.
     if(_form && _form.ev===ev){ _form.base = formCells(readForm()); applyListingAddressDefault(); }
@@ -2461,7 +2468,9 @@ function renderEditorFooter(){
   if(!msgEl || !actEl || !menuEl || !_ctx || !editing || _ctx.ev!==editing) return;
   const m=editorFooterModel(editing, _ctx), onDetails = activeSection==='details';
   const stepsEl=document.getElementById('edSteps'); if(stepsEl) paintInner(stepsEl, onDetails ? footerStepsHTML(m) : '');
-  paintInner(msgEl, onDetails ? footerMsgHTML(m) : '');
+  // Other tabs: one line on what the tab is for, plus ⋮ (R28).
+  const foot = (SECTIONS.find(x=>x.id===activeSection)||{}).foot;
+  paintInner(msgEl, onDetails ? footerMsgHTML(m) : foot ? `<span class="fsub ftabdesc">${esc(foot)}</span>` : '');
   const bEl=document.getElementById('mBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
   paintInner(actEl, footerActsHTML(m, onDetails));
   if(paintInner(menuEl, footerMenuHTML(m.menu, m.busy))) _menuOpen=false;   // items changed: it's a new (closed) menu
