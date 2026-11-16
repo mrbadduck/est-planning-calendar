@@ -12,6 +12,43 @@ Start here in a new session. Read this file first, then the spec, then CLAUDE.md
   - **Design canvas:** https://claude.ai/artifact/AeaeVySLeUM866d1emm8Ct, page "Full page + drawer (Nov 16)", boards A1–A3. Note the boards still show one scrolling page; the spec's tabs win. The drawer (B) is dropped. Council review is a **Needs approval filter on the List view**.
 - **Next step:** write the implementation plan (superpowers:writing-plans) from the spec, get Eric's OK, then build with superpowers:subagent-driven-development. Each task gets a fresh implementer plus a reviewer, then a whole-branch review. Then push and either open a stacked PR or add to #35, whichever Eric prefers.
 
+## First task: maintainability groundwork (agreed with Eric; do before Phase 1)
+
+Do this as its own small PR, stacked between #35 and the event page. It changes docs, scripts, hooks and settings only, with no app behavior changes. It comes from a research digest on agent-era dev practice: verification in the loop, small batches, context as a budget, rules enforced in code, a shared vocabulary.
+
+1. **Shrink CLAUDE.md** (about 12k tokens, loaded on every task, partly stale).
+   - Keep only what must always hold: the non-negotiables, the hard constraints, the conventions, and where to look.
+   - Move the "How the app is built" walkthrough to `docs/app-map.md`. Phase 1 later rewrites it as a file map.
+   - Delete the stale status lines: "Not yet wired to live data" and "No dedicated planning table exists yet".
+2. **Enforce in code what must hold.**
+   - **`scripts/check.sh`:** runs `node --check` on every `web/*.js`, `./scripts/sync-shared.sh --check` and `node scripts/check-help.mjs`. A Claude Code **Stop hook** runs it, exiting 2 on failure so the agent can't say done with a broken file. It also runs in CI, through the existing check-help workflow or a new small one.
+   - **Structural checks**, in the same script:
+     - `web/listing-readiness.js` must not reference `document`/`window`/`localStorage`, because the Worker bundles it
+     - no `outerHTML` assignments in `web/` (decision D1)
+     - a file-size ceiling for `web/*.js` (about 800 lines). Turn it on after the Phase 1 split, or allow-list `app.js` until then.
+   - **Deny rules** in `.claude/settings.json`: `wrangler deploy`, `wrangler versions upload`, `gh pr merge`, `git push --force`/`-f`. These are the rules that previously lived only in prompts.
+3. **`docs/GLOSSARY.md`:** for each term, the on-screen word, the Coda column and the code name. Terms:
+   - stages: Draft / Proposed / Approved / On Eventbrite / Published / Cancelled
+   - Listing vs Details, Planning
+   - Internal description (Coda `Event Description`) vs planning notes (the Google Doc)
+   - Summary / Description (Coda `Public summary` / `Public description`)
+   - Free tickets (Coda `Capacity`)
+   - Address on listing (`Address visibility`)
+   - pushed snapshot (`Last EB pushed values`)
+   - readiness, footerModel, Add to Eventbrite vs Publish
+4. **`docs/decisions/`:** one-page records (decision, why, date) for:
+   - Coda as the source of truth
+   - Worker-side publishing (no browser tokens)
+   - DNS at Hover
+   - phased auth
+   - D3: Saved = applied
+   - D4: nothing from Eventbrite is written back
+   - D7: no silent fallbacks
+   - Coda API ~28 s apply latency, independent of doc size
+
+   CLAUDE.md then points to them.
+5. **Small batches:** add `.github/pull_request_template.md` with a "How it was verified" section. From here, stack small PRs (groundwork, then the `app.js` split, then the event page, then fast writes) and release them together, as Eric wants.
+
 ## Plan shape (agreed with Eric)
 
 **Phase 1: split `web/app.js` (about 3,600 lines) into small, focused, documented files, before any event-page work.**
