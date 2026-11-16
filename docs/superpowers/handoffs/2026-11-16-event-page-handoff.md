@@ -12,6 +12,28 @@ Start here in a new session. Read this file first, then the spec, then CLAUDE.md
   - **Design canvas:** https://claude.ai/artifact/AeaeVySLeUM866d1emm8Ct, page "Full page + drawer (Nov 16)", boards A1–A3. Note the boards still show one scrolling page; the spec's tabs win. The drawer (B) is dropped. Council review is a **Needs approval filter on the List view**.
 - **Next step:** write the implementation plan (superpowers:writing-plans) from the spec, get Eric's OK, then build with superpowers:subagent-driven-development. Each task gets a fresh implementer plus a reviewer, then a whole-branch review. Then push and either open a stacked PR or add to #35, whichever Eric prefers.
 
+## Plan shape (agreed with Eric)
+
+**Phase 1: split `web/app.js` (about 3,600 lines) into small, focused, documented files, before any event-page work.**
+
+- Move code only, no behavior changes. Verify each step with tests, `node --check`, the help guard and a read-only local click-through.
+- Stay buildless: plain `<script>` files sharing globals, the pattern of `save-queue.js` and `listing-readiness.js`, loaded in order in `web/index.html`. Converting shared globals (`editing`, `_form`, `state`, …) to imports can come later, gradually.
+- Split along the existing seams:
+  - the data layer (`CodaSource`, `planningRowToEvent`/`eventToCodaCells`)
+  - the save system (saveQueue wiring, `applied`/`pendingFor`, `_unsaved`/`_recent`, reconcile)
+  - the editor shell (open/close, ctx, sections, leave guard)
+  - the per-tab renderers (Details/Listing, Planning, Potluck, Attendees, Coming soon)
+  - the field builders
+  - status/footer rendering
+  - preview
+  - the calendar views (overview/months/list)
+  - help
+  - auth and the app shell (header, phone menu, layers, tooltips)
+- Each file starts with a short header saying what it owns and which globals it reads or writes.
+- CLAUDE.md's "How the app is built" becomes a short file map.
+- Watch `scripts/check-help.mjs`: it scans app code for help ids and `[[labels]]`, so point it at every `web/*.js` it needs.
+- **Phase 2:** the event page (spec), which then mostly replaces the editor shell and the footer files.
+
 ## Open question for Eric
 
 - The **Details** tab is renamed **Listing** in the spec, as in the mockup. Eric hasn't confirmed; ask before building.
