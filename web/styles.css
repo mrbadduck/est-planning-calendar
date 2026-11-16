@@ -692,6 +692,9 @@
   .sp-step.done .sp-lbl{color:var(--muted)}
   .sp-step.current .sp-lbl{color:var(--accent);font-weight:600}
   .sp-step.current.g .sp-lbl{color:#2F7D3B}
+  /* skipped: a past event's Eventbrite steps it never reached — a dash, muted, no fill */
+  .sp-step.skipped .sp-dot{border-style:dashed;color:var(--faint)}
+  .sp-step.skipped .sp-lbl{color:var(--faint)}
   .sp-note{grid-column:2;font-size:11.5px;color:var(--muted);line-height:1.35}
   .sp-checks{display:flex;flex-direction:column;gap:6px}
   .sp-checks:empty{display:none}
@@ -713,6 +716,7 @@
   .ep-panel .kmenu{left:0;right:0;width:auto;max-width:none;bottom:auto;top:calc(100% + 6px)}
   .sp-sub{margin:0;font-size:12px;color:var(--muted);line-height:1.4}
   .sp-sub:empty,.sp-bars:empty{display:none}
+  .sp-sub a{color:var(--accent);font-weight:500}
   .sp-bar{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:9px 11px;background:#FBF3E4;border:1px solid #EAD9B5;border-radius:8px}
   .sp-bar .edguard-msg{min-width:0}
   /* the card's listing row (#listingCard): badge + small link actions, then the tickets line */
@@ -759,7 +763,7 @@
     .ep-panel{order:-1;flex:none;position:static;max-height:none;overflow:visible;margin:10px 12px 0}
     .event-page .wrail.ep-tabs{flex:none;margin:10px 0 0;padding:0 12px}
     .ep-main{flex:none;padding:12px 12px 0}
-    /* the status card: title + the first failing row, "Step N of 5 · see all steps", then
+    /* the status card: title + the first failing row, "Step N of 6 · see all steps", then
        (when open) the whole step list and every row; the sentence, bars and listing row stay */
     .sp-card{gap:8px;padding:10px 12px}
     .sp-card .sp-h{display:none}

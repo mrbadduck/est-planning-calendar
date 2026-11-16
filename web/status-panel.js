@@ -30,6 +30,8 @@ function editorFooterModel(ev, ctx){
     pushed: ev.pushed || null,     // null: pushed before the snapshot existed — offer the update (not compared)
     ebEditedElsewhere: ebConflict(ev.id),
     registrants: st && st.sold!=null ? Number(st.sold) : null,   // null until the live status loads
+    liveStatus: (st && st.liveStatus) || null,                   // Eventbrite's status: words the published line
+    ended: (()=>{ const d = ev.scheduling==='range' ? ev.rangeEnd : ev.date; return !!d && d < todayStr; })(),   // the fallback before it loads
     capacity: ebCapacity(ev),
     proposedBy: null,              // the row doesn't record who proposed it (Edited by changes on every edit)
     justChanged: _justChanged.get(ev.id) || null,
@@ -47,18 +49,18 @@ function editorFooterModel(ev, ctx){
   m.stepNotes=PageRules.stepNotes(ev, { fmtDate, registrants: input.registrants, capacity: cap>0 ? cap : null });
   return m;
 }
-// The five lifecycle steps, top to bottom: done ✓, current, to do. Done and current
-// steps carry their who/when note. Nothing when the stage has no step (Cancelled:
-// the title says so).
-const STEP_STATE_TEXT = { done:'Done', current:'Current step', todo:'To do' };
+// The six lifecycle steps, top to bottom: done ✓, current, to do, or skipped (–: a
+// past event's Eventbrite steps it never reached). Done and current steps carry their
+// who/when note. Nothing when the stage has no step (Cancelled: the title says so).
+const STEP_STATE_TEXT = { done:'Done', current:'Current step', todo:'To do', skipped:'Skipped' };
+const STEP_DOT = { done:'✓', skipped:'–' };
 function checklistStepsHTML(m, notes){
   const cur=m.steps.findIndex(s=>s.state==='current');
   if(cur<0) return '';
-  const last=m.steps.length-1;
   return m.steps.map((s,i)=>{
-    const note = s.state!=='todo' && notes && notes[i] ? `<span class="sp-note">${esc(notes[i])}</span>` : '';
-    const tone = s.state==='current' && i===last ? ' g' : '';
-    return `<li class="sp-step ${s.state}${tone}"${s.state==='current'?' aria-current="step"':''}><span class="sp-dot" aria-hidden="true">${s.state==='done'?'✓':''}</span>`
+    const note = (s.state==='done' || s.state==='current') && notes && notes[i] ? `<span class="sp-note">${esc(notes[i])}</span>` : '';
+    const tone = s.state==='current' && i>=4 ? ' g' : '';   // green from Published on: the listing is out, or the event has happened
+    return `<li class="sp-step ${s.state}${tone}"${s.state==='current'?' aria-current="step"':''}><span class="sp-dot" aria-hidden="true">${STEP_DOT[s.state]||''}</span>`
       + `<span class="sp-lbl"><span class="sr">${STEP_STATE_TEXT[s.state]}: </span>${esc(s.label)}</span>${note}</li>`;
   }).join('');
 }
@@ -95,6 +97,16 @@ function footerMenuHTML(menu, busy){
     + `<div class="kmenu" role="menu" aria-label="More actions" hidden>${menu.map(it=>
       `<button type="button" class="mi${it.tone==='danger'?' danger':''}" role="menuitem" tabindex="-1" data-act="${esc(it.act)}"><b>${esc(it.label)}</b>${it.sub?`<span>${esc(it.sub)}</span>`:''}</button>`).join('')}</div>`;
 }
+// The one sentence (#edSub): escaped, with the model's subLinks (Wrap-up's "expenses",
+// "what you learned") as links to their tabs (data-sect; onPanelClick switches tabs).
+function subHTML(m){
+  let h=m.sub ? esc(m.sub) : '';
+  for(const l of m.subLinks||[]){
+    const t=esc(l.text), i=h.indexOf(t); if(i<0) continue;
+    h=h.slice(0,i)+`<a href="#" data-sect="${esc(l.sect)}">${t}</a>`+h.slice(i+t.length);
+  }
+  return h;
+}
 // Write a container's inner HTML only when it changed (the last write is cached on the
 // element): the pill repaints often, and a rewrite would drop focus.
 function paintInner(el, html){ if(el._html!==html){ el.innerHTML=html; el._html=html; return true; } return false; }
@@ -105,7 +117,7 @@ function paintInner(el, html){ if(el._html!==html){ el.innerHTML=html; el._html=
 // Eventbrite, tickets; listingCardHTML) — then the save pill (a failed save only).
 // The phone layout (spec 5.6; epLayout()==='phone') restyles the same card, one model →
 // one paint: CSS puts it above the tab strip and orders it title + first failing row
-// (#edChecks), the "Step N of 5 · see all steps" toggle (#edMore, toggleSteps), then the
+// (#edChecks), the "Step N of 6 · see all steps" toggle (#edMore, toggleSteps), then the
 // step list (#edStatus, collapsed until toggled), #edSub, #edBars and the listing row;
 // placePhoneBar moves #edActs and #edMenu into the sticky bottom bar (#epPhoneBar).
 function statusPanelHTML(withPill){
@@ -124,7 +136,7 @@ function renderStatusPanel(){
   const m=editorFooterModel(editing, _ctx);
   paintInner(document.getElementById('edStatus'), checklistStepsHTML(m, m.stepNotes));
   paintInner(document.getElementById('edChecks'), nextStepHTML(m));
-  paintInner(document.getElementById('edSub'), m.sub ? esc(m.sub) : '');
+  paintInner(document.getElementById('edSub'), subHTML(m));
   const cur=m.steps.findIndex(s=>s.state==='current');   // phones' toggle; none when the stage has no step (Cancelled)
   paintInner(document.getElementById('edMore'), cur<0 ? '' : `Step ${cur+1} of ${m.steps.length} · see all steps <span class="sp-chev" aria-hidden="true">▾</span>`);
   const bEl=document.getElementById('epBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
@@ -140,7 +152,7 @@ function renderStatusPanel(){
   if(!ev.eventbriteId || !ebConflict(ev.id)) _conflictShown.delete(ev.id);
   else if((m.sub||'').includes(EB_CONFLICT_NOTICE)) _conflictShown.add(ev.id);
 }
-// Phones: "Step N of 5 · see all steps" shows or hides the step list inline. The
+// Phones: "Step N of 6 · see all steps" shows or hides the step list inline. The
 // state lives on the card (class + aria-expanded), so it resets when the panel is
 // rebuilt on open.
 function toggleSteps(){
