@@ -1,5 +1,5 @@
 /* util.js — small pure helpers: HTML escaping, date/time formatting, linkify, cssColor.
-   Owns: cssColor, esc, cap, fmtDate, fmtTime, fmtDateTimeAt, fmtDateTimeRange, linkify
+   Owns: cssColor, esc, cap, fmtDate, fmtTime, fmtDateTimeRange, linkify
    Reads: WD, MONTHS (state.js; only when called, not at load)
    Writes: nothing
    Loaded after: editor-head.js (no load-time dependency) */
@@ -7,7 +7,6 @@
 // A CSS color from data (e.g. a reference calendar's Color) — only real color
 // values, so a value can't add declarations to a style="" attribute.
 function cssColor(c, fallback){ const s=String(c||'').trim(); return /^(#[0-9a-f]{3,8}|(?:rgb|hsl)a?\([\d\s.,%\/+-]+\)|var\(--[\w-]+\)|[a-z]+)$/i.test(s) ? s : fallback; }
-// The header ? and the editor's aria-modal track the drawer (the editor stays usable beside it).
 
 /* utils */
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}

@@ -2916,6 +2916,7 @@ function setHelpUrl(id){
   else return;
   history.replaceState(null,'',u);
 }
+// The header ? and the editor's aria-modal track the drawer (the editor stays usable beside it).
 function setHelpExpanded(open){
   const b=document.getElementById('helpBtn'); if(b) b.setAttribute('aria-expanded', String(open));
   const m=document.getElementById('modal'); if(m) m.setAttribute('aria-modal', open ? 'false' : 'true');
@@ -3056,6 +3057,5 @@ function maybeWelcome(){
   openHelp('welcome');
 }
 document.addEventListener('est:identity', maybeWelcome);
-
 
 init();
