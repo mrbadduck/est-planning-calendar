@@ -1,5 +1,5 @@
 /* footer.js — the editor footer wizard: ListingRules.footerModel painted into stable containers, the ⋮ menu, field focus.
-   Owns: _menuOpen, editorFooterModel, paintInner, renderEditorFooter
+   Owns: _menuOpen, editorFooterModel, paintInner, renderEditorFooter, kebabMenu, focusField
    Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx (editor.js); state (state.js);
           _busy, _busyLabel, _slow (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged (eventbrite.js)
    Writes: nothing

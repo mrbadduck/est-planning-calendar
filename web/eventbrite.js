@@ -1,5 +1,7 @@
 /* eventbrite.js — the Eventbrite push (Add / Update draft / Publish / Update listing), the live-status poll and the registrant emails.
-   Owns: EB_CONFLICT_NOTICE, _ebStatus, _pushChecks, _conflictShown, ebConflict, ebCapacity, refreshEbStatus
+   Owns: PUSH_ACTS, EB_CONFLICT_NOTICE, _ebStatus, _pushChecks, _conflictShown, _pushing, _sending,
+         _justChanged, ebConflict, ebCapacity, mergePushChecks, refreshEbStatus, dismissChangeNotice,
+         _regFetch, prefetchRegistrants, emailRegistrants, emailAfterChange, pushToEventbrite
    Reads: editing (editor-tabs.js); _ctx (editor.js); _unconfirmed (save.js)
    Writes: _busy (save.js; add/delete)
    Loaded after: transitions.js (file-map order; no load-time dependency) */

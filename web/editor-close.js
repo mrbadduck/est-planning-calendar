@@ -1,5 +1,5 @@
 /* editor-close.js — closing the editor: the leave guard, requestClose, close, footer-action dispatch, ⋮ menu keys, header actions.
-   Owns: show, leaveGuard, hideLeaveGuard, close, footerAct
+   Owns: show, leaveGuard, hideLeaveGuard, requestClose, close, footerAct
    Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx (editor.js); _form, _unconfirmed (save.js)
    Writes: editing (editor-tabs.js; close); _ndocGen (notes-doc.js; close); _menuOpen (footer.js); _regFetch (eventbrite.js)
    Loaded after: eventbrite.js (file-map order; its Escape and click listeners keep their order after preview.js and before those still in app.js) */

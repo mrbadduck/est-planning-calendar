@@ -1,5 +1,5 @@
 /* transitions.js — lifecycle transitions (Propose/Approve/Reopen), Cancel, Delete, unpublish, and the registrant-block bar.
-   Owns: _ebBlock, paintEbBlock
+   Owns: transitionTo, cancelEvent, deleteEditor, unpublishEvent, _ebBlock, clearEbBlock, paintEbBlock
    Reads: editing, activeSection (editor-tabs.js); state (state.js)
    Writes: _form, _busy, _busyLabel, _authRetry, _unconfirmed (save.js); _unsaved (state.js; delete)
    Loaded after: footer.js (file-map order; no load-time dependency) */

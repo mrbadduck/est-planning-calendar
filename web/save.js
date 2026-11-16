@@ -1,10 +1,12 @@
 /* save.js — the save model: on-blur autosave, the saveQueue wiring, optimistic local copies, the save pill, leaveForm, the unload guard.
    The save model's rules live in: saveQueue (one write in flight per event), applied / pendingFor
    (Saved = applied, D3), leaveForm, flushAutosave, dropFailedEdits, guardUnload.
-   Owns: scheduleReconcile, _form, _busy, formCells, _applying, _unconfirmed, pendingFor, trackCreate,
-         guardUnload, paintSaveStatus, scheduleAutosave, autosaveEditor, leaveForm, applyLocal
+   Owns: scheduleReconcile, _form, _busy, _busyLabel, _authRetry, formCells, _applying, _slow,
+         _unconfirmed, applied, pendingFor, trackWorkerWrite, afterCreate, trackCreate,
+         retryCreateConfirm, saveQueue, dropFailedEdits, retryFailedSave, guardUnload, paintSaveStatus,
+         scheduleAutosave, autosaveEditor, leaveForm, flushAutosave, applyLocal
    Reads: editing, state (state.js, editor-tabs.js); _unsaved, _recent (state.js); _pushChecks (eventbrite.js)
-   Writes: _unsaved (state.js; set/delete); state.events (applyLocal)
+   Writes: _unsaved (state.js; set/delete); _pushChecks (eventbrite.js; delete); state.events (applyLocal)
    Loaded after: ui.js (file-map order; the est:identity listener keeps its place before those later in app.js) */
 
 /* ---- optimistic writes: reflect the change instantly, reconcile after ------ */
