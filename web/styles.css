@@ -656,7 +656,7 @@
   /* top bar, one row at every width: ← Calendar, the program stripe, the title, ⋮ */
   .event-page .mhead.ep-top{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--hair-strong);padding:9px 18px}
   .ep-back{flex:none;white-space:nowrap}
-  #epTitle:focus:not(:focus-visible){outline:none}   /* focused on open for screen readers; no ring after a click */
+  #epTitle:focus{outline:none}   /* focused on open for screen readers; tabindex=-1, never keyboard-reached, so no ring */
   #epTop .ep-menu{display:none}   /* the phone layout's ⋮; wide and mid show the badge and icons */
   .ep-menu .kmenu{top:calc(100% + 6px);bottom:auto;right:0;width:220px}   /* the top bar's ⋮ opens downward */
   .ep-menu .kmenu a.mi{text-decoration:none}

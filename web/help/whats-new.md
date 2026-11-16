@@ -6,7 +6,7 @@
 -->
 
 ## 2026-11-16
-- **A Wrap-up step.** Once an approved event's date has passed, **Status & next step** shows a sixth step, **Wrap-up**: "This event has happened", with how many registered. Logging expenses and capturing what you learned are coming soon. Steps an event skipped, like going on Eventbrite, show a dash.
+- **A Wrap-up step.** Once an approved event's date has passed, **Status & next step** shows a sixth step, **Wrap-up**: "This event has happened", with how many registered. Logging expenses and capturing what you learned are coming soon. Steps an event skipped, like going on Eventbrite, show a dash. The label at the top of the event, and in the List view, then says just **Past**.
 - **The Published line follows Eventbrite.** It says **registration open**, **happening now**, **registration closed** or **canceled on Eventbrite**, instead of always "registration open".
 - **A taller notes preview.** On **Planning**, the notes doc preview fills the rest of the screen.
 - **One status box.** The listing box is now the last line of **Status & next step**: whether the event is on Eventbrite, **Preview listing**, **View on Eventbrite ↗** and the tickets, without saying anything twice. On a phone it's in the same box at the top.

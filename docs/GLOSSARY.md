@@ -19,7 +19,7 @@ and `Publish status`.
 | On Eventbrite | Approved + `Eventbrite Event ID` set, `Publish status` ≠ Published | `onEventbrite` | A private Eventbrite draft exists. Nobody sees it. |
 | Published | Approved + `Publish status` = Published | `published` | The public listing is live. |
 | Cancelled | `Status` = Cancelled | `cancelled` | Off the calendar's active set; Eventbrite listing torn down. |
-| Wrap-up | derived: approved (any Eventbrite stage) + date passed | not a stage: `footerModel` step 6, from `input.past` (`isHistory`) | The event has happened. The sixth step of the checklist; On Eventbrite / Published show as skipped if it never got there. Next (coming soon): expenses and what you learned. |
+| Wrap-up | derived: approved (any Eventbrite stage) + date passed | not a stage: `footerModel` step 6, from `input.past` (`isHistory`) | The event has happened. The sixth step of the checklist; On Eventbrite / Published show as skipped if it never got there. Next (coming soon): expenses and what you learned. The header badge and the List view say just Past; the listing row says Not on Eventbrite (no "yet"). |
 
 *Past* (the date has gone by) and *history* (`isHistory`: approved or published and
 past) are derived too. They lock fields; they are not stages. *Past* is also what makes

@@ -170,7 +170,7 @@ function listWhen(e){
 }
 function lrowHTML(e){
   const si=statusInfo(e);
-  const meta=[listWhen(e), si.label, e.venueName||e.venueOther||e.location].filter(Boolean).map(esc).join(' · ');
+  const meta=[listWhen(e), isHistory(e) ? 'Past' : si.label, e.venueName||e.venueOther||e.location].filter(Boolean).map(esc).join(' · ');
   return `<button type="button" class="lev ${e.status}" style="--c:${progColor(e.program)}" data-id="${e.id}">
       <span class="lt">${esc(e.title)||'(untitled)'}${xMark(e)}</span><span class="lm">${meta}</span>
     </button>`;

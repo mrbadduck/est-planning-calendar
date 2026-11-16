@@ -121,7 +121,7 @@ Under each tab's name, one line says what the tab is for. A dot on [[Listing]] m
 
 **At the top of the page** are the title, its first program (with **+1** and so on when there are more), the first line of its [[Internal description]], its status label, and three icons: **?** (help for this tab), **View in gather** and **Copy link**. On a phone, the top shows just [[← Calendar]], the title and **⋮**, which holds [[Help for this tab]], [[View in gather]] and [[Copy link]]. When you scroll, the tabs stay in view under it.
 
-**Status & next step** shows on every tab: the event's steps, what's left, and one button for the next step. Its last line says whether the event is on Eventbrite (**Not on Eventbrite yet**, **Private draft** or **Public**), with [[Preview listing]], [[View on Eventbrite ↗]] once it's public, and the tickets on offer. On a narrower screen, the tabs run across the top, and on a phone this box sits above them. See [From draft to published](#lifecycle).
+**Status & next step** shows on every tab: the event's steps, what's left, and one button for the next step. Its last line says whether the event is on Eventbrite (**Not on Eventbrite yet**, **Private draft** or **Public**; **Not on Eventbrite** once the date has passed), with [[Preview listing]], [[View on Eventbrite ↗]] once it's public, and the tickets on offer. On a narrower screen, the tabs run across the top, and on a phone this box sits above them. See [From draft to published](#lifecycle).
 
 **Changes save by themselves** when you move out of a field. Meanwhile the next-step button says **Saving…** (**Still saving…** when it's slow; a save can take half a minute), and it shows steps under way too, such as **Cancelling…**. When nothing says Saving, everything is saved. If [[Save failed — retry]] appears, click it to try again.
 
@@ -152,7 +152,7 @@ The icons and tags update once the field has saved.
 - **Proposed**: waiting for Tribal Council. You can keep editing. Tribal Council clicks [[Approve]].
 - **Approved**: you can still edit it, with no need to approve it again. Next: [[Add to Eventbrite]].
 - **On Eventbrite**: a private draft listing. Nobody can see it or register yet. Next: [[Publish]].
-- **Published**: public on Eventbrite. The label at the top of the event says **Live**, and the box says **Public**. The box's Published line follows Eventbrite: **registration open**, **happening now** on the day, **registration closed** afterwards, or **canceled on Eventbrite**, plus how many have registered.
+- **Published**: public on Eventbrite. The label at the top of the event says **Live** (just **Past** once the date has passed), and the box says **Public**. The box's Published line follows Eventbrite: **registration open**, **happening now** on the day, **registration closed** afterwards, or **canceled on Eventbrite**, plus how many have registered.
 - **[[Wrap-up]]**: the date has gone by, so [[This event has happened]]. It comes after any approved event, even one that never went on Eventbrite; then **On Eventbrite** and **Published** show a dash, as skipped. What's next is logging expenses and capturing what you learned. Both are coming soon: the links take you to the [[Budget & expenses]] and [[Feedback]] tabs, where you can vote on ideas.
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.

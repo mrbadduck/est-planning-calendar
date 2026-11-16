@@ -31,7 +31,7 @@ function editorFooterModel(ev, ctx){
     ebEditedElsewhere: ebConflict(ev.id),
     registrants: st && st.sold!=null ? Number(st.sold) : null,   // null until the live status loads
     liveStatus: (st && st.liveStatus) || null,                   // Eventbrite's status: words the published line
-    ended: (()=>{ const d = ev.scheduling==='range' ? ev.rangeEnd : ev.date; return !!d && d < todayStr; })(),   // the fallback before it loads
+    ended: (()=>{ const d = ev.scheduling==='range' ? ev.rangeEnd : ev.scheduling==='exact' ? ev.date : ''; return !!d && d < todayStr; })(),   // a Month idea never counts   // the fallback before it loads
     capacity: ebCapacity(ev),
     proposedBy: null,              // the row doesn't record who proposed it (Edited by changes on every edit)
     justChanged: _justChanged.get(ev.id) || null,

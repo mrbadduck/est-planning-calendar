@@ -98,7 +98,7 @@ const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
 // version built from the fields (openPreview).
 const PREVIEW_BTN = `<button type="button" class="lnk" data-pv-open>Preview listing</button>`;
 function listingCardHTML(ev){
-  if(!ev.eventbriteId) return `<div class="sp-lrow"><span class="ftag pre">Not on Eventbrite yet</span><span class="sp-lacts">${PREVIEW_BTN}</span></div>`;
+  if(!ev.eventbriteId) return `<div class="sp-lrow"><span class="ftag pre">${isHistory(ev) ? 'Not on Eventbrite' : 'Not on Eventbrite yet'}</span><span class="sp-lacts">${PREVIEW_BTN}</span></div>`;
   const pub = ev.publishStatus==='Published';
   const pill = pub ? `<span class="ftag ok">Public</span>` : `<span class="ftag chg">Private draft</span>`;
   const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="lnk" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
