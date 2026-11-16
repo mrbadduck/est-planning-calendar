@@ -1,6 +1,6 @@
 /* transitions.js — lifecycle transitions (Propose/Approve/Reopen), Cancel, Delete, unpublish, and the Eventbrite-cancel bar (in the panel's #edBars).
    Owns: transitionTo, cancelEvent, deleteEditor, unpublishEvent, _ebBlock, clearEbBlock, paintEbBlock
-   Reads: editing, activeSection (editor-tabs.js); state (state.js)
+   Reads: editing, activeSection (editor-tabs.js); state, todayStr (state.js)
    Writes: _form, _busy, _busyLabel, _authRetry, _unconfirmed (save.js); _unsaved (state.js; delete)
    Loaded after: status-panel.js (file-map order; no load-time dependency) */
 
@@ -25,6 +25,10 @@ async function transitionTo(status){
     await afterCreate(ev.id);
     const w=await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
     await applied(w && w.requestId, ev.id);     // Approve → Add to Eventbrite must see the new Status in Coda
+    if(status==='approved'){                    // the Approved step note, until the next read brings Coda's (display only, never written)
+      ev.approvedBy=(state.identity && state.identity.name) || ev.approvedBy;
+      ev.approvedAt=todayStr;
+    }
     markRecent(ev.id, {e:ev}); scheduleReconcile(); clearEbBlock(ev.id);
     toast(status==='approved'?'Approved':(status==='draft'?'Reopened':'Proposed'),'ok');
   }catch(err){

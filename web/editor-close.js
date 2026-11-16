@@ -100,7 +100,8 @@ function leaveEventPage(how){
   else window.scrollTo(0, _calScrollY);
 }
 // Back/Forward (spec 5.1, 5.7, risk 9.1). popstate fires after the URL has changed.
-//   The page is open and the URL left its event: through the leave guard. If it holds
+//   The page is open and the URL left its event: a Preview on top just closes (the
+//   page's entry is re-pushed). Otherwise through the leave guard. If it holds
 //   (edits not on Eventbrite yet), re-push the page's entry so the user stays put, with
 //   the leave bar showing; "Close anyway" closes the page, then steps back again.
 //   Otherwise close the page, and open the event the URL names, if any.
@@ -110,6 +111,9 @@ function onPopState(){
   if(pageOpen() && editing){
     if(id===editing.id) return;
     const ev=editing, st=_epState;
+    // Back with the Preview open closes the preview, like Esc: the page stays, its
+    // entry re-pushed, and no leave bar appears under the overlay.
+    if(closePreview()){ history.pushState(st, '', eventUrl(ev, activeSection)); return; }
     if(leaveGuard(()=>{ if(editing===ev) leaveEventPage('popped'); history.back(); })){
       history.pushState(st, '', eventUrl(ev, activeSection));
       return;

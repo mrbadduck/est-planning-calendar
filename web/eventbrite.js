@@ -184,6 +184,10 @@ async function pushToEventbrite(act){
     _sending.delete(id);
     const prevPushed=ev.pushed || null;
     _lastPushAt.set(id, res.lastPushAt || new Date().toISOString());
+    // The step notes read these; mirror what the Worker just wrote so they don't lag
+    // until the next read. Display only: eventToCodaCells never writes them.
+    ev.lastEbPushAt=_lastPushAt.get(id);
+    if(!spec.draftOnly) ev.lastPublishedAt=ev.lastEbPushAt;   // the Worker stamps Last published at on every public push
     if(res.eventbriteId) ev.eventbriteId=String(res.eventbriteId);
     if(res.url) ev.eventbriteUrl=res.url;
     ev.publishStatus = res.publishStatus || (spec.draftOnly ? 'Draft' : 'Published');
