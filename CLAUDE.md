@@ -147,7 +147,7 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   `#listingCard` on top. Summary/Description/Capacity/Address open once approved;
   before that a muted note stands in), **Planning** (SECTIONS id `notes`, kept for
   `?section=notes` links; label changed from "Planning Notes" 2026-11: Program(s) +
-  Leads side by side, **Internal notes** = the `description` field, then the notes
+  Leads side by side, **Internal description** (`description`), then the notes
   doc — the fields take the same cancelled/past lock as Details, the doc only the
   cancelled one), **Potluck & Volunteers** and **Attendees**
   (`renderAttendees`/`wireAttendees` — lead-only live roster of Eventbrite orders ∪
@@ -162,7 +162,7 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   section is passed; `readForm()` null-guards every field (only the active
   section's inputs exist in the DOM) and falls back to the event's own values.
   **Header**: title, then the first program as a tag in its own color (+N), the
-  first line of Internal notes as a subtitle (`paintHeadMeta`, helpers in
+  first line of the Internal description as a subtitle (`paintHeadMeta`, helpers in
   `web/editor-head.js`, live as you type), then the status badge and icons. The
   editor runs a compact scale (`:is(.modal.ws,.modal.create)` rules in
   `styles.css`); phones keep 44px tap targets.

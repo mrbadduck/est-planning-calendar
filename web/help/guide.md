@@ -109,11 +109,11 @@ The event opens in full as a **Draft**. Nothing is public yet, so keep adding de
 Click an event to open it. It has these tabs:
 
 - [[Details]]: what goes on the Eventbrite listing, in the order people see it: [[Title]], [[Summary]], [[Description]], **When**, **Where** and [[Capacity]]. Summary, Description, Capacity and [[Address on listing]] open once the event is approved; see [Put an event on Eventbrite](#publish).
-- [[Planning]]: what only the planning team sees: [[Program(s)]], [[Leads]], [[Internal notes]] and a Google Doc for your notes.
+- [[Planning]]: what only the planning team sees: [[Program(s)]], [[Leads]], [[Internal description]] and a Google Doc for your planning notes.
 - [[Potluck & Volunteers]]: sign-up slots for members.
 - [[Attendees]]: who's coming.
 
-**At the top of an open event** are its title, its first program (in that program's color, with **+1** and so on when there are more), and under them the first line of its [[Internal notes]].
+**At the top of an open event** are its title, its first program (in that program's color, with **+1** and so on when there are more), and under them the first line of its [[Internal description]].
 
 **At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. The label at the top of the event always matches the step. On [[Details]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, only **⋮** shows.
 
@@ -160,7 +160,7 @@ The app doesn't tell Tribal Council when something is proposed, so let them know
 - **Once it's published**, Delete is gone. Use [[Cancel event…]], which takes the listing down. If people have registered, see [Change or take down a listing](#publish-changes).
 - **A cancelled event** can be brought back to planning by Tribal Council with [[Reopen]], which doesn't put it back on Eventbrite. Tribal Council can also delete it.
 
-**After the date,** an approved event is history: its **Details** lock and there's nothing left to do at the bottom. Its notes doc, sign-ups and [[Attendees]] still work, but the fields on [[Details]] and [[Planning]] lock.
+**After the date,** an approved event is history: the fields on [[Details]] and [[Planning]] lock and there's nothing left to do at the bottom. Its notes doc, sign-ups and [[Attendees]] still work.
 
 > **Tip:** Click the status label at the top of an open event to come back to this guide.
 
@@ -169,7 +169,7 @@ The app doesn't tell Tribal Council when something is proposed, so let them know
 The [[Planning]] tab holds what only the planning team sees. None of it goes on Eventbrite.
 
 - [[Program(s)]] and [[Leads]]. Picking a program adds its leads for you.
-- [[Internal notes]]: a few lines on the plan. Its first line shows at the top of the event.
+- [[Internal description]]: a short description for quick reference. Its first line shows at the top of the event.
 - A Google Doc for longer notes: agenda, to-dos, contacts.
 
 To add the doc:
@@ -216,7 +216,7 @@ Until these are done, the button can't be clicked. The bottom of the event lists
 
 ### Steps
 
-1. In [[Details]], fill in [[Summary]], [[Description]] and [[Capacity]]. [[Copy internal notes]] starts the description from your [[Internal notes]], but take out anything private first: this text goes public.
+1. In [[Details]], fill in [[Summary]], [[Description]] and [[Capacity]]. [[Copy internal description]] starts you off from the internal one, but take out planning notes first: this text goes public.
 2. Click [[Add to Eventbrite]].
 3. Click [[Preview listing]] to see exactly what Eventbrite has.
 4. Click [[Publish]]. Anyone can now register.

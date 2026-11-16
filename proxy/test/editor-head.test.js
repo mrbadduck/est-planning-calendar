@@ -41,3 +41,42 @@ test('programTag: skips unknown ids and Other; null when nothing to show', () =>
   assert.equal(programTag(null, map), null);
   assert.equal(programTag(['wan'], null), null);
 });
+
+// The program tag's text must reach WCAG AA (4.5:1, 11px/600) on its tint in both
+// themes, for the fixed palette and every hue genColor can make (hsl(H,50%,55%)).
+import { readFileSync } from 'node:fs';
+const css = readFileSync(new URL('../../web/styles.css', import.meta.url), 'utf8');
+const { tagColors, contrast, TAG_MIX, THEMES, parseColor } = globalThis.EditorHead;
+
+test('styles.css mixes the tag with the percentages and tokens the test checks', () => {
+  const lightVar = css.match(/:root\{[^}]*--ptag-text:(\d+)%/);
+  const darkVar = css.match(/prefers-color-scheme:dark\)\{\s*:root\{[^}]*--ptag-text:(\d+)%/);
+  assert.equal(Number(lightVar && lightVar[1]), TAG_MIX.light.text);
+  assert.equal(Number(darkVar && darkVar[1]), TAG_MIX.dark.text);
+  assert.match(css, new RegExp(`\\.ptag\\{[^}]*var\\(--c,var\\(--p-oth\\)\\) ${TAG_MIX.bg}%,var\\(--surface\\)`));
+  assert.match(css, /\.ptag\{[^}]*color:color-mix\(in srgb,var\(--c,var\(--p-oth\)\) var\(--ptag-text\),var\(--ink\)\)/);
+  assert.match(css, new RegExp(`--surface:${THEMES.dark.surface}`, 'i'));
+  assert.match(css, new RegExp(`--ink:${THEMES.dark.ink}`, 'i'));
+  assert.match(css, new RegExp(`--ink:${THEMES.light.ink}`, 'i'));
+});
+
+test('program tag text is >= 4.5:1 on its tint, light and dark, palette + every generated hue', () => {
+  const palette = [...css.matchAll(/--p-[a-z]+:(#[0-9a-f]{6})/gi)].map(m => m[1]);
+  assert.ok(palette.length >= 8);
+  const colors = palette.concat(['#888']);
+  for (let h = 0; h < 360; h += 15) colors.push(`hsl(${h}, 50%, 55%)`);
+  for (const theme of ['light', 'dark']) {
+    for (const c of colors) {
+      const t = tagColors(c, theme);
+      const r = contrast(t.text, t.bg);
+      assert.ok(r >= 4.5, `${theme} ${c}: ${r.toFixed(2)}:1`);
+    }
+  }
+});
+
+test('contrast and parseColor basics', () => {
+  assert.equal(Math.round(contrast(parseColor('#000'), parseColor('#fff'))), 21);
+  assert.equal(contrast(parseColor('#777777'), parseColor('#777777')), 1);
+  assert.deepEqual(parseColor('hsl(0, 100%, 50%)'), [255, 0, 0]);
+  assert.equal(parseColor('var(--p-wan)'), null);
+});

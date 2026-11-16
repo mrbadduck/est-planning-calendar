@@ -28,7 +28,7 @@
   const pub = label => ({ label, public: true });
   const FIELDS = {
     title: pub('Title'),
-    description: { label: 'Internal notes', public: false },
+    description: { label: 'Internal description', public: false },
     programs: { label: 'Program(s)', public: false },
     leads: { label: 'Leads', public: false },
     date: pub('Date'),
@@ -38,7 +38,7 @@
     publicSummary: pub('Summary'),
     publicDescription: pub('Description'),
     capacity: pub('Capacity'),
-    addressVisibility: pub('Address visibility'),
+    addressVisibility: pub('Address on listing'),
   };
   for (const k of Object.keys(FIELDS)) if (FIELDS[k].public) FIELDS[k].pushedKey = k;
   FIELDS.venue.pushedKey = 'venueName'; // the pushed snapshot stores the venue as venueName

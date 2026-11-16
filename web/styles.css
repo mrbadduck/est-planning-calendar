@@ -16,6 +16,7 @@
     /* program hues */
     --p-kab:#6D5AE6; --p-din:#C0722E; --p-tot:#1F9488; --p-lit:#CE5590;
     --p-wan:#2F7DC4; --p-lch:#A23A5B; --p-sho:#4E9A3D; --p-oth:#5A5966;
+    --ptag-text:45%;           /* program tag text: share of the program hue (rest --ink) */
     /* reference layer colors now come per-calendar (hex) from /references */
   }
   *{box-sizing:border-box}
@@ -273,11 +274,12 @@
   .mhead-tag{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;max-width:42%;min-width:0}
   .mhead-tag:empty{display:none}
   /* program tag in the program's own hue: tint fill, mid border, text mixed toward
-     --ink — light text on dark, dark text on light, readable in both themes */
+     --ink (--ptag-text = share of the hue; 45% light, 50% dark) so it holds 4.5:1
+     in both themes for every program color — pinned in proxy/test/editor-head.test.js */
   .ptag{font-size:11px;font-weight:600;line-height:1.3;padding:2px 8px;border-radius:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
     background:color-mix(in srgb,var(--c,var(--p-oth)) 14%,var(--surface));
     border:1px solid color-mix(in srgb,var(--c,var(--p-oth)) 38%,var(--surface));
-    color:color-mix(in srgb,var(--c,var(--p-oth)) 62%,var(--ink))}
+    color:color-mix(in srgb,var(--c,var(--p-oth)) var(--ptag-text),var(--ink))}
   .ptag-more{font-size:11px;font-weight:600;color:var(--muted);flex:none;cursor:default}
   .mhead-badges{display:flex;align-items:center;gap:6px;flex:0 0 auto}
   .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -646,6 +648,11 @@
     /* phones: ≥44px tap targets for the controls a thumb hits */
     :is(.modal.ws,.modal.create) .mhead{padding:10px 12px 9px}
     .modal.ws .wrail{flex-basis:auto;padding:6px 12px 4px}
+    /* 44px icons leave no room beside the title: title block on row 1, then the
+       badge (left) and the icons + close (right) on row 2 */
+    :is(.modal.ws,.modal.create) .mhead{flex-wrap:wrap;row-gap:4px}
+    :is(.modal.ws,.modal.create) .mhead-title{flex:1 1 calc(100% - 20px)}
+    :is(.modal.ws,.modal.create) .mhead-badges{margin-right:auto;margin-left:14px}
     /* the title gets the whole row; the program tag drops under it */
     .mhead-ttlrow{flex-wrap:wrap;row-gap:3px}
     .mhead-ttlrow h2{flex:1 1 100%}
@@ -654,7 +661,9 @@
     .modal.ws .wrail-item{min-height:44px;padding:0 10px}
     .modal.ws .btn.fbtn,.modal.ws .kb{min-height:44px}
     .modal.ws .kb{width:44px;height:44px}
-    :is(.modal.ws,.modal.create) .mhead-ico,:is(.modal.ws,.modal.create) .mhead-close{width:36px;height:44px}
+    :is(.modal.ws,.modal.create) .mhead-ico,:is(.modal.ws,.modal.create) .mhead-close{width:44px;height:44px}
+    :is(.modal.ws,.modal.create) .fld .btn.xs{min-height:44px;padding:0 10px}
+    :is(.modal.ws,.modal.create) .fld label.msel-opt{min-height:44px}
     :is(.modal.ws,.modal.create) .whenseg button{min-height:44px}
     :is(.modal.ws,.modal.create) .fld input:not([type=checkbox]):not(.ta-input),:is(.modal.ws,.modal.create) .fld select,:is(.modal.ws,.modal.create) .msel-btn,:is(.modal.ws,.modal.create) .typeahead{min-height:44px}
     .modal.create .mfoot .btn{min-height:44px}
@@ -662,9 +671,11 @@
   /* the panel scrolls independently and lays its fields out with real spacing */
   .wpanel{flex:1;min-width:0;overflow-y:auto;padding:14px 18px 16px;display:flex;flex-direction:column;gap:12px}
   .wpanel > .fld.full,.wpanel > .fld{width:100%}
-  /* Planning tab: Program(s) + Leads side by side, then Internal notes, then the doc */
+  /* Planning tab: Program(s) + Leads side by side, then Internal description, then the doc */
   .frow2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .frow2 > .fld.full{grid-column:auto}
+  .ptab-h{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .ptab-sub{text-transform:none;letter-spacing:0;font-weight:500;color:var(--faint)}
   .ndoc-fld{flex:1 0 auto;min-height:300px}
   .ndoc-fld .ndoc-full.has-doc{flex:1}
   @media (max-width:600px){ .frow2{grid-template-columns:minmax(0,1fr)} }
@@ -916,6 +927,7 @@
       --paper:#17161E; --ink:#E9E7F0; --muted:#A3A1B0; --faint:#71707E;
       --hair:#2E2D3A; --hair-strong:#3D3C4B;
       --accent:#7D7DD1; --accent-dk:#9B9BE0; --accent-tint:#31314A;
+      --ptag-text:50%;
       --today:#E0654F;
       --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.5);
     }

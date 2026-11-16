@@ -6,9 +6,9 @@
 -->
 
 ## 2026-11-16
-- **Details is the listing.** The **Details** tab now holds just what goes on Eventbrite, in the order people see it: Title, Summary, Description, When, Where and Capacity. **Public summary** and **Public description** are now **Summary** and **Description**, and **Copy internal description** is **Copy internal notes**.
-- **New Planning tab.** **Planning Notes** is now **Planning**. It holds what only the planning team sees: Program(s), Leads, **Internal notes** (the old internal description) and the notes doc.
-- **A clearer top of the event.** Next to the title is its program, in the program's color, and under it the first line of the internal notes.
+- **Details is the listing.** The **Details** tab now holds just what goes on Eventbrite, in the order people see it: Title, Summary, Description, When, Where and Capacity. **Public summary** and **Public description** are now **Summary** and **Description**.
+- **New Planning tab.** **Planning Notes** is now **Planning**. It holds what only the planning team sees: Program(s), Leads, **Internal description** and the planning notes doc.
+- **A clearer top of the event.** Next to the title is its program, in the program's color, and under it the first line of the internal description.
 - **A more compact editor.** Smaller spacing, fields and buttons, so more of an event fits on screen. Phones keep big buttons.
 - **Cleaner Details tab.** The little key and the **Event** heading at the top of the form are gone. Point at the icon next to a field to see where it goes.
 - **One icon per field.** Each field name now has a single icon: a crossed-out eye for private fields, a gray clock for fields that go on Eventbrite once the event is added, then a green check when it matches Eventbrite or amber arrows when your change isn't on Eventbrite yet.

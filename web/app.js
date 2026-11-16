@@ -775,16 +775,16 @@ let whenType='exact';
 // guide.md) the editor header's ? opens for that tab. No icon webfont — text labels.
 const SECTIONS = [
   { id:'details',   label:'Details',              live:true,  help:'edit-details' },
-  { id:'notes',     label:'Planning',             live:true,  help:'planning-notes' },   // id kept: ?section=notes links
+  { id:'planning',  label:'Planning',             live:true,  help:'planning-notes' },
   { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups' },
   { id:'attendees', label:'Attendees',            live:true,  help:'attendees' },
   { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback' },
   { id:'comms',     label:'Comms',                live:false, help:'feedback' },
   { id:'feedback',  label:'Feedback',             live:false, help:'feedback' },
 ];
-// Back-compat: Details was formerly 'planning'; Attendees was the 'attendance'
-// stub; the Publish tab folded into Details (2026-09) → 'publish' opens Details.
-const sectionId = id => ({ planning:'details', attendance:'attendees', publish:'details' }[id] || id);
+// Back-compat: the Planning tab was 'notes' (Planning Notes, until 2026-11);
+// Attendees was the 'attendance' stub; the Publish tab folded into Details (2026-09).
+const sectionId = id => ({ notes:'planning', attendance:'attendees', publish:'details' }[id] || id);
 let activeSection = 'details';
 
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
@@ -1177,7 +1177,7 @@ function editorCtx(ev){
 }
 let _ctx=null;   // the open workspace editor's ctx (renderEditorFooter reads it)
 // Header (R23): the title, a tag for the first program in its own color (+N for
-// more) and, under it, the first line of the internal notes. Reads the form, so it
+// more) and, under it, the first line of the internal description. Reads the form, so it
 // follows edits as they're typed; fields on other tabs fall back to the event.
 function paintHeadMeta(){
   const tagEl=document.getElementById('mTag'), subEl=document.getElementById('mSub');
@@ -1404,7 +1404,7 @@ function renderSection(id, ctx){
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }
   const detailsLocked = locked || !!pastLocked;   // a past approved event's fields are history (decided when it opened); sign-ups, Attendees and the notes doc don't take this lock
-  if(id==='notes'){ panel.innerHTML=renderPlanningTab(ev, canEdit, detailsLocked, locked); wirePlanningTab(panel, ev, canEdit, detailsLocked, locked); return; }
+  if(id==='planning'){ panel.innerHTML=renderPlanningTab(ev, canEdit, detailsLocked, locked); wirePlanningTab(panel, ev, canEdit, detailsLocked, locked); return; }
   panel.innerHTML=renderDetails(ev, canEdit, detailsLocked, canApprove); wireDetails(panel, ev, canEdit, detailsLocked, canApprove);
 }
 
@@ -1420,7 +1420,7 @@ function titleFieldHTML(ev, dis, lab){
   return `<div class="fld full"><label>${lab('title','Title')}</label><input id="f_title" value="${esc(ev.title)}" ${dis} placeholder="e.g. Kabbalat Shabbat">${fieldHintSlot('title')}</div>`;
 }
 function internalNotesFieldHTML(ev, dis, lab){
-  return `<div class="fld full"><label>${lab('description','Internal notes')} <span class="hint">(planning team only, never shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>`;
+  return `<div class="fld full"><label>${lab('description','Internal description')} <span class="hint">(planning team only, never shown publicly)</span></label><textarea id="f_desc" ${dis} placeholder="What's the plan?">${esc(ev.description||'')}</textarea></div>`;
 }
 function programsFieldHTML(ev, dis, lab, relOK){
   const progList = PROGRAMS.filter(p=>p.id!=='oth' && (p.active!==false || (ev.programs&&ev.programs.includes(p.id))));
@@ -1465,9 +1465,13 @@ function whereGroupHTML(ev, dis, lab, relOK, listing){
       ${addr}
     </div>`;
 }
-// Why the fields can't be edited, if they can't. `relations` = this view shows a picker.
-function lockNotesHTML(ev, canEdit, locked, relOK, relations){
-  return `${(relations && !relOK && canEdit && !locked)?`<div class="locknote">Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>`:``}
+// Why the fields can't be edited, if they can't.
+// `relNote` names the relation fields this view shows ('' = none).
+const REL_NOTE = { all:'Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded.',
+  where:'Where can’t be changed right now because its lists haven’t loaded.',
+  planning:'Program(s) and Leads can’t be changed right now because their lists haven’t loaded.' };
+function lockNotesHTML(ev, canEdit, locked, relOK, relNote){
+  return `${(relNote && !relOK && canEdit && !locked)?`<div class="locknote">${relNote} Close and reopen the event in a moment, or reload the page.</div>`:``}
     ${(!canEdit)?`<div class="locknote">Sign in as a program lead to edit.</div>`:``}
     ${locked ? (isHistory(ev) ? `<div class="locknote">🔒 This event has happened, so its details are locked.</div>`
       : ev.status==='cancelled' ? `<div class="locknote">🔒 This event is cancelled, so its details are locked.</div>` : '') : ''}`;
@@ -1481,7 +1485,7 @@ function renderPlanning(ev, canEdit, locked, canApprove){
   return titleFieldHTML(ev, dis, lab) + internalNotesFieldHTML(ev, dis, lab)
     + programsFieldHTML(ev, dis, lab, relOK) + leadsFieldHTML(ev, dis, lab, relOK)
     + whenGroupHTML(ev, dis) + whereGroupHTML(ev, dis, lab, relOK, false)
-    + lockNotesHTML(ev, canEdit, locked, relOK, true);
+    + lockNotesHTML(ev, canEdit, locked, relOK, REL_NOTE.all);
 }
 function wirePlanning(panel, ev, canEdit, locked, canApprove){ wireEventFields(panel, ev, canEdit, locked); }
 
@@ -1544,6 +1548,8 @@ function wireEventFields(panel, ev, canEdit, locked){
   }
 
   // Listing fields (an approved event's Details)
+  const sumEl=document.getElementById('f_pubsummary'), sumCount=document.getElementById('f_sumcount');
+  if(sumEl && sumCount) sumEl.addEventListener('input', ()=>{ sumCount.textContent=`${sumEl.value.length} / 140`; });
   const ci=panel.querySelector('[data-act="copy-internal"]');
   if(ci) ci.addEventListener('click', ()=>{ const t=panel.querySelector('#f_pubdesc'); if(t){ t.value=(editing&&editing.description)||''; t.dispatchEvent(new Event('input',{bubbles:true})); scheduleAutosave(); } });
   const av=panel.querySelector('#f_addrvis');
@@ -1560,32 +1566,32 @@ function wireEventFields(panel, ev, canEdit, locked){
    event is on Eventbrite) sits on top. The fields always show the event's own
    (Coda) values (D4). */
 const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
-  : 'If you copy the internal notes, take out anything private first. This text goes public.';
+  : 'If you copy the internal description, take out planning notes first. This text goes public.';
 function renderDetails(ev, canEdit, locked, canApprove){
   const dis = (!canEdit || locked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
   const listing = ev.status==='approved', linked = !!ev.eventbriteId;
   const card = listing ? `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>` : '';
-  const summary = listing ? `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint">(≤140, shows on Eventbrite)</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
-    <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal notes</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
+  const summary = listing ? `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint" id="f_sumcount">${String(ev.publicSummary||'').length} / 140</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
+    <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
       <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>` : '';
   const capacity = listing ? `<div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>`
-    : `<div class="locknote">After council approves, you'll write what the public sees here: a one-line summary, the listing description, capacity, and whether the address is public. Nothing is on Eventbrite until you add it.</div>`;
+    : ev.status==='cancelled' ? '' : `<div class="locknote">After council approves, you'll write what the public sees here: a one-line summary, the listing description, capacity, and whether the address is public. Nothing is on Eventbrite until you add it.</div>`;
   return card + titleFieldHTML(ev, dis, lab) + summary + whenGroupHTML(ev, dis)
     + whereGroupHTML(ev, dis, lab, relOK, listing) + capacity
-    + lockNotesHTML(ev, canEdit, locked, relOK, true);
+    + lockNotesHTML(ev, canEdit, locked, relOK, REL_NOTE.where);
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){ wireEventFields(panel, ev, canEdit, locked); }
 
-/* Planning tab: the private fields — Program(s), Leads, Internal notes — then the
+/* Planning tab: the private fields — Program(s), Leads, Internal description — then the
    event's Google Doc. The fields take the Details lock (cancelled, or a past
    approved event); the notes doc only the cancelled one. */
 function renderPlanningTab(ev, canEdit, fieldsLocked, docLocked){
   const dis = (!canEdit || fieldsLocked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
-  return `<div class="frow2">${programsFieldHTML(ev, dis, lab, relOK)}${leadsFieldHTML(ev, dis, lab, relOK)}</div>`
+  return `<div class="ptab-h"><span class="fmk">${fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private, never on Eventbrite')}</span>Planning <span class="ptab-sub">· planning team only, never on Eventbrite</span></div>`
+    + `<div class="frow2">${programsFieldHTML(ev, dis, lab, relOK)}${leadsFieldHTML(ev, dis, lab, relOK)}</div>`
     + internalNotesFieldHTML(ev, dis, lab)
     + `<div class="fld full ndoc-fld"><label>Planning notes doc <span class="fmk">${fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private, never on Eventbrite')}</span></label>${renderNotes(ev, canEdit && !docLocked)}</div>`
-    + lockNotesHTML(ev, canEdit, fieldsLocked, relOK, false)
-    + ((!relOK && canEdit && !fieldsLocked) ? `<div class="locknote">Program(s) and Leads can’t be changed right now because their lists haven’t loaded. Close and reopen the event in a moment, or reload the page.</div>` : '');
+    + lockNotesHTML(ev, canEdit, fieldsLocked, relOK, REL_NOTE.planning);
 }
 function wirePlanningTab(panel, ev, canEdit, fieldsLocked, docLocked){
   wireEventFields(panel, ev, canEdit, fieldsLocked);
@@ -2434,7 +2440,11 @@ function kebabMenu(open, focusFirst){
 // Footer links name a field that blocks the next step: bring it into view and focus it.
 const FOCUS_FIELD_EL = { title:'f_title', description:'f_desc', programs:'f_progs', leads:'f_leads', date:'f_date', start:'f_start', end:'f_end',
   venue:'f_venue_box', capacity:'f_capacity', publicSummary:'f_pubsummary', publicDescription:'f_pubdesc', addressVisibility:'f_addrvis' };
+// The tab each field lives on (anything not listed is on Details).
+const FIELD_SECTION = { description:'planning', programs:'planning', leads:'planning' };
 function focusField(field){
+  const sec=FIELD_SECTION[field] || 'details';
+  if(sec!==activeSection){ const b=document.querySelector(`#wrail [data-sect="${sec}"]`); if(b) b.click(); }   // the rail's own switch: autosave, render, footer, URL
   let el=document.getElementById(FOCUS_FIELD_EL[field]||'');
   if(!el && (field==='date' || field==='start' || field==='end')) el=document.getElementById('f_when');   // not an exact date yet
   if(!el) return;
