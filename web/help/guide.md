@@ -146,13 +146,14 @@ The icons and tags update once the field has saved.
 
 ## From draft to published {#lifecycle}
 
-**Status & next step**, in an open event, lists the five steps. Done ones get a ✓ and, where the app knows, who and when. On a phone, it's the box at the top: tap **see all steps**. The next-step button and **⋮** (*More actions*) stay at the bottom of a phone's screen.
+**Status & next step**, in an open event, lists the six steps. Done ones get a ✓ and, where the app knows, who and when. On a phone, it's the box at the top: tap **see all steps**. The next-step button and **⋮** (*More actions*) stay at the bottom of a phone's screen.
 
 - **Draft**: being planned. Click [[Propose to council]] when it's ready.
 - **Proposed**: waiting for Tribal Council. You can keep editing. Tribal Council clicks [[Approve]].
 - **Approved**: you can still edit it, with no need to approve it again. Next: [[Add to Eventbrite]].
 - **On Eventbrite**: a private draft listing. Nobody can see it or register yet. Next: [[Publish]].
-- **Published**: public on Eventbrite, and registration is open. The label at the top of the event says **Live**, and the box says **Public**.
+- **Published**: public on Eventbrite. The label at the top of the event says **Live**, and the box says **Public**. The box's Published line follows Eventbrite: **registration open**, **happening now** on the day, **registration closed** afterwards, or **canceled on Eventbrite**, plus how many have registered.
+- **[[Wrap-up]]**: the date has gone by, so [[This event has happened]]. It comes after any approved event, even one that never went on Eventbrite; then **On Eventbrite** and **Published** show a dash, as skipped. What's next is logging expenses and capturing what you learned. Both are coming soon: the links take you to the [[Budget & expenses]] and [[Feedback]] tabs, where you can vote on ideas.
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.
 
@@ -162,7 +163,7 @@ The app doesn't tell Tribal Council when something is proposed, so let them know
 - **Once it's published**, Delete is gone. Use [[Cancel event…]], which takes the listing down. If people have registered, see [Change or take down a listing](#publish-changes).
 - **A cancelled event** can be brought back to planning by Tribal Council with [[Reopen]], which doesn't put it back on Eventbrite. Tribal Council can also delete it.
 
-**After the date,** an approved event is history: the fields on [[Listing]] and [[Planning]] lock and there's no next step. Its notes doc, sign-ups and [[Attendees]] still work.
+**After the date,** an approved event is history: the fields on [[Listing]] and [[Planning]] lock and there's no next step. Its notes doc, sign-ups and [[Attendees]] still work. The current step is **Wrap-up**.
 
 > **Tip:** Click the status label at the top of an open event to come back to this guide. On a phone, tap **⋮** at the top right, then [[Help for this tab]], for the guide to the tab you're on.
 
@@ -178,7 +179,7 @@ To add the doc:
 
 1. Open the event and go to [[Planning]].
 2. Click [[Create notes doc]]. It's made from our planning template and can take a minute or two to appear.
-3. When it's ready, a preview appears. Click [[Edit in Google Docs]] to write in it.
+3. When it's ready, a preview appears and fills the rest of the screen. Click [[Edit in Google Docs]] to write in it.
 
 The preview only shows if you're signed into Google with access to the doc. If it's blank, click [[Edit in Google Docs]] and request access there. Program Leads and Tribal Council can create one at any stage except Cancelled.
 

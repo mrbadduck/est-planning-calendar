@@ -53,6 +53,9 @@ chrome), so its view, year and scroll survive. Spec:
   bar. JS reads the answer from `--ep-layout` (`epLayout()`, status-panel.js); a
   ResizeObserver calls `layoutEventPage()` when it changes. 44px tap targets follow the
   device, not the layout: `@media (pointer:coarse), (max-width:600px)`.
+- **Planning** (`SECTIONS[].fill:'scroll'`): the same viewport-tall page (`ep-fill` +
+  `ep-scroll`), but the tab scrolls inside `#wpanel` and the notes doc (`.ndoc-fld`)
+  takes the height left below the fields, at least 420px.
 - **List tabs** (`SECTIONS[].fill`: Potluck & Volunteers, Attendees): `renderSection`
   sets `#eventPage.ep-fill`; the page is then exactly the viewport tall and only the
   list scrolls (`.slots-list`, `.roster-body`), with its filters, group headings
@@ -63,7 +66,7 @@ chrome), so its view, year and scroll survive. Spec:
   the page (it only hides the leave bar); ← Calendar, Back and other openers go through
   `leaveGuard` → `leaveEventPage`/`leaveForm`.
 - **Phone layout**: no side panel; the status card sits above the tab strip
-  ("Step N of 5 · see all steps", `toggleSteps`), its listing row included, and the
+  ("Step N of 6 · see all steps", `toggleSteps`), its listing row included, and the
   next-step button + ⋮ sit in `#epPhoneBar`. `layoutEventPage()` re-homes them when
   the layout changes.
 - **List view: Needs approval** (`calendar.js`): `#listBar` (shown with the List view
@@ -230,8 +233,9 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   Action-driven, not a dropdown: the right panel's **Status & next step** card
   (`ListingRules.footerModel` in `web/listing-readiness.js`, painted by
   `renderStatusPanel` into `#edStatus`, `#edChecks`, `#edActs`, `#edMenu`, `#edSub`,
-  `#edBars`) shows on every tab: the five steps as a vertical checklist (Draft →
-  Proposed → Approved → On Eventbrite → Published) with who/when notes
+  `#edBars`) shows on every tab: the six steps as a vertical checklist (Draft →
+  Proposed → Approved → On Eventbrite → Published → Wrap-up; Wrap-up is current once
+  `past`, with Eventbrite steps never reached shown skipped) with who/when notes
   (`PageRules.stepNotes`), the title and the readiness rows (`checklist`: ✓ label, or
   ✗ a link that focuses the field, switching tabs), the one primary action and **⋮**
   (the only secondary is the registrant-email offer's "Not now"), one sentence
