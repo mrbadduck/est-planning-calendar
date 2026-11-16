@@ -1560,8 +1560,9 @@ function wireEventFields(panel, ev, canEdit, locked){
 }
 
 /* Details tab = the listing, in the order Eventbrite shows it: Title, Summary,
-   Description, When, Where (with Address on listing), Capacity. Summary,
-   Description, Capacity and the address toggle open once the event is approved.
+   Description, When, Where (with Address on listing), Capacity. Every field shows
+   and is editable at every stage (R27); the approval gate is on Add to Eventbrite /
+   Publish, not on the fields. Cancelled and past events keep their locks.
    The listing card (#listingCard, a stable container: empty and hidden until the
    event is on Eventbrite) sits on top. The fields always show the event's own
    (Coda) values (D4). */
@@ -1569,15 +1570,14 @@ const pubDescHintText = linked => linked ? 'Editing here turns the description i
   : 'If you copy the internal description, take out planning notes first. This text goes public.';
 function renderDetails(ev, canEdit, locked, canApprove){
   const dis = (!canEdit || locked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
-  const listing = ev.status==='approved', linked = !!ev.eventbriteId;
-  const card = listing ? `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>` : '';
-  const summary = listing ? `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint" id="f_sumcount">${String(ev.publicSummary||'').length} / 140</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
+  const linked = !!ev.eventbriteId;
+  const card = `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>`;
+  const summary = `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint" id="f_sumcount">${String(ev.publicSummary||'').length} / 140</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
     <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
-      <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>` : '';
-  const capacity = listing ? `<div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>`
-    : ev.status==='cancelled' ? '' : `<div class="locknote">After council approves, you'll write what the public sees here: a one-line summary, the listing description, capacity, and whether the address is public. Nothing is on Eventbrite until you add it.</div>`;
+      <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>`;
+  const capacity = `<div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>`;
   return card + titleFieldHTML(ev, dis, lab) + summary + whenGroupHTML(ev, dis)
-    + whereGroupHTML(ev, dis, lab, relOK, listing) + capacity
+    + whereGroupHTML(ev, dis, lab, relOK, true) + capacity
     + lockNotesHTML(ev, canEdit, locked, relOK, REL_NOTE.where);
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){ wireEventFields(panel, ev, canEdit, locked); }
@@ -1615,9 +1615,12 @@ function paintAddrWarn(){
 // R14: an approved event at a private home whose address visibility was never set
 // gets Registrants only when its listing shows (it overrides no choice), and the
 // autosave writes it. Runs once the form's baseline exists, so the change saves.
+// The toggle shows at every stage (R27), but opening a draft or proposal writes
+// nothing: the default lands once it's approved (the Worker and the preview apply
+// the same rule meanwhile).
 function applyListingAddressDefault(){
   const seg=document.getElementById('f_addrvis');
-  if(!seg || !editing || !_form || _form.ev!==editing || seg.querySelector('button[aria-pressed="true"]')) return;
+  if(!seg || !editing || editing.status!=='approved' || !_form || _form.ev!==editing || seg.querySelector('button[aria-pressed="true"]')) return;
   const next=ListingRules.addressVisibilityDefault('', formVenueRecord());
   if(!next) return;
   setAddressVisibility(next);
@@ -1633,7 +1636,7 @@ function setAddressVisibility(val){
 // to Registrants only and says why (spec 5.7). Runs only when the venue picker
 // changes, and never overrides a value someone chose — an explicit Public stays.
 function applyAddressDefault(venBox){
-  const seg=document.getElementById('f_addrvis'); if(!seg || !venBox) return;   // the toggle shows once approved
+  const seg=document.getElementById('f_addrvis'); if(!seg || !venBox) return;   // the toggle is on Details only
   const pressed=seg.querySelector('button[aria-pressed="true"]');
   const current=pressed ? pressed.dataset.addrvis : '';
   const next=ListingRules.addressVisibilityDefault(current, formVenueRecord());
