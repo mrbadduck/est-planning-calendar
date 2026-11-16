@@ -266,7 +266,19 @@
   .modal .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:10px;flex-shrink:0}
   .modal .mhead .stripe{width:5px;height:34px;border-radius:3px;background:var(--c,var(--accent))}
   body.modal-open{overflow:hidden}   /* the background must not scroll behind an open modal */
-  .mhead-title{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+  .mhead-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .mhead-ttlrow{display:flex;align-items:center;gap:8px;min-width:0}
+  .mhead-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .mhead-sub[hidden]{display:none}
+  .mhead-tag{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;max-width:42%;min-width:0}
+  .mhead-tag:empty{display:none}
+  /* program tag in the program's own hue: tint fill, mid border, text mixed toward
+     --ink — light text on dark, dark text on light, readable in both themes */
+  .ptag{font-size:11px;font-weight:600;line-height:1.3;padding:2px 8px;border-radius:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+    background:color-mix(in srgb,var(--c,var(--p-oth)) 14%,var(--surface));
+    border:1px solid color-mix(in srgb,var(--c,var(--p-oth)) 38%,var(--surface));
+    color:color-mix(in srgb,var(--c,var(--p-oth)) 62%,var(--ink))}
+  .ptag-more{font-size:11px;font-weight:600;color:var(--muted);flex:none;cursor:default}
   .mhead-badges{display:flex;align-items:center;gap:6px;flex:0 0 auto}
   .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .modal .mhead .badge{font-size:10px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;padding:3px 7px;border-radius:20px}
@@ -606,6 +618,7 @@
   .wpanel > .fld.full,.wpanel > .fld{width:100%}
   /* Planning tab: Program(s) + Leads side by side, then Internal notes, then the doc */
   .frow2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .frow2 > .fld.full{grid-column:auto}
   .ndoc-fld{flex:1 0 auto;min-height:300px}
   .ndoc-fld .ndoc-full.has-doc{flex:1}
   @media (max-width:600px){ .frow2{grid-template-columns:minmax(0,1fr)} }

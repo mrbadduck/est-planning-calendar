@@ -1176,6 +1176,26 @@ function editorCtx(ev){
   };
 }
 let _ctx=null;   // the open workspace editor's ctx (renderEditorFooter reads it)
+// Header (R23): the title, a tag for the first program in its own color (+N for
+// more) and, under it, the first line of the internal notes. Reads the form, so it
+// follows edits as they're typed; fields on other tabs fall back to the event.
+function paintHeadMeta(){
+  const tagEl=document.getElementById('mTag'), subEl=document.getElementById('mSub');
+  if(!tagEl || !subEl || !editing || !_ctx || _ctx.ev!==editing) return;
+  const f=readForm();
+  document.getElementById('mTitle').textContent = f.title || 'Untitled';
+  document.getElementById('mStripe').style.setProperty('--c', progColor(f.program));
+  const t=EditorHead.programTag(f.programs, PROG);
+  const more = t && t.more>0 ? `<span class="ptag-more" data-tip="${esc(f.programs.map(id=>(PROG[id]||{}).name).filter(Boolean).join(', '))}">+${t.more}</span>` : '';
+  paintInner(tagEl, t ? `<span class="ptag" style="--c:${esc(t.color)}">${esc(t.name)}</span>${more}` : '');
+  const sub=EditorHead.subtitle(f.description);
+  subEl.textContent=sub; subEl.hidden=!sub;
+}
+function clearHeadMeta(){
+  const tagEl=document.getElementById('mTag'), subEl=document.getElementById('mSub');
+  if(tagEl) paintInner(tagEl, '');
+  if(subEl){ subEl.textContent=''; subEl.hidden=true; }
+}
 function openEditor(ev, section){
   if(String(ev.id||'').startsWith('tmp-')){ toast('Still creating this event — try again in a moment'); return; }   // no row to save into yet
   if(editing && editing!==ev && leaveGuard(()=>openEditor(ev, section))) return;   // switching away from a linked event with unpushed edits
@@ -1208,6 +1228,7 @@ function openEditor(ev, section){
   const actions=document.getElementById('mActions');
   const body=document.getElementById('mBody');
   document.getElementById('modal').classList.remove('ws','create'); body.classList.remove('ws');   // workspace mode only for the planning editor
+  clearHeadMeta();
   if(isRef){
     const R = REF[ev.refLayer] || {name:'Reference', color:'#888'};
     document.getElementById('mBadges').innerHTML = `<span class="badge b-ref">${esc(R.name)}</span>`;
@@ -1225,9 +1246,10 @@ function openEditor(ev, section){
     show(); return;
   }
 
-  // header: derived status badge next to the title on the LEFT (a button that
-  // opens the lifecycle guide; transitions live in the footer); action icons on
-  // the right — ? (help for the active tab), view-in-gather, copy-link.
+  // header: title + program tag, the notes subtitle under them (paintHeadMeta), then
+  // on the right the derived status badge (a button that opens the lifecycle guide;
+  // transitions live in the footer) and the icons — ? (help for the active tab),
+  // view-in-gather, copy-link.
   paintInner(document.getElementById('mBadges'), badgesHTML(ev));
   let head = `<button type="button" class="mhead-ico q" data-act="help" data-tip="Help for this tab" aria-label="Help for this tab">?</button>`;
   if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" data-tip="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
@@ -1268,13 +1290,14 @@ function openEditor(ev, section){
     applyListingAddressDefault();
   }
   renderEditorFooter();
+  paintHeadMeta();
   if(canEdit && ev.eventbriteId) refreshEbStatus(ev);   // registrants + edited-on-Eventbrite, for the footer and card
 }
 // Placeholder while the reference lists load (a first visit only — see relationsReady).
 function showModalLoading(title, color){
   document.getElementById('mStripe').style.setProperty('--c', color);
   document.getElementById('mTitle').textContent = title;
-  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML='';
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=''; clearHeadMeta();
   document.getElementById('modal').classList.remove('ws','create');
   const body=document.getElementById('mBody'); body.classList.remove('ws');
   body.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Loading…</div>`;
@@ -1298,7 +1321,7 @@ function openNewEventForm(seed){
   }
   document.getElementById('mStripe').style.setProperty('--c', progColor(seed.program));
   document.getElementById('mTitle').textContent = 'New event';
-  document.getElementById('mBadges').innerHTML='';   // no status/approve until the row exists
+  document.getElementById('mBadges').innerHTML=''; clearHeadMeta();   // no status/approve until the row exists
   document.getElementById('mActions').innerHTML = `<button type="button" class="mhead-ico q" data-help="add-event" data-tip="Help: adding an event" aria-label="Help: adding an event">?</button>`;
   document.getElementById('modal').classList.remove('ws'); document.getElementById('modal').classList.add('create');   // fixed shell = same height as the workspace
   const body=document.getElementById('mBody'); body.classList.remove('ws');
@@ -2983,7 +3006,7 @@ function openDayPicker(ds,list){
   editing={id:'__picker__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent=fmtDate(ds);
-  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
+  document.getElementById('mBadges').innerHTML=''; clearHeadMeta(); document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
   document.getElementById('mBody').innerHTML=`<div class="fld full"><div class="chips" id="dp">${list.map(chipHTML).join('')}</div></div>`;
   document.getElementById('mFoot').innerHTML=`<button class="btn primary" data-act="newhere">+ New on this day</button><span class="push"></span><button class="btn" data-act="close">Close</button>`;
   document.getElementById('dp').addEventListener('click',ev=>{ const c=ev.target.closest('.chip'); if(!c) return; const item=state.events.find(x=>x.id===c.dataset.id); if(item) openEditor(item); });
@@ -3028,7 +3051,7 @@ function openFeedback(){
   document.getElementById('modal').classList.remove('ws'); document.getElementById('mBody').classList.remove('ws');
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent='Feedback & ideas';
-  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
+  document.getElementById('mBadges').innerHTML=''; clearHeadMeta(); document.getElementById('mActions').innerHTML=''; document.getElementById('mFoot').innerHTML=`<span class="push"></span><button class="btn" data-act="close">Close</button>`;
   const body=document.getElementById('mBody'); body.innerHTML=`<div class="fld full"><div class="hint">Suggest anything, or +1 an idea. For section-specific ideas, open an event and visit that section.</div>${feedbackBoardHTML('General')}</div>`;
   wireFeedback(body,'General'); show();
 }
