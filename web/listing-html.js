@@ -10,10 +10,21 @@
      content (an unclosed one drops the rest of the input); comments are
      dropped; an unterminated tag drops the rest. Text keeps well-formed
      character references verbatim and escapes everything else (< > & "), so output holds a raw `<` only in tags emitted here.
-     Tags left open are closed at the end. */
+     Tags left open are closed at the end.
+     Block tags outside the allowlist (div, headings, section, table cells…) are
+     paragraph boundaries: top-level text between them is wrapped in its own <p>
+     (Eventbrite stores summary and body as sibling <div>s, which otherwise ran
+     together), and inside a p/li a boundary becomes a <br>. Never an empty or a
+     nested <p>. Input with no block tags is not wrapped. */
 (function (root) {
   const ALLOWED = { p: 1, br: 1, strong: 1, b: 1, em: 1, i: 1, ul: 1, ol: 1, li: 1, a: 1 };
   const VOID = { br: 1 };
+  const INLINE = { strong: 1, b: 1, em: 1, i: 1, a: 1 };
+  const BLOCK = {};
+  ('div section article header footer main aside nav blockquote h1 h2 h3 h4 h5 h6 pre ' +
+   'table thead tbody tfoot tr td th figure figcaption address hr dl dt dd center').split(' ').forEach(t => { BLOCK[t] = 1; });
+  const AUTO_P = '#p'; // a <p> opened here for a block boundary (closes as </p>)
+  const closeTag = name => '</' + (name === AUTO_P ? 'p' : name) + '>';
   const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 
   function decode(s) {
@@ -90,7 +101,29 @@
     let out = '', text = '', i = 0;
     const stack = [];
     const MAX_DEPTH = 100;
-    const flush = () => { if (text) { out += escText(text); text = ''; } };
+    // blockMode: a block tag has been seen, so top-level content goes in paragraphs.
+    // hadContent: something visible since the container/break began; needBreak: a
+    // boundary inside a p/li owes a <br> before the next content.
+    let blockMode = false, hadContent = false, needBreak = false;
+    const closeTo = k => { while (stack.length > k) out += closeTag(stack.pop()); };
+    const beforeContent = () => {
+      if (blockMode && stack.length === 0) { out += '<p>'; stack.push(AUTO_P); }
+      else if (needBreak) out += '<br>';
+      needBreak = false; hadContent = true;
+    };
+    const boundary = () => {
+      blockMode = true;
+      const k = stack.indexOf(AUTO_P);
+      if (k >= 0) closeTo(k);
+      else if (stack.length && hadContent) needBreak = true;
+      hadContent = false;
+    };
+    const flush = () => {
+      if (!text) return;
+      if (/\S/.test(text)) { beforeContent(); out += escText(text); }
+      else if (!(blockMode && stack.length === 0)) out += escText(text);
+      text = '';
+    };
     while (i < n) {
       const c = s[i];
       if (c !== '<') { text += c; i++; continue; }
@@ -115,25 +148,39 @@
         if (gt < 0) break;
         i = gt + 1; continue;
       }
+      if (BLOCK[t.name]) { boundary(); continue; }
       if (!ALLOWED[t.name]) continue;
       if (t.closing) {
         const k = stack.lastIndexOf(t.name);
-        if (k >= 0) { while (stack.length > k) out += '</' + stack.pop() + '>'; }
+        if (k >= 0) closeTo(k);
+        if (!INLINE[t.name]) { needBreak = false; hadContent = false; }
         continue;
       }
       if (stack.length >= MAX_DEPTH && !VOID[t.name]) continue; // too deep: unwrap to text
       if (t.name === 'a') {
         const h = t.href == null ? null : safeHref(t.href);
         if (!h) continue; // unsafe link: unwrap to text
+        beforeContent();
         out += '<a href="' + esc(h) + '" target="_blank" rel="noopener">';
         stack.push('a'); continue;
       }
-      if (VOID[t.name]) { out += '<' + t.name + '>'; continue; }
+      if (VOID[t.name]) {
+        if (blockMode && stack.length === 0) continue; // blocks already separate
+        if (needBreak) { out += '<br>'; needBreak = false; }
+        out += '<' + t.name + '>'; hadContent = false; continue;
+      }
+      if (INLINE[t.name]) beforeContent();
+      else {
+        // p/ul/ol/li: never nest inside a paragraph opened here.
+        const k = stack.indexOf(AUTO_P);
+        if (k >= 0) closeTo(k);
+        needBreak = false; hadContent = false;
+      }
       out += '<' + t.name + '>';
       stack.push(t.name);
     }
     flush();
-    while (stack.length) out += '</' + stack.pop() + '>';
+    closeTo(0);
     return out;
   }
 

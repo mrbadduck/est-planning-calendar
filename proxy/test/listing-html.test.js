@@ -18,7 +18,7 @@ test('brief cases', () => {
   eq('<p onclick="x">y</p>', '<p>y</p>');
   eq('<a href="javascript:alert(1)">z</a>', 'z');
   eq('<a href="https://e.com">l</a>', '<a href="https://e.com" target="_blank" rel="noopener">l</a>');
-  eq('<div><span>t</span></div>', 't');
+  eq('<div><span>t</span></div>', '<p>t</p>');
 });
 test('nested/split script tags stay inert', () => {
   const out = sanitize('<scr<script>ipt>alert(1)</scr</script>ipt>');
@@ -108,4 +108,32 @@ test('deep nesting is capped (unwrapped to text), output stays balanced', () => 
 });
 test('null/undefined/empty', () => {
   eq(null, ''); eq(undefined, ''); eq('', '');
+});
+test('Eventbrite description shape: summary and body render as separate paragraphs', () => {
+  const html = '<div>SUMMARY</div><div style="margin-top: 20px"><div style="margin: 20px 10px;font-size: 15px">BODY</div></div>';
+  const out = sanitize(html);
+  eq(html, '<p>SUMMARY</p><p>BODY</p>');
+  onlyAllowedTags(out);
+});
+test('block tags (div, headings, section) become paragraph boundaries; no empty or nested paragraphs', () => {
+  eq('<h2>Title</h2><div>a <b>bold</b></div>', '<p>Title</p><p>a <b>bold</b></p>');
+  eq('<section><div></div><div>x</div></section>', '<p>x</p>');
+  eq('<div>a<div>b</div>c</div>', '<p>a</p><p>b</p><p>c</p>');
+  eq('<div><b>a</div>b', '<p><b>a</b></p><p>b</p>');                 // inline tags close at the boundary
+  eq('<div>a</div>\n  <div>b</div>', '<p>a</p><p>b</p>');            // whitespace between blocks dropped
+  eq('<div>a</div><p>b</p><ul><li>c</li></ul>', '<p>a</p><p>b</p><ul><li>c</li></ul>');
+  eq('<div>one<br>two</div>', '<p>one<br>two</p>');
+});
+test('a block boundary inside a list item or paragraph becomes a line break', () => {
+  eq('<ul><li><div>a</div><div>b</div></li></ul>', '<ul><li>a<br>b</li></ul>');
+  eq('<p><div>a</div></p>', '<p>a</p>');
+});
+test('block boundaries never let markup through', () => {
+  const out = sanitize('<div onclick="x"><script>alert(1)</script><div><a href="javascript:x">z</a></div><h1 style="x">&lt;b&gt;</h1></div>');
+  onlyAllowedTags(out);
+  assert.equal(out, '<p>z</p><p>&lt;b&gt;</p>');
+});
+test('text with no block tags is not wrapped', () => {
+  eq('plain text', 'plain text');
+  eq('a<br>b', 'a<br>b');
 });
