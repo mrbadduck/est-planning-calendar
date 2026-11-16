@@ -4,7 +4,6 @@
    Writes: nothing
    Loaded after: feedback.js (file-map order; its listeners keep their original order relative to those in app.js) */
 
-/* ---- optimistic writes: reflect the change instantly, reconcile after ------ */
 let _toastEl=null, _toastT=null;
 function toast(msg, kind){
   if(!_toastEl){ _toastEl=document.createElement('div'); _toastEl.className='toast'; document.body.appendChild(_toastEl); }
