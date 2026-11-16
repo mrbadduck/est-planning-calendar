@@ -359,3 +359,32 @@ test('footerModel: Preview listing is never a footer secondary (R26)', () => {
   for (const stage of ['draft', 'proposed', 'approved', 'onEventbrite', 'published', 'cancelled'])
     for (const pushed of [{}, null]) assert.equal(fm({ stage, ev, pushed }).secondary, null, stage);
 });
+
+// ---- footerModel checklist (Task 8) ----
+const LABELS = ['Title', 'Date and times', 'Free tickets', 'Venue and address', 'Description'];
+const cl = (stage, ev) => R.footerModel({ stage, past: false, role: LEAD, unpushed: [],
+  checks: R.readiness(ev, { todayISO: TODAY }) }).checklist;
+
+test('footerModel checklist is empty before approval and after cancel', () => {
+  for (const stage of ['draft', 'proposed', 'cancelled']) assert.deepEqual(cl(stage, ready()), []);
+});
+
+test('footerModel checklist names the first failing date check; no description row before Eventbrite', () => {
+  const rows = cl('approved', { ...ready(), end: '' });
+  const date = rows.find(r => r.key === 'date');
+  assert.equal(date.ok, false);
+  assert.equal(date.field, 'end');
+  assert.equal(date.message, 'Add an end time');
+  assert.equal(rows.find(r => r.key === 'publicDescription'), undefined);
+  assert.ok(rows.every(r => LABELS.includes(r.label)));
+});
+
+test('footerModel checklist adds Description on Eventbrite and all-pass rows are ok', () => {
+  const rows = cl('onEventbrite', { ...ready(), publicDescription: 'Come eat' });
+  assert.ok(rows.find(r => r.key === 'publicDescription'));
+  assert.deepEqual(rows.map(r => r.label), LABELS);
+  assert.ok(rows.every(r => r.ok && r.message === ''));
+  const bad = cl('published', ready()).find(r => r.key === 'publicDescription');
+  assert.equal(bad.ok, false);
+  assert.equal(bad.field, 'publicDescription');
+});

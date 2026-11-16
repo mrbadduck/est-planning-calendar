@@ -7,6 +7,7 @@
    - FIELDS: field registry; `public` ones are what gets pushed to Eventbrite
    - readiness(ev, {venue, todayISO}): the checks the footer, fields and Worker share
    - addressVisibilityDefault(current, venue): Home venues default to Registrants only
+   - footerModel(input).checklist: one readiness row per field group for the stage's next push
    - syncStatus / unpushedFields: compare the event with the last pushed snapshot */
 // Dates are YYYY-MM-DD and times zero-padded HH:MM: string comparison relies on it.
 (function (root) {
@@ -121,6 +122,28 @@
   // footer and the app's listing card use this one text.
   const EB_CONFLICT_NOTICE = 'Someone changed this listing on Eventbrite since your last update. Updating will replace their changes.';
 
+  // Readiness rows for the stage's next push, one per field group (spec 5.5).
+  const CHECKLIST_ROWS = [
+    { key: 'title', label: 'Title', field: 'title', checks: ['title'] },
+    { key: 'date', label: 'Date and times', field: 'date', checks: ['exact', 'date', 'future', 'start', 'end', 'endAfterStart'] },
+    { key: 'capacity', label: 'Free tickets', field: 'capacity', checks: ['capacity'] },
+    { key: 'venue', label: 'Venue and address', field: 'venue', checks: ['venueOther', 'venueAddress'] },
+    { key: 'publicDescription', label: 'Description', field: 'publicDescription', checks: ['publicDescription'] },
+  ];
+  function checklistFor(stage, checks) {
+    const list = stage === 'approved' ? checks && checks.add
+      : (stage === 'onEventbrite' || stage === 'published') ? checks && checks.publish : null;
+    if (!list) return [];
+    const rows = [];
+    for (const def of CHECKLIST_ROWS) {
+      const mine = list.filter(c => def.checks.indexOf(c.key) >= 0);
+      if (!mine.length) continue;   // publicDescription only exists on the publish list
+      const bad = mine.find(c => !c.ok);
+      rows.push({ key: def.key, label: def.label, field: bad ? bad.field : def.field, ok: !bad, message: bad ? bad.message : '' });
+    }
+    return rows;
+  }
+
   function footerModel(input) {
     const { stage, past, checks, pending, sending, ebEditedElsewhere, registrants, proposedBy, justChanged } = input;
     const role = input.role || {};
@@ -133,7 +156,8 @@
     const toLinks = list => list.map(c => ({ field: c.field, label: c.message }));
     const prim = (label, act, enabled, tone) => ({ label, act, enabled, tone });
     const savedText = prim('✓ Saved', null, false, 'quiet');
-    const out = { steps, title: '', sub: '', links: [], primary: null, secondary: null, menu: [], busy: false };
+    const out = { steps, title: '', sub: '', links: [], primary: null, secondary: null, menu: [], busy: false,
+      checklist: checklistFor(stage, checks) };
     const del = sub => ({ act: 'delete', label: 'Delete event', sub: sub || '', tone: 'danger' });
     const addFail = failing(checks && checks.add), pubFail = failing(checks && checks.publish);
     const nUn = unpushed.length;

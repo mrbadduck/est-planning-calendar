@@ -10,7 +10,7 @@
    Everything below `DataSource` treats events in one normalized shape:
      { id, source, program, title, leads:[], date:'YYYY-MM-DD',
        start, end, allDay, location, status, description,
-       createdBy, editedBy, readOnly, eventbriteUrl, gcalId }
+       createdBy, editedBy, approvedBy, approvedAt, lastPublishedAt, lastEbPushAt, readOnly, eventbriteUrl, gcalId }
    The single data source is CodaSource: it fetches Coda list-rows through the
    Worker proxy and maps them with planningRowToEvent / eventToCodaCells.
    ========================================================================= */
@@ -240,6 +240,8 @@ function planningRowToEvent(r){
     // proxy injects notesDocUrl resolved by the stable column id (rename-proof);
     // Notes Doc is a Coda link column, so the value may be a string or {url,name}.
     notesDocUrl: (typeof r.notesDocUrl === 'string' ? r.notesDocUrl : (r.notesDocUrl && (r.notesDocUrl.url || r.notesDocUrl.name))) || '',
+    approvedBy: _asList(v['Approved by'])[0] || '', approvedAt: String(v['Approved at'] || '').slice(0,10),
+    lastPublishedAt: String(v['Last published at'] || ''), lastEbPushAt: String(v['Last EB push at'] || ''),   // read-only; eventToCodaCells never writes them
     createdBy: _asList(v['Created by'])[0] || '', editedBy: _asList(v['Edited by'])[0] || '',
     eventbriteUrl: (typeof v['Eventbrite URL'] === 'string' ? v['Eventbrite URL'] : '') || '', gcalId:'', readOnly:true,          // writes come in Plan 2b
     scheduling: sched,

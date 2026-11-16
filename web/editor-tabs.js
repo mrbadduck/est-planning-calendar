@@ -1,6 +1,6 @@
 /* editor-tabs.js — the editor's tab model: the open event (`editing`), SECTIONS, the rail and renderSection.
    Owns: editing, whenType, SECTIONS, sectionId, activeSection, whenFieldsHTML, collectWhen, railHTML, setActiveRail, renderSection, wireScrollFade
-   Reads: nothing from other files at load (call-time helpers only)
+   Reads: PageRules (page-rules.js, call time)
    Writes: nothing (declares editing, whenType, activeSection; other files assign them)
    Loaded after: calendar.js (first editor file; chipHTML reads editing at call time) */
 
@@ -31,7 +31,7 @@ const SECTIONS = [
 ];
 // Back-compat: the Planning tab was 'notes' (Planning Notes, until 2026-11);
 // Attendees was the 'attendance' stub; the Publish tab folded into Details (2026-09).
-const sectionId = id => ({ notes:'planning', attendance:'attendees', publish:'details' }[id] || id);
+const sectionId = id => PageRules.sectionFromParam(id);
 let activeSection = 'details';
 
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
