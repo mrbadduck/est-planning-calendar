@@ -130,7 +130,7 @@ function refreshEditorRole(){
   const page=document.getElementById('eventPage');
   if(page.hidden || page.classList.contains('loading')) return;   // not the event page (or it's still loading)
   const now=editorCtx(editing).role, was=_ctx.role;
-  if((now.canEdit && !was.canEdit) || (now.canApprove && !was.canApprove)) openEditor(editing, activeSection);
+  if((now.canEdit && !was.canEdit) || (now.canApprove && !was.canApprove)) openEditor(editing, activeSection, 'none');
 }
 // Called by estAuth whenever Firebase yields a (refreshed) ID token.
 async function onFirebaseToken(token){ state.idToken = token || null; state.authResolved = true; state.authPending = !!token; renderAuth(); await fetchMe(); }

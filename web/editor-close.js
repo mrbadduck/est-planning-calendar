@@ -1,7 +1,7 @@
 /* editor-close.js — leaving: the leave guard, requestClose/closeModal (the modal), leaveEventPage/← Calendar (the event page), footer-action dispatch, ⋮ menu keys, header actions.
-   Owns: show, leaveGuard, hideLeaveGuard, closeModal, leaveEventPage, footerAct
-   Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen (editor.js); _form, _unconfirmed (save.js)
-   Writes: editing (editor-tabs.js; closeModal, leaveEventPage); _ndocGen (notes-doc.js; leaveEventPage); _menuOpen (footer.js); _regFetch (eventbrite.js)
+   Owns: show, leaveGuard, hideLeaveGuard, closeModal, leaveEventPage, onPopState, footerAct
+   Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen, openedInApp, eventUrl, calendarUrl, openFromUrl (editor.js); _form, _unconfirmed (save.js); scrollCalendarToToday (shell.js)
+   Writes: editing (editor-tabs.js; closeModal, leaveEventPage); _epState (editor.js; leaveEventPage); _ndocGen (notes-doc.js; leaveEventPage); _menuOpen (footer.js); _regFetch (eventbrite.js)
    Loaded after: eventbrite.js (file-map order; its Escape and click listeners keep their order after preview.js and before help.js's) */
 
 /* =========================================================================
@@ -29,7 +29,8 @@ function leaveGuard(proceed){
   bar.innerHTML=`<span class="edguard-msg">${n===1 ? "You have 1 change that isn't on Eventbrite yet." : `You have ${n} changes that aren't on Eventbrite yet.`}</span>
     <button type="button" class="btn fbtn sec" data-guard="keep">Keep editing</button><button type="button" class="btn fbtn danger" data-guard="go">Close anyway</button>`;
   bar.hidden=false;
-  bar.querySelector('[data-guard="keep"]').focus();
+  bar.scrollIntoView({block:'center'});   // not under the sticky top bar
+  bar.querySelector('[data-guard="keep"]').focus({ preventScroll:true });
   return true;
 }
 function hideLeaveGuard(){
@@ -46,6 +47,7 @@ function requestClose(viaEsc){
   closeModal();
 }
 // ← Calendar: the page's way out, through the leave guard like every other exit.
+// (leaveEventPage('back') decides between history.back() and pushing the calendar.)
 function backToCalendar(){
   if(leaveGuard(()=>leaveEventPage('back'))) return;
   leaveEventPage('back');
@@ -70,11 +72,17 @@ function closeModal(){
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
   document.getElementById('modal').classList.remove('create');
-  editing=null;
+  if(!pageOpen()) editing=null;   // a modal over the event page mustn't orphan the page's event
 }
 // The event page goes away and the calendar comes back as it was: view, year and
-// scroll. `how` is for history (Task 10); ignored for now.
+// scroll. `how` (spec 5.1):
+//   'back'   ← Calendar and other in-app exits (after a delete): history.back() when the
+//            page's entry is our in-app stamp, else push the calendar URL. The page
+//            closes first, so the popstate that follows finds it closed and does nothing.
+//   'push'   push the calendar URL (a fresh deep link has no in-app entry to go back to);
+//   'popped' Back/Forward already moved the URL: history is left alone.
 function leaveEventPage(how){
+  if(how==='back') how = openedInApp() ? 'goBack' : 'push';
   _ndocGen++;
   hideLeaveGuard(); closePreview(); clearEbBlock();
   if(editing && editing.id) _regFetch.delete(editing.id);   // a registrants read doesn't outlive the editor
@@ -87,10 +95,32 @@ function leaveEventPage(how){
   document.getElementById('eventPage').hidden=true;
   document.getElementById('eventPage').classList.remove('loading');
   document.body.classList.remove('event-open');
-  editing=null; clearUrl();
+  editing=null; _epState=null;
+  if(how==='goBack') history.back();
+  else if(how==='push') history.pushState(null, '', calendarUrl());
   if(id) retryFailedSave(id);   // …and a read-only editor's, whose form wasn't bound
   layoutSticky();
-  window.scrollTo(0, _calScrollY);
+  if(_calScrollY===null) scrollCalendarToToday();   // opened from a deep link before the calendar was placed
+  else window.scrollTo(0, _calScrollY);
+}
+// Back/Forward (spec 5.1, 5.7, risk 9.1). popstate fires after the URL has changed.
+//   The page is open and the URL left its event: through the leave guard. If it holds
+//   (edits not on Eventbrite yet), re-push the page's entry so the user stays put, with
+//   the leave bar showing; "Close anyway" closes the page, then steps back again.
+//   Otherwise close the page, and open the event the URL names, if any.
+//   The page is closed and the URL names an event (Forward): open it.
+function onPopState(){
+  const id=new URL(location.href).searchParams.get('event');
+  if(pageOpen() && editing){
+    if(id===editing.id) return;
+    const ev=editing, st=_epState;
+    if(leaveGuard(()=>{ if(editing===ev) leaveEventPage('popped'); history.back(); })){
+      history.pushState(st, '', eventUrl(ev, activeSection));
+      return;
+    }
+    leaveEventPage('popped');
+  }
+  if(id) openFromUrl();
 }
 
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') requestClose(); });

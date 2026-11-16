@@ -180,7 +180,8 @@ function scheduleAutosave(){
   setSaveStatus('dirty');                      // pill: Unsaved changes (the footer's primary stays put)
 }
 // Queue whatever the open form changed since it was last queued. Synchronous, so
-// close() can call it on the way out — the queue writes it after the editor is gone.
+// leaving (leaveForm, via closeModal/leaveEventPage) can call it on the way out — the
+// queue writes it after the editor is gone.
 function autosaveEditor(){
   clearTimeout(_autosaveT); _autosaveT=null;
   if(!_form || _form.ev!==editing || !editing.id) return;   // the modal shows something else now

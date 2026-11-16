@@ -103,8 +103,14 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 9. **`preview.js`** — the Preview listing overlay and its Esc-closes-only-the-preview listener.
 10. **`editor.js`** — stage badge, `editorCtx`, header meta, `openEditor` (a planning event → `openEventPage`, the
     event page `#eventPage` in place of the calendar; a reference event → the modal), the create flow, URL sync.
-- **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
-  `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
+- **URL deep-links + history**: `?event=<rowId>&section=<id>`. In-app opens push an
+  entry stamped `{event, inApp:true}` (`writeHistory`); tab switches and URL-driven opens
+  replace the URL and keep the entry's state (`syncUrl`). ← Calendar is `history.back()`
+  on our stamp, else pushes the calendar URL (`leaveEventPage('back')`). `onPopState`
+  (editor-close.js) closes/opens the page on Back/Forward, re-pushing the page's entry when
+  the leave guard holds. `openFromUrl` opens a deep link (unknown id: toast + calendar).
+  `history.scrollRestoration` is manual: the app restores the calendar's scroll. A **Copy
+  link** header button shares the current view.
 11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
 12. **`tabs-listing-planning.js`** — the Details and Planning panels and the private-home address-default rules.
 13. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).

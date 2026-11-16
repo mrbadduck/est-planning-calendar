@@ -38,7 +38,7 @@ async function transitionTo(status){
     }
   }finally{
     _busy.delete(ev.id); guardUnload();
-    if(editing===ev) openEditor(ev, activeSection);   // (openEditor first queues anything typed meanwhile)
+    if(editing===ev) openEditor(ev, activeSection, 'none');   // (openEditor first queues anything typed meanwhile)
   }
 }
 // Cancel: set Status=Cancelled AND tear down the Eventbrite listing (Worker
@@ -67,7 +67,7 @@ async function cancelEvent(){
     else toast((err&&err.message)||'Cancel failed','err');
   }finally{
     _busy.delete(ev.id); _busyLabel.delete(ev.id); guardUnload();
-    if(editing===ev) openEditor(ev, activeSection);
+    if(editing===ev) openEditor(ev, activeSection, 'none');
   }
 }
 async function deleteEditor(){
@@ -97,7 +97,7 @@ async function deleteEditor(){
     else { toast((err && (err.status===409 || err.status===502) && err.message) || 'Delete failed — restored','err'); console.warn('delete failed:', err); }   // the Worker's reason (cancel first / Eventbrite refused); the row is kept
   }finally{
     _busy.delete(id); _busyLabel.delete(id); guardUnload();
-    if(editing===ev) openEditor(ev, activeSection);   // failed (success closed it): back to a live editor — its form was let go
+    if(editing===ev) openEditor(ev, activeSection, 'none');   // failed (success closed it): back to a live editor — its form was let go
   }
 }
 

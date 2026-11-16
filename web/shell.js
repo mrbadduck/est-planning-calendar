@@ -1,5 +1,5 @@
 /* shell.js — the app shell: layer toggles, month/quarter click delegation, day picker, sticky offsets, view switch, nav, ⚙ and ☰ menus.
-   Owns: renderLayers, layoutSticky, PHONE_MQ, curView, rerender, applyView, updateNavLabel, ovfMenu, phoneMenu, wirePhoneMenu
+   Owns: renderLayers, layoutSticky, scrollCalendarToToday, _calPlaced, PHONE_MQ, rerender, applyView, updateNavLabel, ovfMenu, phoneMenu, wirePhoneMenu
    Reads: state, prefs (state.js); REF_LAYERS (data.js)
    Writes: state, prefs (state.js); editing (editor-tabs.js; the day picker)
    Loaded after: editor-close.js (statement order: its listeners register before help.js's; the ⚙/☰ menu functions sit here though they came from the auth region) */
@@ -87,6 +87,18 @@ function layoutSticky(){
   if(wh && wh.offsetHeight) document.documentElement.style.setProperty('--wh-h', wh.offsetHeight+'px');
 }
 window.addEventListener('resize', layoutSticky);
+
+// Scroll the calendar to today (init, and leaving a page opened from a fresh deep link,
+// which had no calendar scroll to return to). A no-op while the event page hides the calendar.
+let _calPlaced=false;   // the calendar has been scrolled to today once (its scroll is now the user's)
+function scrollCalendarToToday(){
+  if(document.body.classList.contains('event-open')) return;
+  _calPlaced=true;
+  const t=new Date(), v=curView();
+  if(v==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
+  else if(v==='list'){ const el=document.querySelector('.lday.lnow'); if(el) el.scrollIntoView({block:'start'}); }   // scroll-margin clears the sticky header + month name
+  else { const el=document.querySelector('.cell.today'); if(el) el.scrollIntoView({block:'center'}); }
+}
 
 /* view switch */
 // Phones (≤600px — the same breakpoint as the stylesheet) get the list only: the

@@ -60,7 +60,7 @@ function setHelpUrl(id){
   if(id) u.searchParams.set('help', id);
   else if(u.searchParams.has('help')) u.searchParams.delete('help');
   else return;
-  history.replaceState(null,'',u);
+  history.replaceState(history.state,'',u);   // keep the event page's in-app stamp (← Calendar reads it)
 }
 // The header ? and the editor's aria-modal track the drawer (the editor stays usable beside it).
 function setHelpExpanded(open){
