@@ -209,7 +209,14 @@ function renderList(){
     html += `<section class="lmonth" data-mk="${mk}"><h2 class="lmhead">${MONTHS[m]}<span class="ly">${y}</span></h2>${days || `<p class="lempty">${on?'Nothing waiting for approval':'Nothing on the calendar'}</p>`}</section>`;
   }
   box.innerHTML=html;
-  paintInner(document.getElementById('listBar'), listBarHTML(waiting, on));
+  paintListBar(waiting, on);
+}
+// Built once (D1), then updated in place: replacing #needsBtn would drop keyboard focus on toggle.
+function paintListBar(count, on){
+  const btn=document.getElementById('needsBtn');
+  if(!btn){ paintInner(document.getElementById('listBar'), listBarHTML(count, on)); return; }
+  btn.setAttribute('aria-pressed', on?'true':'false');
+  btn.querySelector('.nb-count').textContent=String(count);
 }
 document.getElementById('listBar').addEventListener('click',e=>{
   if(!e.target.closest('#needsBtn')) return;

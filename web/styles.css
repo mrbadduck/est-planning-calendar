@@ -371,6 +371,8 @@
   .btn.fbtn.go{background:#2F7D3B;border-color:#2F7D3B;color:#fff}
   .btn.fbtn.go:hover{background:#25652F;border-color:#25652F;color:#fff}
   .btn.fbtn[disabled]{background:var(--soft);border-color:var(--hair);color:var(--faint);cursor:default}
+  /* a disabled go must look disabled, hover included (the go rules above would win) */
+  .btn.fbtn.go[disabled],.btn.fbtn.go[disabled]:hover{background:var(--soft);border-color:var(--hair);color:var(--faint)}
   .btn.fbtn.wait{cursor:default;background:var(--accent-tint);border-color:var(--accent-tint);color:var(--accent)}
   .btn.fbtn.wait svg{animation:ndoc-spin .9s linear infinite}
   .kbwrap{position:relative;flex:none}
@@ -657,7 +659,7 @@
   .tab-dot-slot:empty{display:none}
   .tab-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#C94444;margin-left:6px;vertical-align:middle}
   /* the right panel (spec 5.3): Status & next step card, the listing card, a failed save */
-  .ep-panel{position:sticky;top:calc(var(--ep-top-h,52px) + 14px);display:flex;flex-direction:column;gap:10px}
+  .ep-panel{position:sticky;top:calc(var(--ep-top-h,52px) + 14px);display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - var(--ep-top-h,52px) - 28px);overflow:auto}   /* a tall panel scrolls instead of being cut off */
   .event-page .ep-panel:empty{display:none}   /* (beats the narrower layouts' display) */
   .sp-card{display:flex;flex-direction:column;gap:10px;padding:12px 13px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:10px}
   .sp-h{margin:0;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
@@ -703,13 +705,13 @@
   @media (max-width:1100px){
     .ep-grid{grid-template-columns:130px minmax(0,1fr);row-gap:12px}
     .event-page .wrail.ep-tabs{grid-row:1 / span 2}
-    .ep-panel{grid-column:2;grid-row:1;position:static;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}   /* status card and listing card side by side when there's room */
+    .ep-panel{grid-column:2;grid-row:1;position:static;max-height:none;overflow:visible;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}   /* status card and listing card side by side when there's room */
     .ep-main{grid-column:2;grid-row:2;justify-self:stretch}
   }
   @media (min-width:1000px) and (max-width:1500px){   /* Help open beside the page: same two columns */
     body.help-open .ep-grid{grid-template-columns:130px minmax(0,1fr);row-gap:12px}
     body.help-open .event-page .wrail.ep-tabs{grid-row:1 / span 2}
-    body.help-open .ep-panel{grid-column:2;grid-row:1;position:static;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
+    body.help-open .ep-panel{grid-column:2;grid-row:1;position:static;max-height:none;overflow:visible;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
     body.help-open .ep-main{grid-column:2;grid-row:2;justify-self:stretch}
   }
   /* phones only: the step-list toggle and the sticky bottom bar (spec 5.6) */
@@ -1041,6 +1043,7 @@
     .tab-dot{background:#E08585}
     .btn.fbtn.go,.btn.fbtn.go:hover{background:#74C48C;border-color:#74C48C;color:#101020}
     .btn.fbtn.primary{color:#101020}
+    .btn.fbtn.go[disabled],.btn.fbtn.go[disabled]:hover,.btn.fbtn.primary[disabled]{background:var(--soft);border-color:var(--hair);color:var(--faint)}
     .ndoc-warn{color:#D9B96C}
     .fic.ok{color:#74C48C}
     .fic.chg{color:#D9B96C}
