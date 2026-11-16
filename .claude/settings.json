@@ -1,4 +1,20 @@
 {
+  "permissions": {
+    "deny": [
+      "Bash(wrangler deploy:*)",
+      "Bash(npx wrangler deploy:*)",
+      "Bash(npm run deploy:*)",
+      "Bash(npm --prefix proxy run deploy:*)",
+      "Bash(wrangler versions upload:*)",
+      "Bash(npx wrangler versions upload:*)",
+      "Bash(wrangler versions deploy:*)",
+      "Bash(npx wrangler versions deploy:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +24,17 @@
             "type": "command",
             "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/check-help.mjs\"; [ -f \"$f\" ] || exit 0; node \"$f\" --hook",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/check.sh\"; [ -x \"$f\" ] || exit 0; \"$f\" --hook",
+            "timeout": 60
           }
         ]
       }
