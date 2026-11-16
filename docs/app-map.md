@@ -23,7 +23,7 @@ Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
   Functions only used at call time can live anywhere.
 - The four Escape `keydown` handlers run in this order: `preview.js` (closes only the
   preview) → `editor-close.js` (`requestClose` when the modal is open; on the event page
-  it only hides the leave bar) → `editor-close.js` ⋮ menu → `help.js`.
+  it only hides the leave bar) → `editor-close.js` ⋮ menus (the panel's `#edMenu` and the top bar's `#epMenu`, one listener) → `help.js`.
   Three of them call `stopImmediatePropagation`, so reordering changes which one
   wins. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
   too; neither stops propagation.)
@@ -37,20 +37,33 @@ chrome), so its view, year and scroll survive. Spec:
 `docs/superpowers/specs/2026-11-16-event-page-design.md`.
 
 - **Containers** (stable, filled with `innerHTML`, D1): `#epTop` (← Calendar `#epBack`,
-  title/tag/subtitle, `#epBadges` status badge, `#epActions` ? / View in gather / Copy
-  link), `#epTabs` (the tab list, `railHTML`; a horizontal strip on phones), `#epMain`
-  (`#edGuard` leave bar, `#epHead` tab heading = label + `SECTIONS[].foot`, `#wpanel`
-  the active tab), `#epPanel` (the Status & next step panel, `statusPanelHTML`), and
-  `#epPhoneBar` (phones: `placePhoneBar` moves `#edActs` + `#edMenu` here).
+  the program stripe, the title, and `#epMenu`: the top bar's ⋮ — Help for this tab /
+  View in gather / Copy link, `headMenuHTML`/`headMenu` in editor-close.js), `#epTabs`
+  (the tab list, `railHTML`; a sticky horizontal strip at mid and phone layouts),
+  `#epMain` (`#edGuard` leave bar, `#epHead` tab heading = label + `SECTIONS[].foot`,
+  `#wpanel` the active tab), `#epPanel` (the one Status & next step card,
+  `statusPanelHTML`, ending with the listing row `#listingCard`), and `#epPhoneBar`
+  (phone layout: `placePhoneBar` moves `#edActs` + `#edMenu` here).
+- **Layouts** (polish 2026-11-16): CSS container queries on `#eventPage`'s own width
+  (styles.css → "event page layouts", the one place the numbers live, so Help open
+  counts): **wide** ≥1100px tab list | main | panel; **mid** 760–1099 tab strip, then
+  main | panel (280px, sticky); **phone** <760 status card, tab strip, the tab, bottom
+  bar. JS reads the answer from `--ep-layout` (`epLayout()`, status-panel.js); a
+  ResizeObserver calls `layoutEventPage()` when it changes. 44px tap targets stay on
+  the 600px media queries (they follow the device).
+- **List tabs** (`SECTIONS[].fill`: Potluck & Volunteers, Attendees): `renderSection`
+  sets `#eventPage.ep-fill`; the page is then exactly the viewport tall and only the
+  list scrolls (`.slots-list`, `.roster-body`), with its filters, group headings
+  (`.slot-group-hd`, sticky) and the Attendees footer staying put.
 - **Still modals** (`#scrim`/`#modal`): the create form, reference events, the day
   picker, Feedback, other loading states; Preview stays an overlay above the page.
 - **Routing**: see `editor.js` → *URL deep-links + history* below. Esc doesn't leave
   the page (it only hides the leave bar); ← Calendar, Back and other openers go through
   `leaveGuard` → `leaveEventPage`/`leaveForm`.
-- **Phones (≤600px)**: no side panel; the status card sits above the tab strip
-  ("Step N of 5 · see all steps", `toggleSteps`), the listing card moves to the top of
-  Listing (`listingCardHome()`), and the next-step button + ⋮ sit in `#epPhoneBar`.
-  `layoutEventPage()` re-homes them when the 600px line is crossed.
+- **Phone layout**: no side panel; the status card sits above the tab strip
+  ("Step N of 5 · see all steps", `toggleSteps`), its listing row included, and the
+  next-step button + ⋮ sit in `#epPhoneBar`. `layoutEventPage()` re-homes them when
+  the layout changes.
 - **List view: Needs approval** (`calendar.js`): `#listBar` (shown with the List view
   by `applyView`) holds the toggle (`listBarHTML`); on, `renderList` keeps only
   `PageRules.needsApproval` events (Proposed planning events) and hides reference
@@ -66,7 +79,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 `listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
 **[node-tested]** (preview model before Eventbrite), `coda-applied.js` **[node-tested]**
 (honest-save poller), `save-queue.js` **[node-tested]** (per-event save queue),
-`editor-head.js` **[node-tested]** (header meta), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval).
+`editor-head.js` **[node-tested]** (header meta; unused since the top bar dropped the program tag and subtitle, 2026-11-16 — kept for now with its contrast test), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval).
 
 1. **`util.js`** — pure helpers: `esc`, `cap`, date/time formatting, `linkify`, `cssColor`.
 2. **`data.js`** — reference lists, local cache, the Coda seam, `CodaSource`.
@@ -99,10 +112,10 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   the "Free tickets" field = Coda column `Capacity`, plus a muted "Paid tickets and
   discount codes: coming later"). Every listing field shows and is editable at
   every stage (R27); approval gates only Add to Eventbrite/Publish (readiness).
-  The listing card `#listingCard` sits in the right panel under the status card
-  (or atop Listing where `listingCardHome()` says so: phones, Task 12) at every stage with **Preview
-  listing** (`data-pv-open` → `openPreview`): before the event is on Eventbrite a
-  modest "Not on Eventbrite yet" row and a preview built from the form
+  The listing row `#listingCard` is the last line of the Status & next step card
+  (`listingCardHTML`: badge, link-style **Preview listing** (`data-pv-open` → `openPreview`),
+  View on Eventbrite ↗ once public, the tickets line) at every stage: before the event
+  is on Eventbrite a "Not on Eventbrite yet" badge and a preview built from the form
   (`ListingPreview.fromForm` in `web/listing-preview.js` → the Worker
   `previewModel` shape, node-tested); once on Eventbrite the Worker's
   `/eventbrite/preview` (Eventbrite's draft data). Both render through
@@ -123,13 +136,12 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   wires whichever are rendered. `openEditor(ev, section)` resets to Listing unless a
   section is passed; `readForm()` null-guards every field (only the active
   section's inputs exist in the DOM) and falls back to the event's own values.
-  **Header**: title, then the first program as a tag in its own color (+N), the
-  first line of the Internal description as a subtitle (`paintHeadMeta`, helpers in
-  `web/editor-head.js`, live as you type), then the status badge and icons. The
+  **Top bar**: ← Calendar, the program stripe and the title (`paintHeadMeta`, live as
+  you type), then ⋮ (`#epMenu`). The
   editor runs a compact scale (`:is(.event-page,.modal.create)` rules in
   `styles.css`); phones keep 44px tap targets.
 7. **`notes-doc.js`** — the Planning tab's Google Doc notes block (embed/create button, polling, the Coda button push).
-8. **`field-markers.js`** — Eventbrite sync icons, hints and tags on field labels; `listingCardHome`, `listingCardHTML`.
+8. **`field-markers.js`** — Eventbrite sync icons, hints and tags on field labels; `listingCardHTML` (the status card's listing row).
 9. **`preview.js`** — the Preview listing overlay and its Esc-closes-only-the-preview listener.
 10. **`editor.js`** — stage badge, `editorCtx`, header meta, `openEditor` (a planning event → `openEventPage`, the
     event page `#eventPage` in place of the calendar; a reference event → the modal), the create flow, URL sync.
@@ -207,7 +219,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   Design/plan:
   `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*` (the queue and
   partial writes replaced its snapshot-and-rewrite save in #24).
-18. **`status-panel.js`** — the event page's **Status & next step** panel (`ListingRules.footerModel` painted into stable containers by `renderStatusPanel`), the ⋮ menu, `focusField`.
+18. **`status-panel.js`** — the event page's **Status & next step** panel (`ListingRules.footerModel` painted into stable containers by `renderStatusPanel`), the ⋮ menu, `epLayout`/`layoutEventPage`, `focusField`.
 19. **`transitions.js`** — `transitionTo`, `cancelEvent`, delete, the Eventbrite-cancel bar. The status state machine (this file and `status-panel.js`):
 - **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
   = approved+EB-published and *Past* = date passed are DERIVED, not stored).
@@ -220,12 +232,12 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   ✗ a link that focuses the field, switching tabs), the one primary action and **⋮**
   (the only secondary is the registrant-email offer's "Not now"), one sentence
   (`sub`), and the Eventbrite-cancel bar (`#edBars`). Listing gets a red dot when a
-  readiness link is a Listing field. Below the card: `#listingCard`, then the
-  `#saveStatus` pill (failed save only). **⋮** holds **Delete event** before publishing and **Cancel event…**
+  readiness link is a Listing field. The card ends with the listing row
+  (`#listingCard`); below it, the `#saveStatus` pill (failed save only). **⋮** holds **Delete event** before publishing and **Cancel event…**
   / **Unpublish** after (never both). Approve is gated server-side (Tribal Council).
-  Header = the status badge (`statusInfo`, from the same `stageOf` as the steps, so
-  it repaints with the panel; a button that opens the lifecycle guide) + ? / View
-  in gather / Copy link icons (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
+  The top bar has no status badge since 2026-11-16 (`statusInfo` still labels the List
+  view); its ⋮ holds Help for this tab / View in gather / Copy link
+  (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
   +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
   or Live, date gone by) locks the **Listing** and **Planning** fields and drops Cancel/Delete; the notes
