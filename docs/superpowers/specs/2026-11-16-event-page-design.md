@@ -11,7 +11,7 @@ What PR #35 got right stays as it is: the lifecycle and its rules (`ListingRules
 ## 2. Goals
 
 - An event opens as a full page. **← Calendar** and the browser's Back button return to the calendar where you left it.
-- One scrolling page with sections, so nothing is hidden behind a tab.
+- Tabs stay: Listing, Planning, Potluck & Volunteers, Attendees, and the muted Coming-soon tabs, in a left tab list on the page. Eric's call: one long scrolling page made some sense for Listing/Planning and little for the rest. What's incomplete stays visible through the status panel (shown on every tab) and a red dot on the Listing tab.
 - A right-hand **Status & next step** panel replaces the footer wizard. It holds:
   - the lifecycle as a checklist, with who and when on each finished step
   - the readiness items for the next step, as ticks with links
@@ -45,7 +45,7 @@ What PR #35 got right stays as it is: the lifecycle and its rules (`ListingRules
 - A `popstate` listener:
   - leaving an event URL closes the page, through the same leave path as ← Calendar
   - arriving at an event URL opens that event
-- A deep link with `section=` scrolls to that section after the page renders.
+- A deep link with `section=` opens that tab (`details` and `listing` both mean Listing; `notes` and `planning` mean Planning).
 - **← Calendar** is `history.back()` when the event was opened from inside the app, otherwise it pushes the calendar URL. Fresh visits from a shared link still get a working ← Calendar.
 - The calendar DOM stays mounted and is only hidden, so scroll position, view and year survive. `layoutSticky()` re-runs on return.
 
@@ -63,39 +63,31 @@ What PR #35 got right stays as it is: the lifecycle and its rules (`ListingRules
   - the title, the program tag (+N) and the internal-description subtitle (`paintHeadMeta`, unchanged)
   - the status badge
   - ? / View in gather / Copy link
-- **Left jump list:** Listing, Planning, Potluck & Volunteers, Attendees, then Budget, Comms and Feedback (muted, "soon").
-  - Clicking scrolls to the section. The section in view is highlighted (IntersectionObserver).
-  - Listing gets a red dot when a readiness item for the next step fails. Potluck shows open-slot counts if cheap to compute from data already loaded; otherwise no count.
-- **Main column**, one scroll, sections in order:
-  1. **Listing:** today's Details fields, in the same order, with the same builders. The listing card moves to the panel (§5.4).
-  2. **Planning:** today's Planning tab.
-  3. **Potluck & Volunteers:** today's section.
-  4. **Attendees:** today's section. The roster loads when the section first scrolls near the viewport, not on page open.
-  5. **Coming soon:** Budget, Comms and Feedback as one muted block with the feedback board, collapsed by default.
-
-  Each section has a heading with a one-line description; the `SECTIONS[].foot` copy moves here. Sections keep their own lock rules (cancelled/past).
+- **Left tab list:** today's rail on the page: Listing (renamed from Details), Planning, Potluck & Volunteers, Attendees, then Budget, Comms and Feedback (muted, "soon").
+  - Clicking swaps the main column, as the rail does today (`activeSection`, one tab's inputs in the DOM).
+  - Listing gets a red dot when a readiness item for the next step fails (from `footerModel` links). Potluck may show an open-slot count if it's already loaded; never fetch for it.
+- **Main column:** the active tab, under a heading with a one-line description of the tab (today's `SECTIONS[].foot` copy moves here from the footer). Each tab keeps its own render, wiring, fetches and lock rules, exactly as today.
 - **Right panel**, `position: sticky`, about 300px wide, top to bottom:
   1. **Status & next step** card:
      - the five lifecycle steps as a vertical checklist (done ✓, current, to do)
      - who/when on done steps, where the data exists (§5.5)
-     - under the current step, the readiness items for the next action as ✓/✗ rows; each ✗ is a link that scrolls to and focuses the field
+     - under the current step, the readiness items for the next action as ✓/✗ rows; each ✗ is a link that switches to the field's tab and focuses it
      - then the one primary button and ⋮
      - then one sentence of help (the footerModel `sub`)
      - the registrant-email offer and the conflict/needs-Eventbrite-cancel bars render inside this card
   2. **Listing card:** today's `#listingCard` content, with Not on Eventbrite yet / Private draft / Public, the Preview listing button, View on Eventbrite, the tickets line and the edited-on-Eventbrite notice.
   3. **Save state:** shown only on failure ("Save failed — retry", clickable). Saving otherwise shows on the primary button, as in PR #35.
-- Width: the main column is capped near 760px of field width for readability. The page centers between the jump list and the panel.
+- Width: the main column is capped near 760px of field width for readability. The page centers between the tab list and the panel.
 
 ### 5.4 What moves where (from PR #35)
 
 | PR #35 | Event page |
 |---|---|
 | Modal header | Page top bar (same content + ← Calendar) |
-| Tab rail | Left jump list (scrolls, doesn't swap content) |
-| One section rendered at a time (`activeSection`) | All sections rendered at once |
+| Tab rail | Left tab list on the page (same behavior; "Details" renamed "Listing") |
 | Footer row 1 (steps) | Panel checklist, vertical |
 | Footer row 2 (title, sub, links, primary, ⋮) | Panel card: links become ✓/✗ rows; primary and ⋮ below |
-| Off-Details footer line (`SECTIONS[].foot`) | Section heading description |
+| Off-Details footer line (`SECTIONS[].foot`) | Tab heading description |
 | `#listingCard` above Title | Panel, below the status card |
 | `#saveStatus` pill | Panel, failure only |
 | Leave guard bar (in modal) | Bar at the top of the main column |
@@ -116,19 +108,20 @@ If the planning-event normalizer doesn't carry these fields yet, add them to `pl
 
 ### 5.6 Phones (≤600px, same `PHONE_MQ`)
 
-- No jump list and no side panel.
+- No left tab list and no side panel.
 - At the top, under a compact top bar (← and the title on one row; tag and badge on the next), a **status card** shows:
   - the footerModel title, e.g. "Approved · 1 thing left"
   - the first failing readiness link
   - "Step N of 5 · see all steps", which expands the full checklist inline
-- Sections stack below it.
+- Below it, the tabs become a horizontal, scrollable tab strip; the active tab's content follows.
 - A **sticky bottom bar** holds the primary button and ⋮ (≥44px).
 - The listing card with Preview sits at the top of the Listing section on phones.
 
 ### 5.7 Save model and leaving
 
 - Unchanged: `saveQueue`, `pendingFor`, `applied`, `flushAutosave`, `leaveForm`, `guardUnload`, `_unsaved`/`_recent`, `dropFailedEdits`.
-- **All sections' inputs now exist at once.** `readForm()` already reads whatever is present and falls back to the event's values, and `_form.base` is taken from `formCells(readForm())` after render. Remove the per-tab base reset, and check that one autosave covers fields in every section.
+- Tab switching keeps today's behavior: autosave the outgoing tab, then reset `_form.base` after the new tab renders.
+- The status panel is visible on every tab, so the primary action can fire from any tab. It already flushes and waits for every edit (`pushToEventbrite`, `transitionTo`), so this is safe; the readiness links switch to the field's tab first (`focusField`, from PR #35).
 - Leaving through ← Calendar, Back (`popstate`), opening another event, or the create form all go through `leaveGuard` then `leaveForm`, exactly as `close()`/`openEditor` do now.
 - Back with unsent Eventbrite changes: re-push the event URL to cancel the navigation, then show the leave bar. Other cases close normally.
 
@@ -164,8 +157,6 @@ If the planning-event normalizer doesn't carry these fields yet, add them to `pl
 
 - The exact CSS: widths, spacing, sticky offsets. Match the compact scale from PR #35.
 - Whether `footerModel` returns the vertical checklist directly (`steps` already has done/current/todo), or the panel maps from it.
-- How the jump list highlights the section in view.
-- The roster's lazy-load trigger.
 - Whether the old `#scrim/#modal` workspace CSS (`.modal.ws`) is deleted or left for the create form; delete what's unused.
 
 ## 8. Settled during the builder check (my calls, for Eric to check)
@@ -185,15 +176,14 @@ If the planning-event normalizer doesn't carry these fields yet, add them to `pl
 5. **Layout.** `body.event-open` hides the calendar chrome. The page uses its own sticky offsets, not `--bar-h`. Measure in a browser at desktop, ≥1000px with Help open, and phone width. `layoutSticky()` re-runs on return.
 6. **Locks and loading state.**
    - Relations-not-ready keeps today's per-field behavior: Program(s), Leads and Where are read-only until ready, or the page waits on "Loading…" on first visit.
-   - Cancelled/past locks apply per section, as today.
+   - Cancelled/past locks apply per tab, as today.
    - The red dot on Listing comes only from `footerModel` links.
-   - Counts in the jump list and on the filter never trigger a new fetch.
-7. **What autosave covers.** Only the fields `readForm`/`formCells` know: the listing and Planning fields. The notes doc, Potluck slots/claims and the Attendees roster keep their own save paths and stay outside `_form`.
+   - Counts in the tab list and on the filter never trigger a new fetch.
+7. **What autosave covers.** Unchanged from today: the listing and Planning fields via `readForm`/`formCells`. The notes doc, Potluck slots/claims and the Attendees roster keep their own save paths.
 8. **Needs approval.** It counts and shows Proposed events in the program year on screen, dated or not. Ideas that are Proposed appear at the end of their month. On phones, the toggle becomes a single row at the top of the list; today's phone list has no toolbar.
 
 ## 9. Risks
 
 - **The leave path:** `popstate` fires after the URL has already changed. The guard has to re-push the event URL to cancel the navigation; get this wrong and Back silently drops the leave bar.
-- **Rendering every section at once:** Potluck and Attendees fetch data, and today they fetch only when their tab opens. Keep the fetches lazy.
-- **Code that assumes one section in the DOM:** `activeSection` is read in many places (footer, help, URL sync, `focusField`). Audit every read.
+- **The footer's old jobs:** today's footer code (`renderEditorFooter`, `footerActsHTML`, the steps row, per-tab foot line) is repainted into the panel and the tab heading. Make sure every caller that repaints the footer now repaints the panel.
 - **Deep links:** existing `?event=…&section=notes|planning|details` links must still land on the right section.
