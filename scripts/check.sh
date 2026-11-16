@@ -56,7 +56,8 @@ for f in web/*.js; do
   n=$(wc -l < "$f" | tr -d ' ')
   if (( n > MAX_LINES )); then
     allowed=0
-    for ok in "${OVERSIZE_OK[@]}"; do [[ "$f" == "$ok" ]] && allowed=1; done
+    # ${a[@]+...}: an empty list is safe under bash 3.2 + set -u
+    for ok in ${OVERSIZE_OK[@]+"${OVERSIZE_OK[@]}"}; do [[ "$f" == "$ok" ]] && allowed=1; done
     (( allowed )) || add "$f is $n lines (ceiling $MAX_LINES): split it along a seam, see docs/app-map.md"
   fi
 done
