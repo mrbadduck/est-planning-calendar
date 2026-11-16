@@ -217,7 +217,7 @@ Until these are done, the button can't be clicked. The bottom of the event lists
 ### Steps
 
 1. In [[Details]], fill in [[Summary]], [[Description]] and [[Free tickets]]. You can do this before approval too. [[Copy internal description]] starts you off from the internal one, but take out planning notes first: this text goes public.
-2. Click [[Preview listing]] at the top of [[Details]] to see how the listing will look. Before the event is on Eventbrite, the preview is built from your fields; the street address isn't shown, only the venue name.
+2. Click [[Preview listing]] at the top of [[Details]] to see how the listing will look. Before the event is on Eventbrite, the preview is built from your fields; the street address isn't shown: you see the venue name, or just the city for [[Registrants only]].
 3. Click [[Add to Eventbrite]].
 4. Click [[Preview listing]] again to see exactly what Eventbrite has.
 5. Click [[Publish]]. Anyone can now register.

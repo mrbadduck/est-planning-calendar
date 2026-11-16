@@ -971,11 +971,15 @@ const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
 // loads. Counts and the tickets line show what was pushed (what Eventbrite has),
 // never the form's Free tickets. The conflict notice (D8) shows when Eventbrite was
 // edited since our last push; once it has been shown, the next push overwrites.
-// Eventbrite's own preview (the Worker route) is for leads and council only.
+// Everyone gets Preview listing; Eventbrite's own copy (the Worker route,
+// write-role gated) only for leads and council — read-only viewers see the
+// version built from the fields (openPreview).
 const PREVIEW_BTN = `<button type="button" class="btn xs" data-pv-open>Preview listing</button>`;
 function listingCardHTML(ev){
-  if(!ev.eventbriteId) return `<div class="ebrow"><span class="ftag pre lg">Not on Eventbrite yet</span><span class="hint">Nobody sees it until it's added and published.</span><span class="ebacts">${PREVIEW_BTN}</span></div>`;
-  const canPreview = !!(_ctx && _ctx.role && _ctx.role.canEdit);
+  if(!ev.eventbriteId){
+    const ended = ev.status==='cancelled' || !!(_ctx && _ctx.past);   // never going on Eventbrite now
+    return `<div class="ebrow"><span class="ftag pre lg">Not on Eventbrite yet</span>${ended?'':`<span class="hint">Nobody sees it until it's added and published.</span>`}<span class="ebacts">${PREVIEW_BTN}</span></div>`;
+  }
   const pub = ev.publishStatus==='Published';
   const pill = pub ? `<span class="ftag ok lg">Public</span>` : `<span class="ftag chg lg">Private draft</span>`;
   const st = _ebStatus.get(ev.id), sold = st && st.sold!=null ? Number(st.sold) : null;
@@ -986,8 +990,8 @@ function listingCardHTML(ev){
   const qty = ev.pushed && Number(ev.pushed.capacity) > 0 ? ` · ${Number(ev.pushed.capacity)}` : '';
   const err = ev.publishStatus==='Error' && ev.lastPublishError ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
   const conflict = ebConflict(ev.id) ? `<div class="ndoc-warn">${esc(EB_CONFLICT_NOTICE)}</div>` : '';
-  return `<div class="ebrow">${pill}<b>${esc(line)}</b><span class="ebacts">${view}${canPreview?PREVIEW_BTN:''}</span></div>
-    <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span><span class="ftag mgd">Paid tickets and discount codes: coming later</span></div>${conflict}${err}`;
+  return `<div class="ebrow">${pill}<b>${esc(line)}</b><span class="ebacts">${view}${PREVIEW_BTN}</span></div>
+    <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span></div>${conflict}${err}`;
 }
 // Repaint every marker, hint and the card from the open editor's event.
 // Called with the footer (open, tab switch, every save-state change), so markers
@@ -1041,7 +1045,7 @@ function previewBodyHTML(m){
   const loc = m.location || {};
   const locHTML = loc.online ? '<span>Online event</span>'
     : `${loc.name?`<span>${esc(loc.name)}</span>`:''}${loc.displayAddress?`<span>${esc(loc.displayAddress)}</span>`:''}${loc.note?`<span class="pv-note">${esc(loc.note)}</span>`:''}`;
-  const logo = /^https:\/\//i.test(String(m.logoUrl||'')) ? `<img class="pv-banner" src="${esc(m.logoUrl)}" alt="">` : `<div class="pv-banner pv-nobanner">${m.local?'The event image is added on Eventbrite':'No event image on Eventbrite'}</div>`;
+  const logo = /^https:\/\//i.test(String(m.logoUrl||'')) ? `<img class="pv-banner" src="${esc(m.logoUrl)}" alt="">` : `<div class="pv-banner pv-nobanner">${m.lag?'The event image isn’t shown here':m.local?'The event image is added on Eventbrite':'No event image on Eventbrite'}</div>`;
   const tickets = (m.tickets||[]).map(t=>`<div class="pv-ticket"><div><b>${esc(t.name||'Ticket')}</b><span>${t.free?'Free':'Paid'}${t.quantityTotal!=null?` · ${esc(t.quantityTotal)} available`:''}</span></div><span class="pv-reserve">${draft?'Reserve a spot (opens when published)':'Reserve a spot'}</span></div>`).join('');
   const desc = ListingHtml.sanitize(m.descriptionHtml||'');
   return `<div class="pv-card">${logo}<div class="pv-main">
@@ -1053,36 +1057,50 @@ function previewBodyHTML(m){
       ${tickets}
       <span class="pv-org">Organized by East Side Tribe</span>
     </div></div>
-    <p class="pv-why">${m.local
+    <p class="pv-why">${m.lag
+      ? "Built from this event's fields as they are right now, not from Eventbrite's copy."
+      : m.local
       ? "Built from this event's fields as they are right now. It isn't on Eventbrite yet, so nobody else can see it."
       : "Shown in the plan app's own layout using Eventbrite's data, because Eventbrite only shows draft pages to people logged in to its organizer account."}</p>`;
 }
 // The preview built from the open form (before the event is on Eventbrite).
-function localPreviewModel(){
+// The preview built from the open form. `lag`: the event is on Eventbrite, but
+// this is not Eventbrite's copy (the Worker can't see it yet, or the viewer can't
+// read it), so nothing may say "isn't on Eventbrite yet".
+function localPreviewModel(lag){
   const f=Object.assign({}, editing||{}, readForm());
-  return ListingPreview.fromForm(f, { timezone:'America/Chicago', venue: formVenueRecord() });
+  const m=ListingPreview.fromForm(f, { timezone:'America/Chicago', venue: formVenueRecord() });
+  if(lag) m.lag=true;
+  return m;
+}
+// The overlay's header by what the body shows: 'local' (not on Eventbrite yet),
+// 'linked' (Eventbrite's copy), 'catching-up' (on Eventbrite, the Worker can't see
+// it yet) or 'form' (on Eventbrite, a read-only viewer: built from the fields).
+function pvHeadHTML(kind, ev){
+  const draft = ev.publishStatus!=='Published';
+  const t = (title, sub, tag) => `<div class="pv-headtxt"><b id="pvTitle">${esc(title)}</b><span>${esc(sub)}</span></div>${tag||''}`;
+  const WILL = 'Preview: how your listing will look on Eventbrite';
+  if(kind==='local') return t(WILL, 'Built from the fields on Details. Nothing is on Eventbrite yet.', `<span class="ftag pre lg">Not on Eventbrite yet</span>`);
+  if(kind==='catching-up') return t(WILL, "Eventbrite is still catching up, so this is built from the fields on Details. Open it again in a minute to see Eventbrite's copy.");
+  if(kind==='form') return t(WILL, 'Built from the fields on Details.');
+  return t('Preview: your Eventbrite listing',
+    draft ? 'This is what Eventbrite has for your private draft, fetched just now. Nobody else can see it yet.' : 'This is what Eventbrite has for your listing, fetched just now.',
+    `<span class="ftag ${draft?'chg':'ok'} lg">${draft?'Private draft':'Public'}</span>`);
 }
 function openPreview(){
   const ev=editing; if(!ev || !ev.id || !_ctx) return;
   closePreview();
   const gen=++_pvGen;
-  const local=!ev.eventbriteId;
+  const linked=!!ev.eventbriteId, canRead=!!(_ctx.role && _ctx.role.canEdit);
+  const kind = !linked ? 'local' : canRead ? 'linked' : 'form';
   const m=editorFooterModel(ev, _ctx);
-  const canPublish = !local && !!(m.primary && m.primary.act==='publish-eb' && m.primary.enabled);
-  const draft = ev.publishStatus!=='Published';
-  const head = local
-    ? `<div class="pv-headtxt"><b id="pvTitle">Preview: how your listing will look on Eventbrite</b>
-      <span>Built from the fields on Details. Nothing is on Eventbrite yet.</span></div>
-      <span class="ftag pre lg">Not on Eventbrite yet</span>`
-    : `<div class="pv-headtxt"><b id="pvTitle">Preview: your Eventbrite listing</b>
-      <span>${draft?'This is what Eventbrite has for your private draft, fetched just now. Nobody else can see it yet.':'This is what Eventbrite has for your listing, fetched just now.'}</span></div>
-      <span class="ftag ${draft?'chg':'ok'} lg">${draft?'Private draft':'Public'}</span>`;
+  const canPublish = kind==='linked' && !!(m.primary && m.primary.act==='publish-eb' && m.primary.enabled);
   const wrap=document.createElement('div');
   wrap.className='pv-scrim'; wrap.id='pvScrim';
   wrap.innerHTML=`<div class="pv-modal" role="dialog" aria-modal="true" aria-labelledby="pvTitle">
-    <div class="pv-head">${head}</div>
-    <div class="pv-body" id="pvBody">${local ? previewBodyHTML(localPreviewModel()) : `<div class="ndoc-loading"><span class="ndoc-spin"></span> Fetching the listing from Eventbrite…</div>`}</div>
-    <div class="pv-foot"><span class="pv-footmsg">${local ? 'Something wrong? Close this and edit the fields on Details.' : `Something wrong? Close this and edit the fields; they'll show "Not on Eventbrite yet" until you update.`}</span>
+    <div class="pv-head" id="pvHead">${pvHeadHTML(kind, ev)}</div>
+    <div class="pv-body" id="pvBody">${kind!=='linked' ? previewBodyHTML(localPreviewModel(kind==='form')) : `<div class="ndoc-loading"><span class="ndoc-spin"></span> Fetching the listing from Eventbrite…</div>`}</div>
+    <div class="pv-foot"><span class="pv-footmsg">${kind==='linked' ? `Something wrong? Close this and edit the fields; they'll show "Not on Eventbrite yet" until you update.` : 'Something wrong? Close this and edit the fields on Details.'}</span>
       <button type="button" class="btn fbtn sec" data-pv="close">Close</button>
       ${canPublish?`<button type="button" class="btn fbtn go" data-pv="publish">Publish</button>`:''}</div>
   </div>`;
@@ -1094,12 +1112,17 @@ function openPreview(){
     else if(b.dataset.pv==='publish'){ closePreview(); footerAct('publish-eb'); }
   });
   wrap.querySelector('[data-pv="close"]').focus();
-  if(local) return;
+  if(kind!=='linked') return;
   DB.ebPreview(ev.id).then(model=>{
     if(gen!==_pvGen) return;   // closed, or reopened since
     const body=document.getElementById('pvBody'); if(!body) return;
-    // The Worker can't see the Eventbrite id yet (Coda lag): show the form's version.
-    body.innerHTML = previewBodyHTML(model || localPreviewModel());
+    if(model){ body.innerHTML = previewBodyHTML(model); return; }
+    // The Worker can't see the Eventbrite id yet (Coda lag after Add to
+    // Eventbrite): say so, show the form's version, and offer no Publish.
+    const head=document.getElementById('pvHead'); if(head) head.innerHTML = pvHeadHTML('catching-up', ev);
+    const pb=wrap.querySelector('[data-pv="publish"]'); if(pb) pb.remove();
+    const msg=wrap.querySelector('.pv-footmsg'); if(msg) msg.textContent='Something wrong? Close this and edit the fields on Details.';
+    body.innerHTML = previewBodyHTML(localPreviewModel(true));
   }).catch(err=>{
     if(gen!==_pvGen) return;
     if(err && err.status===401){ closePreview(); sessionExpired(); return; }
@@ -1499,7 +1522,7 @@ function whereGroupHTML(ev, dis, lab, relOK, listing){
 function ticketingGroupHTML(ev, dis, lab){
   return `<div class="fieldgroup">
       <div class="fieldgroup-h">Ticketing</div>
-      <div class="fld"><label>${lab('capacity','Free tickets')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">How many free General Admission tickets Eventbrite offers.</span></div>
+      <div class="fld"><label for="f_capacity">${lab('capacity','Free tickets')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">How many free General Admission tickets Eventbrite offers.</span></div>
       <div class="hint">Paid tickets and discount codes: coming later</div>
     </div>`;
 }
@@ -1601,8 +1624,8 @@ function wireEventFields(panel, ev, canEdit, locked){
    Description, When, Where (with Address on listing), Ticketing (Free tickets). Every field shows
    and is editable at every stage (R27); the approval gate is on Add to Eventbrite /
    Publish, not on the fields. Cancelled and past events keep their locks.
-   The listing card (#listingCard, a stable container: empty and hidden until the
-   event is on Eventbrite) sits on top. The fields always show the event's own
+   The listing card (#listingCard, a stable container repainted in place) sits on
+   top at every stage with Preview listing (R26). The fields always show the event's own
    (Coda) values (D4). */
 const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
   : 'If you copy the internal description, take out planning notes first. This text goes public.';

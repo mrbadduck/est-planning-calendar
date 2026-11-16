@@ -85,3 +85,13 @@ test('the escaped description survives ListingHtml.sanitize unchanged', async ()
   const h = textToHtml('a < b & <img src=x onerror=alert(1)>\n\nok');
   assert.equal(globalThis.ListingHtml.sanitize(h), h);
 });
+
+test('AREA is exactly the area the Worker lists a Registrants-only venue under', async () => {
+  const { venuePayload } = await import('../src/eventbrite.js');
+  const { previewModel } = await import('../src/publish.js');
+  const { venue } = venuePayload({ name: 'Home', address: '1 Main St' }, 'Registrants only');
+  assert.equal([venue.address.city, venue.address.region].join(', '), AREA);
+  const m = previewModel({ venue }, { description: '' }, 'Registrants only');
+  assert.equal(m.location.displayAddress, AREA);
+  assert.equal(fromForm(ev({ addressVisibility: 'Registrants only' })).location.note, m.location.note);
+});

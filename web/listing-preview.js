@@ -12,7 +12,10 @@
    textToHtml(text) -> string
      Plain text to escaped HTML: blank lines split paragraphs, other newlines <br>. */
 (function (root) {
-  const AREA = 'Nashville, TN';   // the Worker's default area for a Registrants-only venue
+  // The app never gets venue addresses (the Worker keeps them), so the area is the
+  // Worker's default for a Registrants-only venue: venuePayload's city 'Nashville'
+  // + region 'TN', joined as previewModel joins them (pinned by a test).
+  const AREA = 'Nashville, TN';
   const str = v => (v == null ? '' : String(v).trim());
   const escHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
