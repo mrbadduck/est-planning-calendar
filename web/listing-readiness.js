@@ -114,6 +114,7 @@
   // ---- footer wizard model (spec 5.5) ----
   const STEP_LABELS = ['Draft', 'Proposed', 'Approved', 'On Eventbrite', 'Published'];
   const STAGE_INDEX = { draft: 0, proposed: 1, approved: 2, onEventbrite: 3, published: 4 };
+  const SLOW_TIP = 'Coda is slow right now; your change is safe';
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
   // Shown when the listing was edited on Eventbrite since our last push (D8): the
@@ -242,8 +243,16 @@
       out.primary = prim('Email registrants', 'email-registrants', true, 'primary');
       out.secondary = { label: 'Not now', act: 'dismiss-notice' };
     }
+    // In flight, the primary button is the one place that says so (R21): a push,
+    // a transition/cancel/delete (`busy`: true → "Saving…", or its own label) or
+    // queued edits (`pending`, only where there's an action to hold back). After
+    // CodaApplied's slow mark (`slow`), "Saving…" reads "Still saving…".
+    const busy = input.busy;
     if (sending && out.primary) out.primary = prim('Sending to Eventbrite…', null, false, 'primary');   // a push in flight
+    else if (busy && canEdit) out.primary = prim(typeof busy === 'string' ? busy : 'Saving…', null, false, 'primary');
     else if (pending && out.primary) out.primary = prim('Saving…', null, false, 'primary');   // no action to hold back → nothing to show
+    if (input.slow && out.primary && out.primary.label === 'Saving…' && !out.primary.act)
+      out.primary = Object.assign(prim('Still saving…', null, false, 'primary'), { tip: SLOW_TIP });
     return out;
   }
 

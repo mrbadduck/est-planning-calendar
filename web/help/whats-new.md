@@ -5,6 +5,12 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-11-16
+- **One icon per field.** Each field name now has a single icon: a crossed-out eye for private fields, a gray clock for fields that go on Eventbrite once the event is added, then a green check when it matches Eventbrite or amber arrows when your change isn't on Eventbrite yet.
+- **Quieter saving.** The **Saved** label is gone. While something saves, the button at the bottom says **Saving…** (or **Still saving…** when it's slow); otherwise it's saved. Only a failed save shows a message. Proposing, approving, cancelling and deleting show in that button too.
+- **Tidier bottom bar.** The five steps have their own row, the bar no longer jumps as its message changes, and the label at the top of an event changes at the same moment as the steps, including **On Eventbrite**.
+- **Fixes.** An event opened from a link before your sign-in finished no longer stays read-only. The listing preview keeps the summary and description as separate paragraphs. Venues added to Eventbrite from now on no longer repeat the city in their address.
+
 ## 2026-11-15
 - **One next step at a time.** The bottom of an open event shows its five stages, from Draft to Published, with one button for what's next. Everything else is under **⋮**.
 - **Leads take it to Eventbrite.** After approval, Program Leads can keep editing and put the event on Eventbrite themselves: **Add to Eventbrite** makes a private draft, **Preview listing** shows what Eventbrite has, and **Publish** opens registration. If anything is missing, the app says what.

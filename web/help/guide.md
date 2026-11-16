@@ -113,9 +113,11 @@ Click an event to open it. It has these tabs:
 - [[Potluck & Volunteers]]: sign-up slots for members.
 - [[Attendees]]: who's coming.
 
-**At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. On [[Details]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, only **⋮** shows.
+**At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. The label at the top of the event always matches the step. On [[Details]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, only **⋮** shows.
 
-**Changes save by themselves** when you move out of a field. A small label shows **Saved**, **Saving…** or **Unsaved changes**. **Saving…** can take up to half a minute, and says **Still saving** when it's slow; the next-step button waits until everything has saved. If it says [[Save failed — retry]], click it to try again.
+**Changes save by themselves** when you move out of a field. While a change is saving, the button at the bottom says **Saving…**, and it waits until everything has saved. A save can take up to half a minute; when it's slow, the button says **Still saving…**. Your change is safe meanwhile. When nothing says Saving, everything is saved. If [[Save failed — retry]] appears beside the button, click it to try again.
+
+The same button shows a step that's under way, such as **Saving…** after you propose or approve, **Cancelling…** or **Deleting…**.
 
 **The icons beside each field name** show what's private, what goes on Eventbrite, and what's missing; see [Field icons](#field-markers).
 
@@ -264,7 +266,7 @@ The app never sends email itself. It comes from your own account.
 
 **I can't find an event.** Check the program year, and make sure [[Planning events]] isn't crossed out under **⚙** (on a phone, both are in the **☰** menu). Click **↻** to refresh, or on a phone, reload the page. Undated ideas sit under **date TBD** (Overview and List) or in the [[Ideas]] column (Calendar).
 
-**It says Saving… for a long time.** A save can take up to half a minute, and the label says **Still saving** when it's slow. Wait for **Saved**: the button at the bottom of the event waits too. If it turns into [[Save failed — retry]], click it.
+**It says Saving… for a long time.** A save can take up to half a minute, and the button at the bottom says **Still saving…** when it's slow. Wait for it to turn back into the next step. If [[Save failed — retry]] appears, click it.
 
 **My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you closed the event, make the change again.
 

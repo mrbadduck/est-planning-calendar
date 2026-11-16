@@ -1146,11 +1146,19 @@ async function pushNotesDocButton(rowId, gen){
 /* ---- status state machine (draft → proposed → approved; bail → cancelled) ----
    Status stores 4 states; "Live" (approved + EB published) and "Past" (date has
    passed) are DERIVED for display, not stored. */
-function statusInfo(ev){
-  if(ev.status==='cancelled') return {label:'Cancelled', cls:'cancelled'};
-  if(ev.status==='approved')  return (ev.publishStatus==='Published') ? {label:'Live', cls:'live'} : {label:'Approved', cls:'approved'};
-  if(ev.status==='proposed')  return {label:'Proposed', cls:'proposed'};
-  return {label:'Draft', cls:'draft'};
+// The status label, from the same stage the footer's steps read (ListingRules.stageOf),
+// so the header badge and the footer never disagree (R21).
+const STAGE_BADGE = {
+  cancelled:{label:'Cancelled', cls:'cancelled'}, published:{label:'Live', cls:'live'},
+  onEventbrite:{label:'On Eventbrite', cls:'approved'}, approved:{label:'Approved', cls:'approved'},
+  proposed:{label:'Proposed', cls:'proposed'}, draft:{label:'Draft', cls:'draft'},
+};
+function statusInfo(ev){ return STAGE_BADGE[ListingRules.stageOf(ev)] || STAGE_BADGE.draft; }
+function badgesHTML(ev){
+  const si=statusInfo(ev);
+  let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;
+  if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
+  return badges;
 }
 function isPastEvent(ev){ return ev.scheduling==='exact' && ev.date && ev.date < todayStr && ev.status!=='cancelled'; }
 // An approved (or live) event whose date has passed: it happened, so its Details lock
@@ -1231,20 +1239,18 @@ function openEditor(ev, section){
   // header: derived status badge next to the title on the LEFT (a button that
   // opens the lifecycle guide; transitions live in the footer); action icons on
   // the right — ? (help for the active tab), view-in-gather, copy-link.
-  const si=statusInfo(ev);
-  let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;
-  if(isPastEvent(ev)) badges += `<span class="badge b-past">Past</span>`;
-  document.getElementById('mBadges').innerHTML = badges;
+  paintInner(document.getElementById('mBadges'), badgesHTML(ev));
   let head = `<button type="button" class="mhead-ico q" data-act="help" data-tip="Help for this tab" aria-label="Help for this tab">?</button>`;
   if(ev.id) head += `<a class="mhead-ico" href="${esc(GATHER_BASE)}#/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" data-tip="View in gather" aria-label="View in gather">${EXT_ICON}</a>`;
   if(ev.id) head += `<button class="mhead-ico" data-act="copylink" data-tip="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   actions.innerHTML = head;
 
-  // footer wizard (spec 5.5): stable containers filled by renderEditorFooter (D1) —
-  // #edFoot = progress + what's next, then the save pill, #edActs = the one primary
-  // action, #edMenu = ⋮. Dismissal is the header ✕/Esc/scrim.
-  const pill = (ev.id && canEdit && !locked && !pastLocked) ? `<span class="savestat clean" id="saveStatus">Saved</span>` : '';
-  document.getElementById('mFoot').innerHTML = `<div class="edmsg" id="edFoot"></div>${pill}<div class="edacts" id="edActs"></div><div class="kbwrap" id="edMenu"></div>`;
+  // footer wizard (spec 5.5, R21): stable containers filled by renderEditorFooter (D1) —
+  // row 1 #edSteps = the five steps, full width; row 2 #edFoot = what's next, the
+  // save pill (only for a failed save), #edActs = the one primary action, #edMenu = ⋮.
+  // Dismissal is the header ✕/Esc/scrim.
+  const pill = (ev.id && canEdit && !locked && !pastLocked) ? `<span class="savestat clean" id="saveStatus" role="status"></span>` : '';
+  document.getElementById('mFoot').innerHTML = `<div class="edsteps" id="edSteps"></div><div class="edmsg" id="edFoot"></div>${pill}<div class="edacts" id="edActs"></div><div class="kbwrap" id="edMenu"></div>`;
 
   // workspace: left rail + active-section panel (fixed-height modal; only the panel scrolls)
   document.getElementById('modal').classList.add('ws'); body.classList.add('ws');
@@ -2135,6 +2141,7 @@ function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(
 let _autosaveT=null;
 let _form=null;               // the open editable workspace: { ev, base: its form cells as last queued }
 const _busy=new Set();        // event ids with a transition/cancel/delete in flight
+const _busyLabel=new Map();   // event id → what its footer button says meanwhile ("Cancelling…"; default "Saving…")
 const _authRetry=new Set();   // event ids whose save hit an expired session — sent again after sign-in
 const sameVal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
@@ -2257,10 +2264,12 @@ function guardUnload(){
   if(need) window.addEventListener('beforeunload', onBeforeUnload); else window.removeEventListener('beforeunload', onBeforeUnload);
 }
 function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'slow' | 'error'
+  // The pill shows only a failed save (R21): saving shows in the footer's primary
+  // ("Saving…" / "Still saving…"), and when nothing is saving, it's saved.
   const el=document.getElementById('saveStatus');
   if(el){
     el.className='savestat '+s;
-    el.textContent = s==='saving'?'Saving…' : s==='slow'?'Still saving — Coda is slow right now' : s==='error'?'Save failed — retry' : s==='dirty'?'Unsaved changes' : 'Saved';
+    el.textContent = s==='error' ? 'Save failed — retry' : '';
   }
   renderEditorFooter();                        // the footer's primary slot follows pendingFor too
 }
@@ -2281,6 +2290,8 @@ function editorFooterModel(ev, ctx){
     checks: mergePushChecks(local, wc),
     pending: pendingFor(ev.id) || _pushing.has(ev.id),   // a push under way holds the primary at Saving…
     sending: _sending.has(ev.id),                        // …then Sending to Eventbrite… during the Worker call
+    busy: _busy.has(ev.id) ? (_busyLabel.get(ev.id) || true) : null,   // a transition/cancel/delete in flight
+    slow: _slow.has(ev.id),                              // past CodaApplied's slow mark: "Still saving…"
     unpushed: R.unpushedFields(ev, ev.pushed || null),
     pushed: ev.pushed || null,     // null: pushed before the snapshot existed — offer the update (not compared)
     ebEditedElsewhere: ebConflict(ev.id),
@@ -2299,7 +2310,7 @@ function editorFooterModel(ev, ctx){
   }
   return m;
 }
-function footerMsgHTML(m){
+function footerStepsHTML(m){
   const cur=m.steps.findIndex(s=>s.state==='current');
   let steps='';
   if(cur>=0){
@@ -2312,21 +2323,32 @@ function footerMsgHTML(m){
     steps = `<div class="fsteps" aria-label="Step ${cur+1} of ${m.steps.length}: ${esc(m.steps[cur].label)}">${dots}</div>`
       + `<div class="fsteps-ph" aria-hidden="true">Step ${cur+1} of ${m.steps.length} · ${esc(m.steps[cur].label)}</div>`;
   }
+  return steps;
+}
+function footerMsgHTML(m){
   const links = m.links.length ? `<span class="fsub flinks">${m.links.map(l=>
     l.field ? `<a href="#" data-focus-field="${esc(l.field)}">${esc(l.label)}</a>` : esc(l.label)).join(' · ')}</span>` : '';
-  return `${steps}${m.title?`<b class="ftitle">${esc(m.title)}</b>`:''}${links}${m.sub?`<span class="fsub">${esc(m.sub)}</span>`:''}`;
+  return `${m.title?`<b class="ftitle">${esc(m.title)}</b>`:''}${links}${m.sub?`<span class="fsub">${esc(m.sub)}</span>`:''}`;
 }
 function footerActsHTML(m, onDetails){
-  if(!onDetails) return '';
+  // Off Details only an in-flight button shows (Saving…, Deleting…): the pill no
+  // longer says Saving, so this is every tab's saving signal.
+  if(!onDetails){
+    const p=m.primary;
+    if(!(p && !p.act && !p.enabled && p.tone!=='quiet')) return '';
+    m = { primary: p };
+  }
   let h='';
   if(m.secondary) h += `<button type="button" class="btn fbtn sec" data-act="${esc(m.secondary.act)}">${esc(m.secondary.label)}</button>`;
   const p=m.primary;
-  if(p && p.tone==='quiet'){
-    // "✓ Saved" as text — the save pill already says it when it's showing
-    if(!document.getElementById('saveStatus')) h += `<span class="fquiet">${esc(p.label)}</span>`;
-  } else if(p){
-    const wait = !p.act && !p.enabled;   // the model's "Saving…"
-    h += `<button type="button" class="btn fbtn ${p.tone==='go'?'go':'primary'}${wait?' wait':''}"${p.act?` data-act="${esc(p.act)}"`:''}${p.enabled?'':' disabled'}>${wait?SPIN_ICON:''}${esc(p.label)}</button>`;
+  // The model's quiet "✓ Saved" isn't shown (R21): when nothing is saving, it's saved.
+  if(p && p.tone!=='quiet'){
+    // In flight ("Saving…", "Sending to Eventbrite…"): aria-disabled, not disabled, so
+    // its tip still shows on hover; it has no data-act, so a click does nothing.
+    const wait = !p.act && !p.enabled;
+    const off = wait ? ' aria-disabled="true"' : p.enabled ? '' : ' disabled';
+    const tip = p.tip ? ` data-tip="${esc(p.tip)}"` : '';
+    h += `<button type="button" class="btn fbtn ${p.tone==='go'?'go':'primary'}${wait?' wait':''}"${p.act?` data-act="${esc(p.act)}"`:''}${off}${tip}>${wait?SPIN_ICON:''}${esc(p.label)}</button>`;
   }
   return h;
 }
@@ -2345,7 +2367,9 @@ function renderEditorFooter(){
   const msgEl=document.getElementById('edFoot'), actEl=document.getElementById('edActs'), menuEl=document.getElementById('edMenu');
   if(!msgEl || !actEl || !menuEl || !_ctx || !editing || _ctx.ev!==editing) return;
   const m=editorFooterModel(editing, _ctx), onDetails = activeSection==='details';
+  const stepsEl=document.getElementById('edSteps'); if(stepsEl) paintInner(stepsEl, onDetails ? footerStepsHTML(m) : '');
   paintInner(msgEl, onDetails ? footerMsgHTML(m) : '');
+  const bEl=document.getElementById('mBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
   paintInner(actEl, footerActsHTML(m, onDetails));
   if(paintInner(menuEl, footerMenuHTML(m.menu))) _menuOpen=false;   // items changed: it's a new (closed) menu
   paintFieldMarks();   // field markers/tags follow the same event state as the footer
@@ -2436,7 +2460,7 @@ async function transitionTo(status){
   const prev=ev.status;
   ev.status=status;
   ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
-  applyLocal(ev); rerender(); toast(status==='approved'?'Approving…':'Saving…','busy');
+  applyLocal(ev); rerender(); renderEditorFooter();   // in flight: the footer's button says Saving… (R21), no toast
   let fieldsFailed=false;
   try{
     await saveQueue.settle(ev.id).catch(err=>{ fieldsFailed=true; throw err; });
@@ -2468,7 +2492,8 @@ async function cancelEvent(){
   autosaveEditor();
   _busy.add(ev.id); guardUnload();
   const prev={ status:ev.status, publishStatus:ev.publishStatus };
-  ev.status='cancelled'; applyLocal(ev); rerender(); toast('Cancelling…','busy');
+  _busyLabel.set(ev.id, 'Cancelling…');
+  ev.status='cancelled'; applyLocal(ev); rerender(); renderEditorFooter();   // in flight: the footer's button, no toast
   try{
     await saveQueue.settle(ev.id).catch(()=>{});   // queued edits land first; one that fails is reported, not a reason to stop
     const res=await DB.cancelEventbrite(ev.id);
@@ -2483,7 +2508,7 @@ async function cancelEvent(){
     else if(err && err.status===409 && err.needsEventbriteCancel){ hideToast(); showEbBlock(ev, err); }   // people registered: nothing changed
     else toast((err&&err.message)||'Cancel failed','err');
   }finally{
-    _busy.delete(ev.id); guardUnload();
+    _busy.delete(ev.id); _busyLabel.delete(ev.id); guardUnload();
     if(editing===ev) openEditor(ev, activeSection);
   }
 }
@@ -2493,22 +2518,29 @@ async function deleteEditor(){
   if(_busy.has(ev.id)) return;
   if(!confirm('Delete this event? This can\'t be undone.' + (ev.eventbriteId ? ' Its private Eventbrite draft is deleted too.' : ''))) return;
   const id=ev.id;
-  _busy.add(id);
+  _busy.add(id); _busyLabel.set(id, 'Deleting…');
   _form=null; _unsaved.delete(id); _authRetry.delete(id); guardUnload();   // its unsaved edits go with it — close() has nothing to queue or retry
   const drained=saveQueue.discard(id);
-  applyLocal({id}, true); close(); rerender(); toast('Deleting…','busy');
+  // The editor stays open (inert) while the delete runs: its footer button says
+  // Deleting… (R21) instead of a busy toast. It closes once the row is gone.
+  const panel=document.getElementById('wpanel'); if(panel) panel.inert=true;
+  applyLocal({id}, true); rerender(); renderEditorFooter();
   try{
     await drained;                             // …and a write already in flight finishes before the delete
     await afterCreate(id);                     // a just-created row: let its insert apply first
     await DB.remove(id);
     _unconfirmed.delete(id);
     markRecent(id, { deleted:true });
+    if(editing===ev) close();
     toast('Deleted','ok'); scheduleReconcile();
   }catch(err){
     applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
     else { toast((err && (err.status===409 || err.status===502) && err.message) || 'Delete failed — restored','err'); console.warn('delete failed:', err); }   // the Worker's reason (cancel first / Eventbrite refused); the row is kept
-  }finally{ _busy.delete(id); guardUnload(); }
+  }finally{
+    _busy.delete(id); _busyLabel.delete(id); guardUnload();
+    if(editing===ev) openEditor(ev, activeSection);   // failed (success closed it): back to a live editor — its form was let go
+  }
 }
 
 // Unpublish (back to private): the listing goes back to a private Eventbrite draft
@@ -2518,7 +2550,7 @@ async function unpublishEvent(){
   if(!ev || !ev.id || !ev.eventbriteId || _busy.has(ev.id)) return;
   if(!confirm('Make this listing private again? It disappears from Eventbrite and gather until you publish it again.')) return;
   const id=ev.id;
-  _busy.add(id); guardUnload(); toast('Unpublishing…','busy');
+  _busy.add(id); _busyLabel.set(id, 'Unpublishing…'); guardUnload(); renderEditorFooter();   // in flight: the footer's button (R21)
   try{
     const res=await DB.unpublishEventbrite(id);
     ev.publishStatus=(res && res.publishStatus) || 'Draft';
@@ -2532,7 +2564,7 @@ async function unpublishEvent(){
     else if(err && err.status===409 && err.needsEventbriteCancel){ hideToast(); showEbBlock(ev, err); }
     else { toast((err && err.message) || 'Couldn’t unpublish. Try again.','err'); scheduleReconcile(); }   // (e.g. it was cancelled on Eventbrite)
   }finally{
-    _busy.delete(id); guardUnload();
+    _busy.delete(id); _busyLabel.delete(id); guardUnload();
     if(editing===ev) renderEditorFooter();     // footer + card only (D1)
   }
 }
