@@ -777,8 +777,9 @@
   .fmk{display:inline-flex;align-items:center;gap:5px;vertical-align:middle;flex-wrap:wrap}
   .fmk:empty{display:none}
   .fic{display:inline-flex;color:var(--muted);cursor:help}
-  .fic.pub{color:var(--accent)}
+  .fic.pend,.fic.unk{color:var(--muted);opacity:.75}
   .fic.ok{color:#2F7D3B}
+  .fic.chg{color:#B07A12}
   .ftag{display:inline-block;font-size:10px;font-weight:600;letter-spacing:0;text-transform:none;padding:1px 7px;border-radius:10px;white-space:nowrap}
   .ftag.lg{font-size:11px}
   .ftag.req{background:#FBE9E7;color:#B3261E}
@@ -792,8 +793,8 @@
   .fld .hint.warn{color:#7A5F1E;font-weight:500}
   .fld .hint.warn[hidden]{display:none}
   .fieldgroup-h .fmk{margin-left:4px}
-  .fkey{display:flex;align-items:center;flex-wrap:wrap;gap:6px;width:fit-content;max-width:100%;font-size:12px;color:var(--muted);padding:5px 10px;background:var(--surface);border:1px solid var(--hair);border-radius:7px;margin-bottom:10px}
-  .fkey-sp{width:8px}
+  .fkey{display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;width:fit-content;max-width:100%;font-size:12px;color:var(--muted);padding:5px 10px;background:var(--surface);border:1px solid var(--hair);border-radius:7px;margin-bottom:10px}
+  .fkey-i{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
   .wsub-h-sub{text-transform:none;letter-spacing:0;font-weight:500}
   .ebcard{display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:9px}
   .ebcard:empty{display:none}
@@ -885,6 +886,7 @@
     .btn.fbtn.primary{color:#101020}
     .ndoc-warn{color:#D9B96C}
     .fic.ok{color:#74C48C}
+    .fic.chg{color:#D9B96C}
     .ftag.req{background:#3C2626;color:#E9A0A0}
     .ftag.chg{background:#3A3322;color:#D9B96C}
     .ftag.ok{background:#20392A;color:#74C48C}

@@ -123,11 +123,15 @@ You can keep editing after approval, and the event doesn't need approving again.
 
 ## Field icons {#field-markers}
 
-In [[Details]], the icons beside each field name show where it goes. A key at the top of the form explains them:
+In [[Details]], each field name has one icon that shows where it goes. A key at the top of the form explains the ones you can see:
 
 - A crossed-out eye: private. Only the planning team sees it; it never goes to Eventbrite.
-- A globe: public. It becomes part of the Eventbrite listing.
-- A check after the globe: it matches what Eventbrite has.
+- A gray clock: public. It goes on the Eventbrite listing once the event is added to Eventbrite.
+- A green check: it's on Eventbrite, and it matches what Eventbrite has.
+- Amber arrows: you changed it here, and Eventbrite doesn't have the change yet.
+- Gray arrows: it's on Eventbrite, but the app hasn't compared it yet. That happens after the next update.
+
+Point at an icon to see what it means.
 
 Two tags can appear too:
 
