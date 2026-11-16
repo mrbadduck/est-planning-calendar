@@ -388,3 +388,18 @@ test('footerModel checklist adds Description on Eventbrite and all-pass rows are
   assert.equal(bad.ok, false);
   assert.equal(bad.field, 'publicDescription');
 });
+
+test('footerModel checklist is empty for a past event (nothing left to do, R10)', () => {
+  const m = R.footerModel({ stage: 'approved', past: true, role: LEAD, unpushed: [],
+    checks: R.readiness({ ...ready(), end: '' }, { todayISO: TODAY }) });
+  assert.deepEqual(m.checklist, []);
+  assert.deepEqual(m.links, []);
+});
+
+test('footerModel copy names the panel, not the footer or the title', () => {
+  const subs = [
+    R.footerModel({ stage: 'proposed', past: false, role: LEAD, unpushed: [], checks: R.readiness(ready(), { todayISO: TODAY }) }).sub,
+    R.footerModel({ stage: 'onEventbrite', past: false, role: LEAD, unpushed: [], pushed: {}, checks: R.readiness(ready(), { todayISO: TODAY }) }).sub,
+  ];
+  for (const s of subs) assert.ok(!/footer|above the title/i.test(s), s);
+});

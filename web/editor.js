@@ -3,7 +3,7 @@
    reference event, the create form and its loading state, the modal: mStripe, mTitle, mBadges, mActions, mBody, mFoot.
    Owns: statusInfo, badgesHTML, isPastEvent, isHistory, venueRecord, editorCtx, _ctx, paintHeadMeta, openEditor, pageOpen, _calScrollY, openNewEventForm, createFromForm, _epState, eventUrl, calendarUrl, openedInApp, openFromUrl
    Reads: state, _refsSettled (state.js); reference lists (data.js); _form (save.js); _calPlaced (shell.js)
-   Writes: editing, activeSection (editor-tabs.js); _form (save.js); _menuOpen (footer.js); _ebBlock (transitions.js; reassigned); _pushChecks (eventbrite.js; Map .delete); owns _ctx, _creating
+   Writes: editing, activeSection (editor-tabs.js); _form (save.js); _menuOpen (status-panel.js); _ebBlock (transitions.js; reassigned); _pushChecks (eventbrite.js; Map .delete); owns _ctx, _creating
    Loaded after: preview.js (file-map order; calls renderSection, readForm at call time) */
 
 /* ---- status state machine (draft → proposed → approved; bail → cancelled) ----
@@ -49,7 +49,7 @@ function editorCtx(ev){
     locked: !isRef && ev.status==='cancelled',
   };
 }
-let _ctx=null;   // the open workspace editor's ctx (renderEditorFooter reads it)
+let _ctx=null;   // the open workspace editor's ctx (renderStatusPanel reads it)
 // Header (R23): the title, a tag for the first program in its own color (+N for
 // more) and, under it, the first line of the internal description. Reads the form, so it
 // follows edits as they're typed; fields on other tabs fall back to the event.
@@ -130,7 +130,6 @@ function openEventPage(ev, section, how){
   if(document.getElementById('scrim').classList.contains('open')) closeModal();   // the day picker / create form gives way to the page
   if(_ebBlock && _ebBlock.id!==ev.id) _ebBlock=null;   // the Eventbrite-cancel bar belongs to the event it was shown for
   editing = ev;
-  paintEbBlock();
   _menuOpen = false;
   section = sectionId(section);
   activeSection = (section && SECTIONS.some(s=>s.id===section)) ? section : 'details';   // reset per open; honor a deep-linked section
@@ -169,11 +168,9 @@ function openEventPage(ev, section, how){
   head += `<button class="mhead-ico" data-act="copylink" data-tip="Copy link" aria-label="Copy link">${LINK_ICON}</button>`;
   paintInner(document.getElementById('epActions'), head);
 
-  // the panel (until Task 11's status panel): the footer wizard's stable containers,
-  // stacked — #edSteps, #edFoot, the save pill (only for a failed save), #edActs = the
-  // one primary action, #edMenu = ⋮ — filled by renderEditorFooter (D1).
-  const pill = (canEdit && !locked && !pastLocked) ? `<span class="savestat clean" id="saveStatus" role="status"></span>` : '';
-  side.innerHTML = `<div class="edsteps" id="edSteps"></div><div class="edmsg" id="edFoot"></div>${pill}<div class="edacts" id="edActs"></div><div class="kbwrap" id="edMenu"></div>`;
+  // the Status & next step panel: stable containers (statusPanelHTML), filled by
+  // renderStatusPanel (D1); the save pill only where the form saves.
+  side.innerHTML = statusPanelHTML(canEdit && !locked && !pastLocked);
   side._html=undefined;
 
   // tab list + the active tab (one tab's inputs in the DOM; the tab click is wired once, below)
@@ -187,10 +184,10 @@ function openEventPage(ev, section, how){
     paintSaveStatus();                   // reopened mid-save: Saving… / Save failed — retry
     applyListingAddressDefault();
   }
-  renderEditorFooter();
+  renderStatusPanel();
   paintHeadMeta();
   layoutSticky();   // the top bar is painted now: measure --ep-top-h again
-  if(canEdit && ev.eventbriteId) refreshEbStatus(ev);   // registrants + edited-on-Eventbrite, for the footer and card
+  if(canEdit && ev.eventbriteId) refreshEbStatus(ev);   // registrants + edited-on-Eventbrite, for the panel and card
 }
 const _tabsFade = wireScrollFade(document.getElementById('epTabs'));   // edge-fade hint when the tabs overflow (phones)
 // The tab list and #wpanel are stable: wired once, for whichever event is open.
@@ -200,7 +197,7 @@ document.getElementById('epTabs').addEventListener('click', e=>{
   const ev=editing;
   if(_form) autosaveEditor();   // save the outgoing tab's edits before its fields leave the DOM
   setActiveRail(id); renderSection(id, _ctx);
-  renderEditorFooter();         // the wizard shows on Details only; other tabs get their one line + ⋮
+  renderStatusPanel();          // the panel shows on every tab; the tab heading follows renderSection
   // The new tab can render stored values in a normalized form (e.g. program
   // order) — that isn't an edit, so it becomes the baseline.
   if(_form && _form.ev===ev){ _form.base = formCells(readForm()); applyListingAddressDefault(); }

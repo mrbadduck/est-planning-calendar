@@ -1,10 +1,10 @@
-/* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the Details listing card.
-   Owns: ICON_PRIVATE, TIP_PRIVATE, ADDR_DEFAULT_HINT, ADDR_HOME_PUBLIC_WARN, fmkIcon, fieldMarkModel, fieldLabelHTML, fieldHintSlot, listingCardHTML, paintFieldMarks
+/* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the listing card (in the panel, or atop Listing).
+   Owns: ICON_PRIVATE, TIP_PRIVATE, ADDR_DEFAULT_HINT, ADDR_HOME_PUBLIC_WARN, fmkIcon, fieldMarkModel, fieldLabelHTML, fieldHintSlot, listingCardHome, listingCardHTML, paintFieldMarks
    Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js); _ebStatus, _conflictShown (eventbrite.js)
    Writes: _conflictShown (eventbrite.js; add/delete)
    Loaded after: notes-doc.js (file-map order; no load-time dependency) */
 
-/* ---- Eventbrite listing on the Details tab (spec 5.4, 5.7; D1, D4) -----------
+/* ---- Eventbrite listing on the Listing tab (spec 5.4, 5.7; D1, D4) -----------
    The form always shows the event's own (Coda) values. Nothing read from
    Eventbrite is ever put into the form or written to Coda: sync status compares
    the form with `ev.pushed`, the snapshot the Worker stores on each push (Last EB
@@ -86,7 +86,12 @@ function fieldLabelHTML(key, labelText, m){
   return `${labelText} <span class="fmk" data-fmk="${key}">${fieldMarksHTML(key, m || fieldMarkModel(editing || {}))}</span>`;
 }
 const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
-// The listing card, above Title at every stage, with Preview listing (R26). Before
+// Where the listing card (#listingCard) lives: 'panel' (the Status & next step panel,
+// under the status card, spec 5.3) or 'tab' (the top of the Listing tab, phones,
+// spec 5.6). The one switch: statusPanelHTML and renderDetails both ask it, so only
+// one #listingCard is ever in the DOM. (Task 12 flips it to 'tab' by PHONE_MQ.)
+function listingCardHome(){ return 'panel'; }
+// The listing card, at every stage, with Preview listing (R26). Before
 // the event is on Eventbrite it is one modest row ("Not on Eventbrite yet" + the
 // button; the preview is built from the form). Once it is, the registered
 // count comes from the live status (refreshEbStatus) and is left out until it
@@ -111,7 +116,8 @@ function listingCardHTML(ev){
   const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="ebview" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
   const qty = ev.pushed && Number(ev.pushed.capacity) > 0 ? ` · ${Number(ev.pushed.capacity)}` : '';
   const err = ev.publishStatus==='Error' && ev.lastPublishError ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
-  const conflict = ebConflict(ev.id) ? `<div class="ndoc-warn">${esc(EB_CONFLICT_NOTICE)}</div>` : '';
+  // In the panel the status card's sentence right above already carries the conflict notice.
+  const conflict = ebConflict(ev.id) && listingCardHome()==='tab' ? `<div class="ndoc-warn">${esc(EB_CONFLICT_NOTICE)}</div>` : '';
   return `<div class="ebrow">${pill}<b>${esc(line)}</b><span class="ebacts">${view}${PREVIEW_BTN}</span></div>
     <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span></div>${conflict}${err}`;
 }

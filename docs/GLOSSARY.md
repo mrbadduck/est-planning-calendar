@@ -57,7 +57,7 @@ past) are derived too. They lock fields; they are not stages.
 | **Update listing** | footer primary, `act: 'update-listing'` | Re-sends a published listing. May offer to email registrants. |
 | Unpublish | ⋮ menu | Takes a published listing back to private. |
 | **readiness** | `ListingRules.readiness(ev, {venue, todayISO})` → `{add, publish}` | The checks for the next push, each `{key, field, ok, message}`. The footer, the field markers and the Worker all use the same list (D5). |
-| **footerModel** | `ListingRules.footerModel(input)` | Pure function → what the footer shows: steps, title, sub line, links to failing fields, the one primary action, ⋮ items. `renderEditorFooter` only paints it (D6). |
+| **footerModel** | `ListingRules.footerModel(input)` | Pure function → what the Status & next step panel shows: steps, title, sub line, links to failing fields, the readiness checklist, the one primary action, ⋮ items. `renderStatusPanel` only paints it (D6). |
 | **pushed snapshot** | Coda `Last EB pushed values` → `ev.pushed` | What the Worker last sent to Eventbrite. Written only by the Worker. Field sync status compares the form with it (`syncStatus`, `unpushedFields`), never with live Eventbrite data (D4). |
 | Last EB push at / Last published at | Coda columns of those names | ISO text, written by the Worker. |
 

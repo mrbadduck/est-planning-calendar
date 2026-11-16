@@ -66,9 +66,9 @@ function pvHeadHTML(kind, ev){
   const draft = ev.publishStatus!=='Published';
   const t = (title, sub, tag) => `<div class="pv-headtxt"><b id="pvTitle">${esc(title)}</b><span>${esc(sub)}</span></div>${tag||''}`;
   const WILL = 'Preview: how your listing will look on Eventbrite';
-  if(kind==='local') return t(WILL, 'Built from the fields on Details. Nothing is on Eventbrite yet.', `<span class="ftag pre lg">Not on Eventbrite yet</span>`);
-  if(kind==='catching-up') return t(WILL, "Eventbrite is still catching up, so this is built from the fields on Details. Open it again in a minute to see Eventbrite's copy.");
-  if(kind==='form') return t(WILL, 'Built from the fields on Details.');
+  if(kind==='local') return t(WILL, 'Built from the fields on Listing. Nothing is on Eventbrite yet.', `<span class="ftag pre lg">Not on Eventbrite yet</span>`);
+  if(kind==='catching-up') return t(WILL, "Eventbrite is still catching up, so this is built from the fields on Listing. Open it again in a minute to see Eventbrite's copy.");
+  if(kind==='form') return t(WILL, 'Built from the fields on Listing.');
   return t('Preview: your Eventbrite listing',
     draft ? 'This is what Eventbrite has for your private draft, fetched just now. Nobody else can see it yet.' : 'This is what Eventbrite has for your listing, fetched just now.',
     `<span class="ftag ${draft?'chg':'ok'} lg">${draft?'Private draft':'Public'}</span>`);
@@ -86,7 +86,7 @@ function openPreview(){
   wrap.innerHTML=`<div class="pv-modal" role="dialog" aria-modal="true" aria-labelledby="pvTitle">
     <div class="pv-head" id="pvHead">${pvHeadHTML(kind, ev)}</div>
     <div class="pv-body" id="pvBody">${kind!=='linked' ? previewBodyHTML(localPreviewModel(kind==='form')) : `<div class="ndoc-loading"><span class="ndoc-spin"></span> Fetching the listing from Eventbrite…</div>`}</div>
-    <div class="pv-foot"><span class="pv-footmsg">${kind==='linked' ? `Something wrong? Close this and edit the fields; they'll show "Not on Eventbrite yet" until you update.` : 'Something wrong? Close this and edit the fields on Details.'}</span>
+    <div class="pv-foot"><span class="pv-footmsg">${kind==='linked' ? `Something wrong? Close this and edit the fields; they'll show "Not on Eventbrite yet" until you update.` : 'Something wrong? Close this and edit the fields on Listing.'}</span>
       <button type="button" class="btn fbtn sec" data-pv="close">Close</button>
       ${canPublish?`<button type="button" class="btn fbtn go" data-pv="publish">Publish</button>`:''}</div>
   </div>`;
@@ -107,7 +107,7 @@ function openPreview(){
     // Eventbrite): say so, show the form's version, and offer no Publish.
     const head=document.getElementById('pvHead'); if(head) head.innerHTML = pvHeadHTML('catching-up', ev);
     const pb=wrap.querySelector('[data-pv="publish"]'); if(pb) pb.remove();
-    const msg=wrap.querySelector('.pv-footmsg'); if(msg) msg.textContent='Something wrong? Close this and edit the fields on Details.';
+    const msg=wrap.querySelector('.pv-footmsg'); if(msg) msg.textContent='Something wrong? Close this and edit the fields on Listing.';
     body.innerHTML = previewBodyHTML(localPreviewModel(true));
   }).catch(err=>{
     if(gen!==_pvGen) return;

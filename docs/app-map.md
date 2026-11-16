@@ -62,15 +62,16 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   one row per day with anything on it, refs collapsed to one muted line, undated
   ideas closing out their month). `applyView()` shows `curView()`, which is
   `state.view` — except **phones (≤600px, `PHONE_MQ`) always get the list**.
-6. **`editor-tabs.js`** — the open event (`editing`), the `SECTIONS` registry, the rail, `renderSection`. The editor files `editor.js`, `fields.js` and `tabs-listing-planning.js` (files 10–12, loaded after `notes-doc.js`, `field-markers.js` and `preview.js`) and the tab files share this editor description:
+6. **`editor-tabs.js`** — the open event (`editing`), the `SECTIONS` registry, the tab list, the tab heading (`#epHead`: label + `SECTIONS[].foot`), `renderSection`. The editor files `editor.js`, `fields.js` and `tabs-listing-planning.js` (files 10–12, loaded after `notes-doc.js`, `field-markers.js` and `preview.js`) and the tab files share this editor description:
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
-  live sections **Details** (the Eventbrite listing only, in listing order:
+  live sections **Listing** (SECTIONS id `details`; labeled "Details" until 2026-11; the Eventbrite listing only, in listing order:
   Title, Summary, Description, When, Where — with the Address on listing toggle
   and its hints inside the Where block — and **Ticketing** (`ticketingGroupHTML`:
   the "Free tickets" field = Coda column `Capacity`, plus a muted "Paid tickets and
   discount codes: coming later"). Every listing field shows and is editable at
   every stage (R27); approval gates only Add to Eventbrite/Publish (readiness).
-  The listing card `#listingCard` sits on top at every stage with **Preview
+  The listing card `#listingCard` sits in the right panel under the status card
+  (or atop Listing where `listingCardHome()` says so: phones, Task 12) at every stage with **Preview
   listing** (`data-pv-open` → `openPreview`): before the event is on Eventbrite a
   modest "Not on Eventbrite yet" row and a preview built from the form
   (`ListingPreview.fromForm` in `web/listing-preview.js` → the Worker
@@ -80,7 +81,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   **Planning** (SECTIONS id `planning`; legacy `?section=notes` maps to it;
   label changed from "Planning Notes" 2026-11: Program(s) +
   Leads side by side, **Internal description** (`description`), then the notes
-  doc — the fields take the same cancelled/past lock as Details, the doc only the
+  doc — the fields take the same cancelled/past lock as Listing, the doc only the
   cancelled one), **Potluck & Volunteers** and **Attendees**
   (`renderAttendees`/`wireAttendees` — lead-only live roster of Eventbrite orders ∪
   gather claimants via Worker `GET /roster/:rowId`, segment chips from
@@ -90,7 +91,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   from shared builders (`titleFieldHTML`, `programsFieldHTML`, `whereGroupHTML`, …)
   used by `renderDetails`, `renderPlanningTab` and the create form
   (`renderPlanning`, which keeps every field in its old order); `wireEventFields`
-  wires whichever are rendered. `openEditor(ev, section)` resets to Details unless a
+  wires whichever are rendered. `openEditor(ev, section)` resets to Listing unless a
   section is passed; `readForm()` null-guards every field (only the active
   section's inputs exist in the DOM) and falls back to the event's own values.
   **Header**: title, then the first program as a tag in its own color (+N), the
@@ -99,7 +100,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   editor runs a compact scale (`:is(.event-page,.modal.create)` rules in
   `styles.css`); phones keep 44px tap targets.
 7. **`notes-doc.js`** — the Planning tab's Google Doc notes block (embed/create button, polling, the Coda button push).
-8. **`field-markers.js`** — Eventbrite sync icons, hints and tags on field labels; `listingCardHTML`.
+8. **`field-markers.js`** — Eventbrite sync icons, hints and tags on field labels; `listingCardHome`, `listingCardHTML`.
 9. **`preview.js`** — the Preview listing overlay and its Esc-closes-only-the-preview listener.
 10. **`editor.js`** — stage badge, `editorCtx`, header meta, `openEditor` (a planning event → `openEventPage`, the
     event page `#eventPage` in place of the calendar; a reference event → the modal), the create flow, URL sync.
@@ -112,7 +113,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   `history.scrollRestoration` is manual: the app restores the calendar's scroll. A **Copy
   link** header button shares the current view.
 11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
-12. **`tabs-listing-planning.js`** — the Details and Planning panels and the private-home address-default rules.
+12. **`tabs-listing-planning.js`** — the Listing and Planning panels and the private-home address-default rules.
 13. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).
 14. **`tab-potluck.js`** — the Potluck & Volunteers tab: the gather slot builder and its claims.
 15. **`feedback.js`** — the votable Feedback / Ideas board and its modal.
@@ -154,7 +155,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   event stays `_lossy` until every reference list is loaded and its names all
   map, and meanwhile the editor waits ("Loading…", first visit) or shows
   Program(s)/Leads/Where read-only (`relationsReady`) — a picker seeded from a
-  partial map would save a partial list. Saving shows only in the footer's primary
+  partial map would save a partial list. Saving shows only in the panel's primary
   button: **Saving…** while anything is pending (`pendingFor`), **Still saving…**
   after CodaApplied's 20 s slow mark. A step under way (`_busy` + `_busyLabel`:
   Propose/Approve/Reopen/Cancel/Delete/Unpublish/push) shows there too, with the
@@ -176,24 +177,28 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   Design/plan:
   `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*` (the queue and
   partial writes replaced its snapshot-and-rewrite save in #24).
-18. **`footer.js`** — the editor footer wizard (`ListingRules.footerModel` painted into stable containers), the ⋮ menu, `focusField`.
-19. **`transitions.js`** — `transitionTo`, `cancelEvent`, delete, the Eventbrite-cancel bar. The status state machine (this file and `footer.js`):
+18. **`status-panel.js`** — the event page's **Status & next step** panel (`ListingRules.footerModel` painted into stable containers by `renderStatusPanel`), the ⋮ menu, `focusField`.
+19. **`transitions.js`** — `transitionTo`, `cancelEvent`, delete, the Eventbrite-cancel bar. The status state machine (this file and `status-panel.js`):
 - **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
   = approved+EB-published and *Past* = date passed are DERIVED, not stored).
-  Action-driven, not a dropdown: the footer is a wizard (`ListingRules.footerModel`
-  in `web/listing-readiness.js`, painted by `renderEditorFooter`). Row 1 = the five
-  steps (Draft → Proposed → Approved → On Eventbrite → Published), full width.
-  Row 2 = what's next (title/sub/links to blocking fields) on the left, with the one
-  primary action and **⋮** on the right, bottom-aligned (the only secondary is the
-  registrant-email offer's "Not now"). Off Details the footer is one line on what
-  the tab is for (`SECTIONS[].foot`) + **⋮** (plus an in-flight Saving…). **⋮** holds **Delete event** before publishing and **Cancel event…**
+  Action-driven, not a dropdown: the right panel's **Status & next step** card
+  (`ListingRules.footerModel` in `web/listing-readiness.js`, painted by
+  `renderStatusPanel` into `#edStatus`, `#edChecks`, `#edActs`, `#edMenu`, `#edSub`,
+  `#edBars`) shows on every tab: the five steps as a vertical checklist (Draft →
+  Proposed → Approved → On Eventbrite → Published) with who/when notes
+  (`PageRules.stepNotes`), the title and the readiness rows (`checklist`: ✓ label, or
+  ✗ a link that focuses the field, switching tabs), the one primary action and **⋮**
+  (the only secondary is the registrant-email offer's "Not now"), one sentence
+  (`sub`), and the Eventbrite-cancel bar (`#edBars`). Listing gets a red dot when a
+  readiness link is a Listing field. Below the card: `#listingCard`, then the
+  `#saveStatus` pill (failed save only). **⋮** holds **Delete event** before publishing and **Cancel event…**
   / **Unpublish** after (never both). Approve is gated server-side (Tribal Council).
   Header = the status badge (`statusInfo`, from the same `stageOf` as the steps, so
-  it repaints with the footer; a button that opens the lifecycle guide) + ? / View
+  it repaints with the panel; a button that opens the lifecycle guide) + ? / View
   in gather / Copy link icons (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
   +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
-  or Live, date gone by) locks the **Details** and **Planning** fields and drops Cancel/Delete; the notes
+  or Live, date gone by) locks the **Listing** and **Planning** fields and drops Cancel/Delete; the notes
   doc, Potluck & Volunteers and Attendees are unaffected. The lock is decided when the event
   opens (so a Council date typo can still be fixed in that session; approving a
   past-dated proposal asks first) and is enforced only in the UI — the Worker doesn't
@@ -201,7 +206,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
 20. **`eventbrite.js`** — the Eventbrite push (`pushToEventbrite`), registrants/edited status, publish checks.
 21. **`editor-close.js`** — the leave guard, `requestClose`/`closeModal` (the modal), `leaveEventPage`/← Calendar (the
-    event page: shows the calendar again at its scroll position), footer-action dispatch, ⋮ menu keys, header actions.
+    event page: shows the calendar again at its scroll position), the modal footer's and the panel's action dispatch, ⋮ menu keys, header actions.
 22. **`shell.js`** — the app shell: layer toggles, `#months`/`#quarter` click delegation, day picker, `layoutSticky`, view switch (`curView`, `applyView`, `PHONE_MQ`), year nav, `addEvent`, and the ⚙ (`ovfMenu`) and ☰ (`phoneMenu`) menus.
 - **Header + calendar settings (⚙)**: row 2 is view switch + year picker, then ↻,
   ⚙ (`#ovfBtn`) and **+ New event** at the far right. ⚙ opens `#ovfPanel`, which

@@ -18,7 +18,7 @@ const PUSH_ACTS = {
   'publish-eb':     { draftOnly:false, ok:'Published. Registration is open' },
   'update-listing': { draftOnly:false, ok:'Eventbrite listing updated' },
 };
-const EB_CONFLICT_NOTICE = ListingRules.EB_CONFLICT_NOTICE;   // one text for the card and the footer
+const EB_CONFLICT_NOTICE = ListingRules.EB_CONFLICT_NOTICE;   // one text for the card and the panel
 const _ebStatus=new Map();      // event id → { editedSincePush, sold, liveStatus } from GET /eventbrite/status (session-local)
 const _ebStatusSeq=new Map();   // event id → latest request number (an older answer never overwrites a newer one)
 const _pushChecks=new Map();    // event id → { draftOnly, checks } the Worker's last readiness 409, until the next edit
@@ -41,7 +41,7 @@ const ebConflict = id => !!((_ebStatus.get(id)||{}).editedSincePush || _ebConfli
 // The capacity Eventbrite has (the pushed one), else the form's.
 const ebCapacity = ev => ev.pushed && Number(ev.pushed.capacity) > 0 ? Number(ev.pushed.capacity) : ev.capacity;
 // The Worker's failed checks override the app's own for the step it was asked for
-// (a publish-step answer leaves the add checks alone), so the footer links and
+// (a publish-step answer leaves the add checks alone), so the panel links and
 // field tags point at what the server found missing.
 function mergePushChecks(local, wc){
   if(!wc || !wc.checks || !wc.checks.length) return local;
@@ -62,11 +62,11 @@ async function refreshEbStatus(ev){
   try{ r=await DB.ebStatus(id); }catch(_){ r=null; }
   if(_ebStatusSeq.get(id)!==seq || !r || !r.linked || !r.live) return;   // superseded, or nothing to show
   _ebStatus.set(id, { editedSincePush: !!r.editedSincePush && !predatesOurPush(id, r.lastPushAt), sold: r.live.sold!=null ? Number(r.live.sold) : null, liveStatus: r.live.status || '' });
-  if(editing && editing.id===id) renderEditorFooter();   // footer + card; another open event ignores it
+  if(editing && editing.id===id) renderStatusPanel();   // panel + card; another open event ignores it
 }
 function dismissChangeNotice(){
   if(!editing) return;
-  _justChanged.delete(editing.id); renderEditorFooter();
+  _justChanged.delete(editing.id); renderStatusPanel();
 }
 /* ---- Email registrants (Q3 interim, until Mailchimp comms exist): a BCC mailto:
    in the lead's own mail app, to the roster's Eventbrite registrants (orders —
@@ -123,7 +123,7 @@ async function emailAfterChange(){
   if(!jc) return;
   if(await emailRegistrants(ev, jc.subject, jc.body)){
     _justChanged.delete(ev.id);              // the lead acted: the notice is done
-    if(editing===ev) renderEditorFooter();
+    if(editing===ev) renderStatusPanel();
   }
 }
 // Wait until nothing for this event is queued, in flight or unapplied. Resolves
@@ -142,10 +142,10 @@ async function pushToEventbrite(act){
   const spec=PUSH_ACTS[act], ev=editing;
   if(!spec || !ev || !ev.id || !_ctx || _ctx.ev!==ev || _busy.has(ev.id)) return;
   const m=editorFooterModel(ev, _ctx);
-  if(!m.primary || m.primary.act!==act || !m.primary.enabled) return;   // only the action the footer offers right now
+  if(!m.primary || m.primary.act!==act || !m.primary.enabled) return;   // only the action the panel offers right now
   const id=ev.id, force=_conflictShown.has(id);
   _busy.add(id); _pushing.add(id); guardUnload();
-  if(editing===ev) renderEditorFooter();
+  if(editing===ev) renderStatusPanel();
   try{
     try{ await flushAutosave(); }
     catch(err){
@@ -157,7 +157,7 @@ async function pushToEventbrite(act){
       toast('Your changes didn’t save, so nothing was sent to Eventbrite. Try again.','err');
       return;
     }
-    _sending.add(id); if(editing===ev) renderEditorFooter();   // the footer's button says Sending to Eventbrite… (R21), no busy toast
+    _sending.add(id); if(editing===ev) renderStatusPanel();   // the panel's button says Sending to Eventbrite… (R21), no busy toast
     let res;
     try{ res=await DB.publishEventbrite(id, spec.draftOnly, force); }
     catch(err){
@@ -208,6 +208,6 @@ async function pushToEventbrite(act){
     refreshEbStatus(ev);
   }finally{
     _busy.delete(id); _pushing.delete(id); _sending.delete(id); guardUnload();
-    if(editing===ev) renderEditorFooter();     // footer + card only (D1); the form keeps focus and values
+    if(editing===ev) renderStatusPanel();     // panel + card only (D1); the form keeps focus and values
   }
 }

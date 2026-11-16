@@ -1,7 +1,7 @@
-/* editor-close.js — leaving: the leave guard, requestClose/closeModal (the modal), leaveEventPage/← Calendar (the event page), footer-action dispatch, ⋮ menu keys, header actions.
+/* editor-close.js — leaving: the leave guard, requestClose/closeModal (the modal), leaveEventPage/← Calendar (the event page), the modal footer's and the panel's action dispatch, ⋮ menu keys, header actions.
    Owns: show, leaveGuard, hideLeaveGuard, closeModal, leaveEventPage, onPopState, footerAct
    Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen, openedInApp, eventUrl, calendarUrl, openFromUrl (editor.js); _form, _unconfirmed (save.js); scrollCalendarToToday (shell.js)
-   Writes: editing (editor-tabs.js; closeModal, leaveEventPage); _epState (editor.js; leaveEventPage); _ndocGen (notes-doc.js; leaveEventPage); _menuOpen (footer.js); _regFetch (eventbrite.js)
+   Writes: editing (editor-tabs.js; closeModal, leaveEventPage); _epState (editor.js; leaveEventPage); _ndocGen (notes-doc.js; leaveEventPage); _menuOpen (status-panel.js); _regFetch (eventbrite.js)
    Loaded after: eventbrite.js (file-map order; its Escape and click listeners keep their order after preview.js and before help.js's) */
 
 /* =========================================================================
@@ -52,10 +52,6 @@ function backToCalendar(){
   if(leaveGuard(()=>leaveEventPage('back'))) return;
   leaveEventPage('back');
 }
-document.getElementById('edBlock').addEventListener('click', e=>{
-  if(!e.target.closest('[data-block="email"]') || !editing) return;
-  emailRegistrants(editing, 'Update: ' + (editing.title || ''), '');
-});
 document.getElementById('edGuard').addEventListener('click', e=>{
   const b=e.target.closest('[data-guard]'); if(!b) return;
   const then=_guardThen;
@@ -134,8 +130,13 @@ document.addEventListener('keydown',e=>{
   else if(pageOpen() && leaveGuardShown()) hideLeaveGuard();
 });
 
-// The footer's actions: in #mFoot for the modals, in #epPanel on the event page.
-function onFootClick(e){
+// The modals' footer (#mFoot: the create form's Create/Cancel, Close): its buttons only.
+document.getElementById('mFoot').addEventListener('click', e=>{
+  const act=e.target.closest('[data-act]')?.dataset.act; if(act) footerAct(act);
+});
+// The event page's Status & next step panel (#epPanel): save retry, readiness links,
+// the primary and ⋮, the Eventbrite-cancel bar's Email, the listing card's Preview.
+function onPanelClick(e){
   if(e.target.id==='saveStatus' && e.target.classList.contains('error')){
     if(editing && _unconfirmed.has(editing.id)) retryCreateConfirm(editing.id);
     if(!editing || saveQueue.status(editing.id)==='error' || !_unconfirmed.has(editing.id)) flushAutosave().catch(()=>{});
@@ -143,14 +144,15 @@ function onFootClick(e){
   }   // the label reports the outcome
   const ff=e.target.closest('[data-focus-field]');
   if(ff){ e.preventDefault(); focusField(ff.dataset.focusField); return; }
+  if(e.target.closest('[data-block="email"]')){ if(editing) emailRegistrants(editing, 'Update: ' + (editing.title || ''), ''); return; }
+  if(e.target.closest('#epPanel [data-pv-open]')){ openPreview(); return; }   // the listing card, when it's in the panel
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='menu'){ kebabMenu(!_menuOpen, true); return; }
   if(e.target.closest('.kmenu')) kebabMenu(false);
   footerAct(act);
 }
-document.getElementById('mFoot').addEventListener('click', onFootClick);
-document.getElementById('epPanel').addEventListener('click', onFootClick);
-// One dispatcher for the footer's and the preview's actions.
+document.getElementById('epPanel').addEventListener('click', onPanelClick);
+// One dispatcher for the modal footer's, the panel's and the preview's actions.
 function footerAct(act){
   if(act==='close') requestClose();
   else if(act==='create') createFromForm();
@@ -177,7 +179,7 @@ document.addEventListener('keydown', e=>{
   else if(e.key==='Tab') kebabMenu(false);
 }, true);
 // header actions: ? (help for the active tab) + copy-link. The status badge opens
-// the lifecycle guide through data-help; transitions are in the footer.
+// the lifecycle guide through data-help; transitions are in the panel.
 function onHeadClick(e){
   const btn=e.target.closest('[data-act]'); const act=btn?.dataset.act; if(!act) return;
   if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it

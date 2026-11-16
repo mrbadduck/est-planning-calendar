@@ -1,22 +1,23 @@
-/* tabs-listing-planning.js — the Details (listing) and Planning tab panels and the private-home address-default rules.
+/* tabs-listing-planning.js — the Listing (id 'details') and Planning tab panels and the private-home address-default rules.
    Owns: pubDescHintText, renderDetails, wireDetails, renderPlanningTab, wirePlanningTab, formVenueRecord, paintAddrWarn, applyListingAddressDefault, setAddressVisibility, applyAddressDefault
    Reads: editing (editor-tabs.js); reference lists (data.js); _form (save.js)
    Writes: nothing
    Loaded after: fields.js (file-map order; no load-time dependency) */
 
-/* Details tab = the listing, in the order Eventbrite shows it: Title, Summary,
+/* Listing tab = the listing, in the order Eventbrite shows it: Title, Summary,
    Description, When, Where (with Address on listing), Ticketing (Free tickets). Every field shows
    and is editable at every stage (R27); the approval gate is on Add to Eventbrite /
    Publish, not on the fields. Cancelled and past events keep their locks.
-   The listing card (#listingCard, a stable container repainted in place) sits on
-   top at every stage with Preview listing (R26). The fields always show the event's own
+   The listing card (#listingCard, a stable container repainted in place, with
+   Preview listing, R26) sits in the panel, or on top of this tab where
+   listingCardHome() says so (phones). The fields always show the event's own
    (Coda) values (D4). */
 const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
   : 'If you copy the internal description, take out planning notes first. This text goes public.';
 function renderDetails(ev, canEdit, locked, canApprove){
   const dis = (!canEdit || locked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
   const linked = !!ev.eventbriteId;
-  const card = `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>`;
+  const card = listingCardHome()==='tab' ? `<div class="ebcard" id="listingCard">${listingCardHTML(ev)}</div>` : '';   // else it's in the panel
   const summary = `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint" id="f_sumcount">${String(ev.publicSummary||'').length} / 140</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
     <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
       <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>`;
@@ -26,7 +27,7 @@ function renderDetails(ev, canEdit, locked, canApprove){
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){
   wireEventFields(panel, ev, canEdit, locked);
-  const card=panel.querySelector('#listingCard');   // stable container: its inside repaints
+  const card=panel.querySelector('#listingCard');   // stable container: its inside repaints (here only on phones; the panel handles its own)
   if(card) card.addEventListener('click', e=>{ if(e.target.closest('[data-pv-open]')) openPreview(); });
 }
 
@@ -35,8 +36,7 @@ function wireDetails(panel, ev, canEdit, locked, canApprove){
    approved event); the notes doc only the cancelled one. */
 function renderPlanningTab(ev, canEdit, fieldsLocked, docLocked){
   const dis = (!canEdit || fieldsLocked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
-  return `<div class="ptab-h"><span class="fmk">${fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private, never on Eventbrite')}</span>Planning <span class="ptab-sub">· planning team only, never on Eventbrite</span></div>`
-    + `<div class="frow2">${programsFieldHTML(ev, dis, lab, relOK)}${leadsFieldHTML(ev, dis, lab, relOK)}</div>`
+  return `<div class="frow2">${programsFieldHTML(ev, dis, lab, relOK)}${leadsFieldHTML(ev, dis, lab, relOK)}</div>`
     + internalNotesFieldHTML(ev, dis, lab)
     + `<div class="fld full ndoc-fld"><label>Planning notes doc <span class="fmk">${fmkIcon('', ICON_PRIVATE, TIP_PRIVATE, 'Private, never on Eventbrite')}</span></label>${renderNotes(ev, canEdit && !docLocked)}</div>`
     + lockNotesHTML(ev, canEdit, fieldsLocked, relOK, REL_NOTE.planning);

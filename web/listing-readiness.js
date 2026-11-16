@@ -188,7 +188,7 @@
           out.primary = prim('Approve', 'approve', true, 'primary');
         } else {
           out.title = 'Awaiting Tribal Council approval';
-          out.sub = 'You can keep editing meanwhile. This footer changes as soon as council approves.';
+          out.sub = 'You can keep editing meanwhile. This panel changes as soon as council approves.';
           if (canEdit) out.primary = savedText;
         }
         if (canEdit) out.menu.push(del());
@@ -210,7 +210,7 @@
       case 'onEventbrite': {
         out.title = 'On Eventbrite as a private draft';
         out.sub = notCompared ? NOT_COMPARED
-          : 'Preview listing (above the title) shows exactly what Eventbrite has. Publish makes it public and opens registration.';
+          : 'Preview listing shows exactly what Eventbrite has. Publish makes it public and opens registration.';
         if (nUn) out.sub += ' ' + unNote + '.';
         if (ebEditedElsewhere) out.sub += ' ' + EB_CONFLICT_NOTICE;
         if (canEdit) {
@@ -255,7 +255,7 @@
     // A past event has happened: nothing left to do at any stage (R10). The only
     // exception is the offer to tell registrants about a change, below.
     if (past) {
-      out.primary = null; out.secondary = null; out.menu = []; out.links = [];
+      out.primary = null; out.secondary = null; out.menu = []; out.links = []; out.checklist = [];
     }
     if (justChanged && justChanged.fields && justChanged.fields.length && (stage === 'published' || stage === 'onEventbrite') && canEdit) {
       const names = justChanged.fields.map(k => (FIELDS[k] ? FIELDS[k].label : k).toLowerCase());

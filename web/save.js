@@ -31,7 +31,7 @@ function scheduleReconcile(){ clearTimeout(_reconcileT); _reconcileT=setTimeout(
 let _autosaveT=null;
 let _form=null;               // the open editable workspace: { ev, base: its form cells as last queued }
 const _busy=new Set();        // event ids with a transition/cancel/delete in flight
-const _busyLabel=new Map();   // event id → what its footer button says meanwhile ("Cancelling…"; default "Saving…")
+const _busyLabel=new Map();   // event id → what its panel button says meanwhile ("Cancelling…"; default "Saving…")
 const _authRetry=new Set();   // event ids whose save hit an expired session — sent again after sign-in
 const sameVal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
@@ -39,7 +39,7 @@ const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
 // (202). applied() polls the Worker's /mutation route via CodaApplied.waitApplied.
 // The queue's write awaits it, so saveQueue.status(id)==='saving' covers the apply
 // time of edits; _applying counts only applies started outside the queue (create,
-// transitions). pendingFor(id) is the one answer the pill and footer read.
+// transitions). pendingFor(id) is the one answer the pill and panel read.
 const _applying=new Map();    // event id → applies in flight outside the queue
 const _slow=new Set();        // event ids whose apply has passed CodaApplied's slow mark
 const _createApply=new Map(); // new event id → its insert's apply promise (later writes wait on it)
@@ -61,7 +61,7 @@ function applied(requestId, eventId, opts={}){
   });
 }
 // Anything for this event queued, in flight, or written but not yet applied by Coda.
-// A bare debounce timer doesn't count: the footer's primary must not turn into
+// A bare debounce timer doesn't count: the panel's primary must not turn into
 // Saving… under a click, and every push/transition flushes the form and waits on
 // this before it acts (settledForPush, transitionTo), so nothing goes out early.
 function pendingFor(id){
@@ -154,14 +154,14 @@ function guardUnload(){
   if(need) window.addEventListener('beforeunload', onBeforeUnload); else window.removeEventListener('beforeunload', onBeforeUnload);
 }
 function setSaveStatus(s){                     // 'clean' | 'dirty' | 'saving' | 'slow' | 'error'
-  // The pill shows only a failed save (R21): saving shows in the footer's primary
+  // The pill shows only a failed save (R21): saving shows in the panel's primary
   // ("Saving…" / "Still saving…"), and when nothing is saving, it's saved.
   const el=document.getElementById('saveStatus');
   if(el){
     el.className='savestat '+s;
     el.textContent = s==='error' ? 'Save failed — retry' : '';
   }
-  renderEditorFooter();                        // the footer's primary slot follows pendingFor too
+  renderStatusPanel();                        // the panel's primary slot follows pendingFor too
 }
 
 function paintSaveStatus(){
@@ -172,12 +172,12 @@ function paintSaveStatus(){
 }
 function scheduleAutosave(){
   if(!_form || _form.ev!==editing) return;     // create modal / read-only: nothing to auto-save into
-  // Every focusout lands here, including the one from clicking a footer button: only
-  // a real change marks the form dirty, so a bare blur never repaints the footer
+  // Every focusout lands here, including the one from clicking a panel button: only
+  // a real change marks the form dirty, so a bare blur never repaints the panel
   // under the click (which would swallow it).
   if(!SaveQueue.changedCells(_form.base, formCells(readForm())).length) return;
   clearTimeout(_autosaveT); _autosaveT=setTimeout(autosaveEditor, 800);
-  setSaveStatus('dirty');                      // pill: Unsaved changes (the footer's primary stays put)
+  setSaveStatus('dirty');                      // pill: Unsaved changes (the panel's primary stays put)
 }
 // Queue whatever the open form changed since it was last queued. Synchronous, so
 // leaving (leaveForm, via closeModal/leaveEventPage) can call it on the way out — the
