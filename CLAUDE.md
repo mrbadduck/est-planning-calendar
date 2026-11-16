@@ -141,21 +141,31 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   ideas closing out their month). `applyView()` shows `curView()`, which is
   `state.view` — except **phones (≤600px, `PHONE_MQ`) always get the list**.
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
-  live sections **Details** (a transforming surface — a stable **Event**
-  subsection of draft/internal fields on top, and a stage-aware
-  **Public listing → Published listing** subsection below via
-  `renderListingSection`/`wireListingSection`, muted-but-visible until approved,
-  that holds the public fields + Eventbrite publish action — the old standalone
-  Publish tab folded in here 2026-09), **Planning Notes**, **Potluck & Volunteers**
-  and **Attendees**
+  live sections **Details** (the Eventbrite listing only, in listing order:
+  Title, Summary, Description, When, Where — with the Address on listing toggle
+  and its hints inside the Where block — and Capacity; the listing card
+  `#listingCard` on top. Summary/Description/Capacity/Address open once approved;
+  before that a muted note stands in), **Planning** (SECTIONS id `notes`, kept for
+  `?section=notes` links; label changed from "Planning Notes" 2026-11: Program(s) +
+  Leads side by side, **Internal notes** = the `description` field, then the notes
+  doc — the fields take the same cancelled/past lock as Details, the doc only the
+  cancelled one), **Potluck & Volunteers** and **Attendees**
   (`renderAttendees`/`wireAttendees` — lead-only live roster of Eventbrite orders ∪
   gather claimants via Worker `GET /roster/:rowId`, segment chips from
   `web/roster-lib.js`, **Copy emails** / **Email** = `mailto:` BCC; leads send from
   their own accounts, no Worker-side sending), plus a muted **Coming soon** group
-  (Budget/Comms/Feedback) whose panels host the feedback board. `openEditor(ev, section)` resets to Planning unless a section is
-  passed; `readForm()` null-guards every field (only the active section's inputs
-  exist in the DOM). **Internal** description lives in Planning; **Public
-  summary/description** (sent to Eventbrite) live in Publish.
+  (Budget/Comms/Feedback) whose panels host the feedback board. Field markup comes
+  from shared builders (`titleFieldHTML`, `programsFieldHTML`, `whereGroupHTML`, …)
+  used by `renderDetails`, `renderPlanningTab` and the create form
+  (`renderPlanning`, which keeps every field in its old order); `wireEventFields`
+  wires whichever are rendered. `openEditor(ev, section)` resets to Details unless a
+  section is passed; `readForm()` null-guards every field (only the active
+  section's inputs exist in the DOM) and falls back to the event's own values.
+  **Header**: title, then the first program as a tag in its own color (+N), the
+  first line of Internal notes as a subtitle (`paintHeadMeta`, helpers in
+  `web/editor-head.js`, live as you type), then the status badge and icons. The
+  editor runs a compact scale (`:is(.modal.ws,.modal.create)` rules in
+  `styles.css`); phones keep 44px tap targets.
 - **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
   = approved+EB-published and *Past* = date passed are DERIVED, not stored).
   Action-driven, not a dropdown: the footer is a wizard (`ListingRules.footerModel`
@@ -170,8 +180,8 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   in gather / Copy link icons (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
   +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
-  or Live, date gone by) locks its **Details** tab and drops Cancel/Delete; Notes,
-  Potluck & Volunteers and Attendees are unaffected. The lock is decided when the event
+  or Live, date gone by) locks the **Details** and **Planning** fields and drops Cancel/Delete; the notes
+  doc, Potluck & Volunteers and Attendees are unaffected. The lock is decided when the event
   opens (so a Council date typo can still be fixed in that session; approving a
   past-dated proposal asks first) and is enforced only in the UI — the Worker doesn't
   check it (#32), and `todayStr` is fixed at page load. Design:

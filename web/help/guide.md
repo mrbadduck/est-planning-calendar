@@ -108,10 +108,12 @@ The event opens in full as a **Draft**. Nothing is public yet, so keep adding de
 
 Click an event to open it. It has these tabs:
 
-- [[Details]]: the plan itself. Title, internal description, programs, leads, when and where. Below it, **Public listing** holds what goes on Eventbrite once the event is approved; see [Put an event on Eventbrite](#publish).
-- [[Planning Notes]]: a Google Doc for your team's notes.
+- [[Details]]: what goes on the Eventbrite listing, in the order people see it: [[Title]], [[Summary]], [[Description]], **When**, **Where** and [[Capacity]]. Summary, Description, Capacity and [[Address on listing]] open once the event is approved; see [Put an event on Eventbrite](#publish).
+- [[Planning]]: what only the planning team sees: [[Program(s)]], [[Leads]], [[Internal notes]] and a Google Doc for your notes.
 - [[Potluck & Volunteers]]: sign-up slots for members.
 - [[Attendees]]: who's coming.
+
+**At the top of an open event** are its title, its first program (in that program's color, with **+1** and so on when there are more), and under them the first line of its [[Internal notes]].
 
 **At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. The label at the top of the event always matches the step. On [[Details]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, only **⋮** shows.
 
@@ -125,7 +127,7 @@ You can keep editing after approval, and the event doesn't need approving again.
 
 ## Field icons {#field-markers}
 
-In [[Details]], each field name has one icon that shows where it goes. Point at an icon to see what it means. The icons are:
+In [[Details]] and [[Planning]], each field name has one icon that shows where it goes. Point at an icon to see what it means. The icons are:
 
 - A crossed-out eye: private. Only the planning team sees it; it never goes to Eventbrite.
 - A gray clock: public. It goes on the Eventbrite listing once the event is added to Eventbrite.
@@ -158,15 +160,21 @@ The app doesn't tell Tribal Council when something is proposed, so let them know
 - **Once it's published**, Delete is gone. Use [[Cancel event…]], which takes the listing down. If people have registered, see [Change or take down a listing](#publish-changes).
 - **A cancelled event** can be brought back to planning by Tribal Council with [[Reopen]], which doesn't put it back on Eventbrite. Tribal Council can also delete it.
 
-**After the date,** an approved event is history: its **Details** lock and there's nothing left to do at the bottom. Its [[Planning Notes]], sign-ups and [[Attendees]] still work.
+**After the date,** an approved event is history: its **Details** lock and there's nothing left to do at the bottom. Its notes doc, sign-ups and [[Attendees]] still work, but the fields on [[Details]] and [[Planning]] lock.
 
 > **Tip:** Click the status label at the top of an open event to come back to this guide.
 
-## Planning notes {#planning-notes}
+## Planning and notes {#planning-notes}
 
-Each event can have its own Google Doc for your team's notes: agenda, to-dos, contacts. It never appears on the Eventbrite listing.
+The [[Planning]] tab holds what only the planning team sees. None of it goes on Eventbrite.
 
-1. Open the event and go to [[Planning Notes]].
+- [[Program(s)]] and [[Leads]]. Picking a program adds its leads for you.
+- [[Internal notes]]: a few lines on the plan. Its first line shows at the top of the event.
+- A Google Doc for longer notes: agenda, to-dos, contacts.
+
+To add the doc:
+
+1. Open the event and go to [[Planning]].
 2. Click [[Create notes doc]]. It's made from our planning template and can take a minute or two to appear.
 3. When it's ready, a preview appears. Click [[Edit in Google Docs]] to write in it.
 
@@ -202,13 +210,13 @@ Until these are done, the button can't be clicked. The bottom of the event lists
 - A [[Capacity]] of at least 1: how many free tickets Eventbrite offers.
 - A venue picked from the list, not a new name you typed in (ask Tribal Council to add it to the list). With no venue, Eventbrite lists the event as online.
 - A street address saved on the venue, unless [[Address on listing]] is [[Registrants only]].
-- To publish, a [[Public description]] too. [[Public summary]] is optional.
+- To publish, a [[Description]] too. [[Summary]] is optional.
 
 **At a private home,** [[Address on listing]] starts as [[Registrants only]], so the public sees just the city; send the address yourself from [[Attendees]]. Choosing [[Public]] there shows a warning.
 
 ### Steps
 
-1. In [[Details]], fill in **Public listing**: [[Public summary]], [[Public description]] and [[Capacity]]. [[Copy internal description]] starts you off from the internal one, but take out planning notes first: this text goes public.
+1. In [[Details]], fill in [[Summary]], [[Description]] and [[Capacity]]. [[Copy internal notes]] starts the description from your [[Internal notes]], but take out anything private first: this text goes public.
 2. Click [[Add to Eventbrite]].
 3. Click [[Preview listing]] to see exactly what Eventbrite has.
 4. Click [[Publish]]. Anyone can now register.
@@ -220,7 +228,7 @@ Every listing has free General Admission tickets. Paid tickets and discount code
 **To change it,** edit the fields as usual. Each changed field says **Not on Eventbrite yet** until you click [[Update draft]] (private draft) or [[Update listing]] (published). If you close the event first, you're asked; [[Close anyway]] leaves the changes off Eventbrite.
 
 - If someone edited the listing directly on Eventbrite, a notice says updating will replace their changes.
-- Editing [[Public description]] here turns it into plain text on Eventbrite: any bold, links or lists added there are removed.
+- Editing [[Description]] here turns it into plain text on Eventbrite: any bold, links or lists added there are removed.
 
 **To tell registrants.** When [[Update listing]] changes the date, time or venue and people have registered, you're offered [[Email registrants]]. It opens a message in your email app with the changes written in and everyone in BCC. For a long list, it copies the emails instead: paste them into BCC. [[Not now]] skips it. The app never sends email itself.
 
