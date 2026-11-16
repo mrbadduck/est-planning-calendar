@@ -617,23 +617,30 @@
     .modal.create .mhead{flex-wrap:wrap;row-gap:4px}
     .modal.create .mhead-title{flex:1 1 calc(100% - 20px)}
     .modal.create .mhead-badges{margin-right:auto;margin-left:14px}
-    /* the title gets the whole row; the program tag drops under it */
-    .mhead-ttlrow{flex-wrap:wrap;row-gap:3px}
-    .mhead-ttlrow :is(h1,h2){flex:1 1 100%}
-    .mhead-tag{max-width:100%}
+    /* the modal's title gets the whole row */
+    .modal .mhead-ttlrow{flex-wrap:wrap;row-gap:3px}
+    .modal .mhead-ttlrow :is(h1,h2){flex:1 1 100%}
     :is(.event-page,.modal.create) .mhead-actions{gap:0}
+    :is(.event-page,.modal.create) .mhead-ico,:is(.event-page,.modal.create) .mhead-close{width:44px;height:44px}
+    :is(.event-page,.modal.create) .fld .btn.xs{min-height:44px;padding:0 10px}
+    :is(.event-page,.modal.create) .fld label.msel-opt{min-height:44px}
+    :is(.event-page,.modal.create) .fld input:not([type=checkbox]):not(.ta-input),:is(.event-page,.modal.create) .fld select,:is(.event-page,.modal.create) .msel-btn,:is(.event-page,.modal.create) .typeahead{min-height:44px}
+    .modal.create .mfoot .btn{min-height:44px}
+  }
+  /* touch (any width: a 744px iPad gets the phone layout with a coarse pointer) or a
+     phone-size window: ≥44px tap targets on the event page's top bar, tab strip, bottom
+     bar, ⋮, link-style actions and toggles. A mouse at a narrow width keeps compact sizes. */
+  @media (pointer:coarse), (max-width:600px){
     .event-page .wrail-item{min-height:44px;padding:0 10px}
     .event-page .btn.fbtn,.event-page .kb{min-height:44px}
     .event-page .kb{width:44px;height:44px}
-    :is(.event-page,.modal.create) .mhead-ico,:is(.event-page,.modal.create) .mhead-close{width:44px;height:44px}
-    :is(.event-page,.modal.create) .fld .btn.xs{min-height:44px;padding:0 10px}
-    /* link-style actions (.lnk): a 44px tap target from padding that a matching negative
-       margin cancels, so they read as normal text with no gap around them */
+    .event-page .mhead-ico{width:44px;height:44px}
+    #epTop .ep-back{min-height:44px}
+    /* link-style actions (.lnk) and the readiness ✗ links: a 44px tap target from padding
+       that a matching negative margin cancels, so they read as normal text with no gap */
     .event-page .lnk{padding:12px 4px;margin:-12px -4px}
-    :is(.event-page,.modal.create) .fld label.msel-opt{min-height:44px}
-    :is(.event-page,.modal.create) .whenseg button{min-height:40px;padding:0 12px}
-    :is(.event-page,.modal.create) .fld input:not([type=checkbox]):not(.ta-input),:is(.event-page,.modal.create) .fld select,:is(.event-page,.modal.create) .msel-btn,:is(.event-page,.modal.create) .typeahead{min-height:44px}
-    .modal.create .mfoot .btn{min-height:44px}
+    .sp-rows .bad a{padding:12px 0;margin:-12px 0}
+    :is(.event-page,.modal.create) .whenseg button{min-height:44px;padding:0 12px}
   }
   /* the panel scrolls independently and lays its fields out with real spacing */
   .wpanel{flex:1;min-width:0;overflow-y:auto;padding:14px 18px 16px;display:flex;flex-direction:column;gap:12px}
@@ -650,6 +657,7 @@
   .event-page .mhead.ep-top{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--hair-strong);padding:9px 18px}
   .ep-back{flex:none;white-space:nowrap}
   #epTitle:focus:not(:focus-visible){outline:none}   /* focused on open for screen readers; no ring after a click */
+  #epTop .ep-menu{display:none}   /* the phone layout's ⋮; wide and mid show the badge and icons */
   .ep-menu .kmenu{top:calc(100% + 6px);bottom:auto;right:0;width:220px}   /* the top bar's ⋮ opens downward */
   .ep-menu .kmenu a.mi{text-decoration:none}
   .ep-grid{--ep-layout:wide;display:grid;grid-template-columns:150px minmax(0,1fr) 300px;gap:0 22px;align-items:start;max-width:1400px;margin:0 auto;padding:14px 18px 80px}
@@ -697,7 +705,6 @@
   .sp-rows .bad a{font-weight:600}
   /* phones: a 44px tap target from padding that the negative margin cancels — the row
      keeps its text height, no gap above or below */
-  @media (max-width:600px){ .sp-rows .bad a{padding:12px 0;margin:-12px 0} }
   .sp-acts{position:relative;display:flex;align-items:center;gap:8px}
   .sp-acts:not(:has(button)){display:none}
   .ep-panel .edacts{flex-wrap:wrap}
@@ -733,12 +740,16 @@
   @container ep (max-width:1099.98px){
     .ep-grid{--ep-layout:mid;display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 22px;padding-top:0}
     /* the tab strip: full width, sticks under the top bar */
-    .event-page .wrail.ep-tabs{flex:0 0 100%;flex-direction:row;gap:2px;position:sticky;top:var(--ep-top-h,52px);z-index:30;margin:0 -18px;padding:6px 18px;
+    /* its own line: basis = the line plus the 18px gutters it bleeds into (margin), so
+       nothing fits beside it; min-width:0 so long tab labels scroll, never widen the page */
+    .event-page .wrail.ep-tabs{flex:0 0 calc(100% + 36px);min-width:0;flex-direction:row;gap:2px;position:sticky;top:var(--ep-top-h,52px);z-index:30;margin:0 -18px;padding:6px 18px;
       background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:.5px solid var(--hair);overflow-x:auto;scrollbar-width:none}
     .event-page .wrail.ep-tabs::-webkit-scrollbar{display:none}
     .event-page .ep-tabs .wrail-item{flex:0 0 auto;white-space:nowrap}
     .event-page .ep-tabs .wrail-soon{display:none}
-    .ep-main{flex:1 1 0;max-width:none}
+    /* the next line: main (≥420px, grows) | panel (280px); 420 + 22 + 280 fits the
+       narrowest mid page's 724px line */
+    .ep-main{flex:1 1 420px;min-width:0;max-width:none}
     .ep-panel{flex:0 0 280px;min-width:0;top:calc(var(--ep-top-h,52px) + var(--ep-tabs-h,40px) + 12px);max-height:calc(100vh - var(--ep-top-h,52px) - var(--ep-tabs-h,40px) - 24px)}
   }
   @container ep (max-width:759.98px){
@@ -772,10 +783,14 @@
     .ep-phonebar .kmenu{left:12px;right:12px;width:auto;max-width:none;top:auto;bottom:calc(100% + 6px);max-height:calc(100dvh - 140px);overflow-y:auto}
     .ep-phonebar .kmenu .mi{min-height:44px;justify-content:center}
   }
-  @media (max-width:600px){
+  /* the phone layout's top bar, one row: ← Calendar, the title, ⋮ (Eric, 2026-11-16:
+     the program tag, subtitle, status badge and icons are for wide and mid only) */
+  @container ep (max-width:759.98px){
     .event-page .mhead.ep-top{padding:4px 12px;gap:8px}
-    #epTop .ep-back{min-height:44px;padding:0 8px;margin-left:-8px}
+    #epTop .ep-back{padding:0 8px;margin-left:-8px}
     #epTop .stripe{height:24px}
+    #epTop :is(#epTag,#epSub,#epBadges,#epActions){display:none}
+    #epTop .ep-menu{display:block}
   }
 
   /* ---- list tabs (SECTIONS[].fill: Potluck & Volunteers, Attendees) --------------
@@ -894,8 +909,10 @@
   .roster-seg .n{opacity:.7;margin-left:3px;font-variant-numeric:tabular-nums}
   .roster-seg.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .roster-seg.on .n{opacity:.9}
-  table.roster{width:100%;border-collapse:collapse;font-size:12.5px}
-  table.roster th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--hair);position:sticky;top:0;background:var(--surface);z-index:2}
+  /* separate borders, no spacing: a collapsed border isn't painted with a sticky cell, so
+     the row underneath showed through above the header while scrolling */
+  table.roster{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+  table.roster th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--hair);position:sticky;top:0;background:var(--paper);z-index:2}
   table.roster tbody tr{cursor:pointer}
   table.roster tbody tr:hover{background:var(--soft2)}
   table.roster td{padding:6px;border-bottom:1px solid var(--hair);vertical-align:top}

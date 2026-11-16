@@ -77,8 +77,14 @@
   <div class="mhead ep-top" id="epTop">
     <button class="btn ghost ep-back" id="epBack" type="button">← Calendar</button>
     <div class="stripe" id="epStripe"></div>
-    <div class="mhead-title"><h1 id="epTitle" tabindex="-1">Event</h1></div>
-    <!-- the top bar's ⋮ (headMenu, editor-close.js): Help for this tab, View in gather, Copy link -->
+    <div class="mhead-title">
+      <div class="mhead-ttlrow"><h1 id="epTitle" tabindex="-1">Event</h1><span class="mhead-tag" id="epTag"></span></div>
+      <div class="mhead-sub" id="epSub" hidden></div>
+    </div>
+    <!-- wide and mid layouts: the status badge and the ? / View in gather / Copy link icons -->
+    <span class="mhead-badges" id="epBadges"></span>
+    <div class="mhead-actions" id="epActions"></div>
+    <!-- phone layout only (CSS swaps them): ⋮ (headMenu, editor-close.js) with the same three actions -->
     <div class="kbwrap ep-menu" id="epMenu"></div>
   </div>
   <div class="ep-grid">

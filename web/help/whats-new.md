@@ -7,8 +7,8 @@
 
 ## 2026-11-16
 - **One status box.** The listing box is now the last line of **Status & next step**: whether the event is on Eventbrite, **Preview listing**, **View on Eventbrite ↗** and the tickets, without saying anything twice. On a phone it's in the same box at the top.
-- **A simpler top of the event.** It shows just the title. **Help for this tab**, **View in gather** and **Copy link** are under **⋮** at the top right. The tabs stay in view as you scroll.
-- **Better on mid-size screens.** On a tablet, or with Help open, the tabs run across the top and **Status & next step** sits beside the event.
+- **A simpler top of the event on a phone.** It shows just **← Calendar**, the title and **⋮**, which holds **Help for this tab**, **View in gather** and **Copy link**. On every screen, the tabs stay in view as you scroll.
+- **Fits mid-size screens.** When the event has less room (a narrower window, or Help open beside it), the tabs run across the top and **Status & next step** sits beside the event. With even less room, you get the phone layout.
 - **Long lists scroll on their own.** In **Attendees** and **Potluck & Volunteers**, only the list scrolls; the filters and headings stay at the top, and **Email** and **Copy emails** at the bottom.
 - **Smaller controls.** Toggles like **Exact date / Date range / Whole month** and **Copy internal description** are smaller, on phones too.
 - **Events open as a page.** Clicking an event opens it as its own page instead of a pop-up. **← Calendar** or your browser's Back button takes you back to the calendar just as you left it. A copied link opens the event's page directly.

@@ -57,7 +57,7 @@ Every event follows the same path:
 
 To check your role, click your picture or initials at the top of the page (on a phone, tap **☰**).
 
-> **Tip:** Click [[?]] at the top of the page anytime to come back to these guides (on a phone, tap **☰**, then [[Help]]). In an open event, **⋮** at the top right, then [[Help for this tab]], opens the guide for the tab you're on.
+> **Tip:** Click [[?]] at the top of the page anytime to come back to these guides (on a phone, tap **☰**, then [[Help]]). In an open event, its [[?]] opens the guide for the tab you're on (on a phone, tap **⋮** at the top right, then [[Help for this tab]]).
 
 ## Get around the calendar {#getting-around}
 
@@ -88,7 +88,7 @@ A few more things you'll see:
 - In Calendar view, a time before a title is the start time, on a 24-hour clock (18:30 is 6:30 pm).
 - **+1** (or +2…) after a title means the event belongs to more than one program.
 - After an idea's title, a range like **12–18** means sometime in that window, and **month** means sometime that month. (In Overview, the numbers at the start of each week are just that week's dates.)
-- In an open event, **Status & next step** shows how far it has got; **Published** means anyone can register on Eventbrite. Once an approved event's date has gone by, its details lock.
+- In an open event, a **Live** badge means it's published on Eventbrite, and **Past** means its date has gone by. Once an approved event is past, its details lock. (On a phone, **Status & next step** says how far it has got.)
 
 # Planning an event
 
@@ -119,7 +119,7 @@ The page has these tabs (on a phone, a row you can scroll sideways):
 
 Under each tab's name, one line says what the tab is for. A dot on [[Listing]] means something there is holding up the next step.
 
-**At the top of the page** are [[← Calendar]], the title (the colored bar beside it is its program's color) and **⋮**, which holds [[Help for this tab]], [[View in gather]] and [[Copy link]]. When you scroll, the tabs stay in view under it.
+**At the top of the page** are the title, its first program (with **+1** and so on when there are more), the first line of its [[Internal description]], its status label, and three icons: **?** (help for this tab), **View in gather** and **Copy link**. On a phone, the top shows just [[← Calendar]], the title and **⋮**, which holds [[Help for this tab]], [[View in gather]] and [[Copy link]]. When you scroll, the tabs stay in view under it.
 
 **Status & next step** shows on every tab: the event's steps, what's left, and one button for the next step. Its last line says whether the event is on Eventbrite (**Not on Eventbrite yet**, **Private draft** or **Public**), with [[Preview listing]], [[View on Eventbrite ↗]] once it's public, and the tickets on offer. On a narrower screen, the tabs run across the top, and on a phone this box sits above them. See [From draft to published](#lifecycle).
 
@@ -152,7 +152,7 @@ The icons and tags update once the field has saved.
 - **Proposed**: waiting for Tribal Council. You can keep editing. Tribal Council clicks [[Approve]].
 - **Approved**: you can still edit it, with no need to approve it again. Next: [[Add to Eventbrite]].
 - **On Eventbrite**: a private draft listing. Nobody can see it or register yet. Next: [[Publish]].
-- **Published**: public on Eventbrite, and registration is open. The box says **Public**.
+- **Published**: public on Eventbrite, and registration is open. The label at the top of the event says **Live**, and the box says **Public**.
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.
 
@@ -164,14 +164,14 @@ The app doesn't tell Tribal Council when something is proposed, so let them know
 
 **After the date,** an approved event is history: the fields on [[Listing]] and [[Planning]] lock and there's no next step. Its notes doc, sign-ups and [[Attendees]] still work.
 
-> **Tip:** In an open event, click **⋮** at the top right, then [[Help for this tab]], to get back to these guides.
+> **Tip:** Click the status label at the top of an open event to come back to this guide. On a phone, tap **⋮** at the top right, then [[Help for this tab]], for the guide to the tab you're on.
 
 ## Planning and notes {#planning-notes}
 
 The [[Planning]] tab holds what only the planning team sees. None of it goes on Eventbrite.
 
 - [[Program(s)]] and [[Leads]]. Picking a program adds its leads for you.
-- [[Internal description]]: a short description for quick reference.
+- [[Internal description]]: a short description for quick reference. Its first line shows at the top of the event.
 - A Google Doc for longer notes: agenda, to-dos, contacts.
 
 To add the doc:
@@ -192,7 +192,7 @@ Ask members to bring a dish or take a volunteer shift. They sign up in **gather*
 
 To sign someone up yourself, click [[+ Add sign-up]] under a slot, pick their name from the list, and click [[Add]].
 
-**When members see them:** slots show up in gather once the event is published. After approval, Program Leads and Tribal Council can preview them there. In an open event, **⋮** at the top right, then [[View in gather]], takes you straight there.
+**When members see them:** slots show up in gather once the event is published. After approval, Program Leads and Tribal Council can preview them there. The **View in gather** icon at the top of an open event takes you straight there (on a phone, it's under **⋮** at the top right).
 
 # After approval
 
@@ -260,7 +260,7 @@ The app never sends email itself. It comes from your own account.
 
 ## Share a link {#share-link}
 
-**To an event:** open it, click **⋮** at the top right, then [[Copy link]]. The link opens that event's page, on the same tab, and [[← Calendar]] takes them to the calendar. If the person has to sign in with an emailed link first, they'll land on the calendar; have them open your link again.
+**To an event:** open it and click its link icon at the top (it says *Copy link* when you point at it). On a phone, tap **⋮** at the top right, then [[Copy link]]. The link opens that event's page, on the same tab, and [[← Calendar]] takes them to the calendar. If the person has to sign in with an emailed link first, they'll land on the calendar; have them open your link again.
 
 **To a guide:** open the guide and copy the address from your browser's address bar. It opens straight to that guide, even for someone who hasn't signed in yet. It's handy for welcoming a new lead.
 

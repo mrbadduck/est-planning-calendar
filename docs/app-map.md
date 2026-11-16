@@ -37,8 +37,10 @@ chrome), so its view, year and scroll survive. Spec:
 `docs/superpowers/specs/2026-11-16-event-page-design.md`.
 
 - **Containers** (stable, filled with `innerHTML`, D1): `#epTop` (← Calendar `#epBack`,
-  the program stripe, the title, and `#epMenu`: the top bar's ⋮ — Help for this tab /
-  View in gather / Copy link, `headMenuHTML`/`headMenu` in editor-close.js), `#epTabs`
+  the program stripe, title + `#epTag` program tag + `#epSub` subtitle (`paintHeadMeta`),
+  `#epBadges` status badge, `#epActions` ? / View in gather / Copy link icons — wide and
+  mid layouts — and `#epMenu`, the phone layout's ⋮ with the same three actions,
+  `headMenuHTML`/`headMenu` in editor-close.js; both sets are painted, CSS shows one), `#epTabs`
   (the tab list, `railHTML`; a sticky horizontal strip at mid and phone layouts),
   `#epMain` (`#edGuard` leave bar, `#epHead` tab heading = label + `SECTIONS[].foot`,
   `#wpanel` the active tab), `#epPanel` (the one Status & next step card,
@@ -49,8 +51,8 @@ chrome), so its view, year and scroll survive. Spec:
   counts): **wide** ≥1100px tab list | main | panel; **mid** 760–1099 tab strip, then
   main | panel (280px, sticky); **phone** <760 status card, tab strip, the tab, bottom
   bar. JS reads the answer from `--ep-layout` (`epLayout()`, status-panel.js); a
-  ResizeObserver calls `layoutEventPage()` when it changes. 44px tap targets stay on
-  the 600px media queries (they follow the device).
+  ResizeObserver calls `layoutEventPage()` when it changes. 44px tap targets follow the
+  device, not the layout: `@media (pointer:coarse), (max-width:600px)`.
 - **List tabs** (`SECTIONS[].fill`: Potluck & Volunteers, Attendees): `renderSection`
   sets `#eventPage.ep-fill`; the page is then exactly the viewport tall and only the
   list scrolls (`.slots-list`, `.roster-body`), with its filters, group headings
@@ -79,7 +81,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 `listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
 **[node-tested]** (preview model before Eventbrite), `coda-applied.js` **[node-tested]**
 (honest-save poller), `save-queue.js` **[node-tested]** (per-event save queue),
-`editor-head.js` **[node-tested]** (header meta; unused since the top bar dropped the program tag and subtitle, 2026-11-16 — kept for now with its contrast test), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval).
+`editor-head.js` **[node-tested]** (header meta), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval).
 
 1. **`util.js`** — pure helpers: `esc`, `cap`, date/time formatting, `linkify`, `cssColor`.
 2. **`data.js`** — reference lists, local cache, the Coda seam, `CodaSource`.
@@ -136,8 +138,10 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   wires whichever are rendered. `openEditor(ev, section)` resets to Listing unless a
   section is passed; `readForm()` null-guards every field (only the active
   section's inputs exist in the DOM) and falls back to the event's own values.
-  **Top bar**: ← Calendar, the program stripe and the title (`paintHeadMeta`, live as
-  you type), then ⋮ (`#epMenu`). The
+  **Header**: title, then the first program as a tag in its own color (+N), the
+  first line of the Internal description as a subtitle (`paintHeadMeta`, helpers in
+  `web/editor-head.js`, live as you type), then the status badge and icons; the phone
+  layout shows only ← Calendar, the title and ⋮ (`#epMenu`). The
   editor runs a compact scale (`:is(.event-page,.modal.create)` rules in
   `styles.css`); phones keep 44px tap targets.
 7. **`notes-doc.js`** — the Planning tab's Google Doc notes block (embed/create button, polling, the Coda button push).
@@ -235,8 +239,9 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   readiness link is a Listing field. The card ends with the listing row
   (`#listingCard`); below it, the `#saveStatus` pill (failed save only). **⋮** holds **Delete event** before publishing and **Cancel event…**
   / **Unpublish** after (never both). Approve is gated server-side (Tribal Council).
-  The top bar has no status badge since 2026-11-16 (`statusInfo` still labels the List
-  view); its ⋮ holds Help for this tab / View in gather / Copy link
+  Header = the status badge (`statusInfo`, from the same `stageOf` as the steps, so
+  it repaints with the panel; a button that opens the lifecycle guide) + ? / View
+  in gather / Copy link icons, or on the phone layout ⋮ with the same three
   (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
   +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
@@ -270,9 +275,10 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 24. **`help.js`** — the Help drawer.
 - **Help drawer** (`openHelp(id)` / `closeHelp` / `renderHelp` — `web/help.js`): a right-side drawer that renders `web/help/guide.md` +
   `whats-new.md` through `HelpLib` (`web/help/help-lib.js`). Entry points: the header
-  **?** (`#helpBtn`), the editor header's **?** (`data-act="help"` → the active
-  section's `SECTIONS[].help`), the create form's **?**, the status badge
-  (`data-help="lifecycle"`), the sign-in "New here?" link, `?help=<id>`, and a
+  **?** (`#helpBtn`), the event page's **?** icon (`#epActions`, wide and mid layouts)
+  and, on the phone layout, its ⋮ → Help for this tab (`#epMenu`; both `data-act="help"`
+  → the active section's `SECTIONS[].help`), the create form's **?**, the status badge
+  (`#epBadges`, wide and mid; `data-help="lifecycle"`), the sign-in "New here?" link, `?help=<id>`, and a
   once-per-device Welcome on first sign-in (`est-help-welcomed`); a What's-new dot
   (`est-help-seen`). The calendar key is the guide's live `{{legend}}` embed
   (`legendEmbedHTML`). App code names a guide ONLY via `openHelp('<id>')`,

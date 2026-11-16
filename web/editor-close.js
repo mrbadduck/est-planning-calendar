@@ -89,7 +89,7 @@ function leaveEventPage(how){
   hideTip(); kebabMenu(false); headMenu(false);
   leaveForm();   // (retries the open form's failed save once)
   document.getElementById('eventPage').hidden=true;
-  document.getElementById('eventPage').classList.remove('loading');
+  document.getElementById('eventPage').classList.remove('loading', 'ep-fill');
   document.body.classList.remove('event-open');
   editing=null; _epState=null;
   if(how==='goBack') history.back();
@@ -149,7 +149,7 @@ function onPanelClick(e){
   const ff=e.target.closest('[data-focus-field]');
   if(ff){ e.preventDefault(); focusField(ff.dataset.focusField); return; }
   if(e.target.closest('[data-block="email"]')){ if(editing) emailRegistrants(editing, 'Update: ' + (editing.title || ''), ''); return; }
-  if(e.target.closest('#epPanel [data-pv-open]')){ openPreview(); return; }   // the listing card, when it's in the panel
+  if(e.target.closest('#epPanel [data-pv-open]')){ openPreview(); return; }   // the card's listing row
   if(e.target.closest('#edMore')){ toggleSteps(); return; }   // phones: see all steps
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='menu'){ kebabMenu(!_menuOpen, true); return; }
@@ -190,7 +190,7 @@ document.addEventListener('keydown', e=>{
   else if(e.key==='Home' || e.key==='End'){ e.preventDefault(); items[e.key==='Home'?0:items.length-1].focus(); }
   else if(e.key==='Tab') close(false);
 }, true);
-// The top bar's ⋮ (polish 2026-11-16): Help for this tab (the active tab's guide), View
+// The top bar's ⋮ (phone layout only; wide and mid show the icons in #epActions): Help for this tab (the active tab's guide), View
 // in gather, Copy link. Same markup and keys as the panel's ⋮ (footerMenuHTML), its own
 // id (#epMenu) and state.
 let _headMenuOpen=false;
@@ -208,13 +208,14 @@ function headMenu(open, focusFirst){
   menu.hidden=!open; btn.setAttribute('aria-expanded', String(!!open)); btn.classList.toggle('on', !!open);
   if(open){ hideTip(); if(focusFirst){ const f=menu.querySelector('[role="menuitem"]'); if(f) f.focus(); } }
 }
-// Top bar ⋮ and the create form's ? (#mActions): help for the active tab, copy link.
+// The top bar's icons (#epActions) and ⋮ (#epMenu), and the modal's #mActions: help for the active tab, copy link.
 function onHeadClick(e){
   const btn=e.target.closest('[data-act]'), act=btn?.dataset.act;
   if(act==='head-menu'){ headMenu(!_headMenuOpen, true); return; }
   if(e.target.closest('.kmenu')) headMenu(false);   // any item (View in gather too) closes the menu
   if(act==='copylink'){ const u=new URL(location.href); u.searchParams.delete('help'); navigator.clipboard.writeText(u.href).then(()=>toast('Link copied','ok'), ()=>toast('Copy failed','err')); }   // share the event, not a guide open beside it
-  else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', document.querySelector('#epMenu .kb')); }
+  else if(act==='help'){ const s=SECTIONS.find(x=>x.id===activeSection); openHelp((s && s.help) || '', btn.closest('.kmenu') ? document.querySelector('#epMenu .kb') : btn); }
 }
 document.getElementById('mActions').addEventListener('click', onHeadClick);
+document.getElementById('epActions').addEventListener('click', onHeadClick);
 document.getElementById('epMenu').addEventListener('click', onHeadClick);

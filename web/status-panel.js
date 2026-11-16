@@ -2,7 +2,7 @@
    Owns: _menuOpen, editorFooterModel, paintInner, statusPanelHTML, renderStatusPanel, kebabMenu, toggleSteps, epLayout, placePhoneBar, layoutEventPage, focusField
    Reads: editing, activeSection (editor-tabs.js); _ctx, pageOpen (editor.js); PageRules (page-rules.js); layoutSticky (shell.js; at call time);
           _busy, _busyLabel, _slow (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged, _conflictShown, ebConflict, EB_CONFLICT_NOTICE (eventbrite.js);
-          paintFieldMarks (field-markers.js; call time); headMenu (editor-close.js; call time)
+          paintFieldMarks (field-markers.js; call time); headMenu (editor-close.js; call time); badgesHTML (editor.js; call time)
    Writes: _conflictShown (eventbrite.js; add/delete)
    Loaded after: save.js (file-map order; no load-time dependency) */
 
@@ -127,6 +127,7 @@ function renderStatusPanel(){
   paintInner(document.getElementById('edSub'), m.sub ? esc(m.sub) : '');
   const cur=m.steps.findIndex(s=>s.state==='current');   // phones' toggle; none when the stage has no step (Cancelled)
   paintInner(document.getElementById('edMore'), cur<0 ? '' : `Step ${cur+1} of ${m.steps.length} · see all steps <span class="sp-chev" aria-hidden="true">▾</span>`);
+  const bEl=document.getElementById('epBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
   paintInner(actEl, footerActsHTML(m));
   if(paintInner(menuEl, footerMenuHTML(m.menu, m.busy))) _menuOpen=false;   // items changed: it's a new (closed) menu
   paintEbBlock();
