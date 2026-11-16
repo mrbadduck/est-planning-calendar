@@ -1,8 +1,8 @@
 /* ui.js — toasts and the shared data-tip tooltip bubble (with its document listeners).
-   Owns: toast, hideToast, showTip, hideTip, _toastEl, _toastT, _tip, _tipFor, _tipMuted
+   Owns: toast, hideToast, hideTip
    Reads: nothing
    Writes: nothing
-   Loaded after: feedback.js (file-map order; its listeners keep their original order relative to those in app.js) */
+   Loaded after: feedback.js (file-map order; its listeners keep their original order relative to the listeners in later files) */
 
 let _toastEl=null, _toastT=null;
 function toast(msg, kind){

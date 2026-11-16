@@ -1,6 +1,6 @@
 /* tabs-listing-planning.js — the Details (listing) and Planning tab panels and the private-home address-default rules.
    Owns: pubDescHintText, renderDetails, wireDetails, renderPlanningTab, wirePlanningTab, formVenueRecord, paintAddrWarn, applyListingAddressDefault, setAddressVisibility, applyAddressDefault
-   Reads: editing (editor-tabs.js); reference lists (data.js); _form (app.js)
+   Reads: editing (editor-tabs.js); reference lists (data.js); _form (save.js)
    Writes: nothing
    Loaded after: fields.js (file-map order; no load-time dependency) */
 

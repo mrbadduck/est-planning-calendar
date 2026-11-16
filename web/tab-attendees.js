@@ -1,5 +1,5 @@
 /* tab-attendees.js — the Attendees tab: the lead-only live roster (Eventbrite orders + gather claimants), copy/email actions.
-   Owns: renderAttendees, wireAttendees, copyText, fmtAgo
+   Owns: renderAttendees, wireAttendees, copyText
    Reads: state (state.js); DB (data.js)
    Writes: nothing
    Loaded after: tabs-listing-planning.js (file-map order; no load-time dependency) */

@@ -5,9 +5,9 @@
          _unconfirmed, applied, pendingFor, trackWorkerWrite, afterCreate, trackCreate,
          retryCreateConfirm, saveQueue, dropFailedEdits, retryFailedSave, guardUnload, paintSaveStatus,
          scheduleAutosave, autosaveEditor, leaveForm, flushAutosave, applyLocal
-   Reads: editing, state (state.js, editor-tabs.js); _unsaved, _recent (state.js); _pushChecks (eventbrite.js)
+   Reads: editing, state (state.js, editor-tabs.js); _unsaved (state.js); _pushChecks (eventbrite.js)
    Writes: _unsaved (state.js; set/delete); _pushChecks (eventbrite.js; delete); state.events (applyLocal)
-   Loaded after: ui.js (file-map order; the est:identity listener keeps its place before those later in app.js) */
+   Loaded after: ui.js (file-map order; the est:identity listener keeps its place before those in later files) */
 
 /* ---- optimistic writes: reflect the change instantly, reconcile after ------ */
 let _reconcileT=null;

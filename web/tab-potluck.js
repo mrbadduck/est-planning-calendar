@@ -1,6 +1,6 @@
 /* tab-potluck.js — the Potluck & Volunteers tab: the gather slot builder and its claims.
-   Owns: SLOTS_LOADING_HTML, SLOTS_SLOW_MSG, renderSlots, wireSlots
-   Reads: state (state.js); DB, reference lists (data.js)
+   Owns: SLOTS_LOADING_HTML, renderSlots, wireSlots
+   Reads: DB, reference lists (data.js)
    Writes: nothing
    Loaded after: tab-attendees.js (file-map order; no load-time dependency) */
 

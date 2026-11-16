@@ -1,7 +1,7 @@
 /* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the Details listing card.
    Owns: ICON_PRIVATE, TIP_PRIVATE, ADDR_DEFAULT_HINT, ADDR_HOME_PUBLIC_WARN, fmkIcon, fieldMarkModel, fieldLabelHTML, fieldHintSlot, listingCardHTML, paintFieldMarks
-   Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js); _ebStatus, _conflictShown (app.js)
-   Writes: _conflictShown (app.js; add/delete)
+   Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js); _ebStatus, _conflictShown (eventbrite.js)
+   Writes: _conflictShown (eventbrite.js; add/delete)
    Loaded after: notes-doc.js (file-map order; no load-time dependency) */
 
 /* ---- Eventbrite listing on the Details tab (spec 5.4, 5.7; D1, D4) -----------

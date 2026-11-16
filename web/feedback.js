@@ -1,5 +1,5 @@
 /* feedback.js — the votable Feedback / Ideas board and the Feedback & ideas modal.
-   Owns: feedbackBoardHTML, _fbStatusLabel, fbItemHTML, wireFeedback, openFeedback
+   Owns: feedbackBoardHTML, wireFeedback, openFeedback
    Reads: state (state.js); DB (data.js)
    Writes: editing (editor-tabs.js, in openFeedback)
    Loaded after: tab-potluck.js (file-map order; no load-time dependency) */

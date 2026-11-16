@@ -2,7 +2,7 @@
    Owns: openPreview, closePreview
    Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js)
    Writes: nothing (owns _pvGen)
-   Loaded after: field-markers.js (the Esc listener must precede requestClose's, registered in app.js) */
+   Loaded after: field-markers.js (the Esc listener must precede requestClose's, registered in editor-close.js) */
 
 /* ---- listing preview (the card's Preview listing; board E2, R26) -------------
    An overlay above the editor — the editor stays open underneath, unsaved state

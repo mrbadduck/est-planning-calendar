@@ -1,6 +1,6 @@
 /* calendar.js — the Calendar (months), Overview and List views, and the #listView click listener.
    Owns: buildWeekHead, chipHTML, renderMonths, renderOverview, renderList, sortEv
-   Reads: state (state.js); editing (app.js, in chipHTML)
+   Reads: state (state.js)
    Writes: nothing
    Loaded after: state.js (reads state, todayStr, eventsByDate, roughByMonth at call time) */
 

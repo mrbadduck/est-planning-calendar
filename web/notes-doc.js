@@ -1,5 +1,5 @@
 /* notes-doc.js — the Planning tab's Google Doc notes block: embed/create button, polling and the Coda button push.
-   Owns: _ndocGen, renderNotes, wireNotes, pollForNotesDoc, pushNotesDocButton
+   Owns: _ndocGen, renderNotes, wireNotes
    Reads: state (state.js); editing (editor-tabs.js)
    Writes: editing.notesDocUrl and the matching state.events row (in pollForNotesDoc)
    Loaded after: editor-tabs.js (reads editing at call time) */
