@@ -6,9 +6,9 @@
    sectionFromParam(id) -> string
      Maps an old or alias section id (?section=, links) to the tab id. The first tab
      stays 'details' so old links and syncUrl keep working.
-   stepNotes(ev, {fmtDate, registrants, capacity}) -> string[5]
+   stepNotes(ev, {fmtDate, registrants, capacity}) -> string[6]
      One note per lifecycle step (Draft, Proposed, Approved, On Eventbrite,
-     Published); '' when there is nothing to say.
+     Published, Wrap-up — the event's date); '' when there is nothing to say.
    needsApproval(ev) -> boolean
      A planning event that is Proposed. */
 (function (root) {
@@ -40,7 +40,7 @@
     let pub = day(ev.lastPublishedAt);
     if (pub && o.registrants != null)
       pub += ' · ' + o.registrants + (o.capacity != null ? ' of ' + o.capacity : '') + ' registered';
-    return [draft, '', approved, eb, pub];
+    return [draft, '', approved, eb, pub, day(ev.date)];
   }
 
   const needsApproval = ev => !!ev && ev.source === 'planning' && ev.status === 'proposed';

@@ -8,6 +8,8 @@
    - readiness(ev, {venue, todayISO}): the checks the footer, fields and Worker share
    - addressVisibilityDefault(current, venue): Home venues default to Registrants only
    - footerModel(input).checklist: one readiness row per field group for the checks the primary waits on
+   - footerModel(input).steps: six lifecycle steps, the five stages plus Wrap-up (approved
+     and past; computed here from input.past, never a stage), each done/current/todo/skipped
    - syncStatus / unpushedFields: compare the event with the last pushed snapshot */
 // Dates are YYYY-MM-DD and times zero-padded HH:MM: string comparison relies on it.
 (function (root) {
@@ -113,8 +115,15 @@
   }
 
   // ---- footer wizard model (spec 5.5) ----
-  const STEP_LABELS = ['Draft', 'Proposed', 'Approved', 'On Eventbrite', 'Published'];
+  // Wrap-up (index 5) isn't a stage: it is the current step once an approved event's
+  // date has passed (input.past), whether or not it ever reached Eventbrite.
+  const STEP_LABELS = ['Draft', 'Proposed', 'Approved', 'On Eventbrite', 'Published', 'Wrap-up'];
   const STAGE_INDEX = { draft: 0, proposed: 1, approved: 2, onEventbrite: 3, published: 4 };
+  const WRAP_UP = 5;
+  // The published line's middle part, from Eventbrite's live status (refreshEbStatus);
+  // unknown or not loaded yet: closed once the date (or end) has passed, else open.
+  const LIVE_STATUS_TEXT = { live: 'registration open', started: 'happening now', ended: 'registration closed',
+    completed: 'registration closed', canceled: 'canceled on Eventbrite' };
   const SLOW_TIP = 'Coda is slow right now; your change is safe';
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
@@ -156,13 +165,19 @@
     const unpushed = input.unpushed || [];
     const canEdit = !!role.canEdit, canApprove = !!role.canApprove;
     const cur = STAGE_INDEX[stage];
+    // Wrap-up: an approved event (approved, On Eventbrite or Published) whose date has
+    // passed. The Eventbrite steps it never reached are skipped, not done.
+    const wrapUp = !!past && cur != null && cur >= STAGE_INDEX.approved;
     const steps = STEP_LABELS.map((label, i) => ({ label,
-      state: cur == null ? 'todo' : i < cur ? 'done' : i === cur ? 'current' : 'todo' }));
+      state: wrapUp ? (i === WRAP_UP ? 'current' : i <= cur ? 'done' : 'skipped')
+        : cur == null ? 'todo' : i < cur ? 'done' : i === cur ? 'current' : 'todo' }));
     const failing = list => (list || []).filter(c => !c.ok);
     const toLinks = list => list.map(c => ({ field: c.field, label: c.message }));
     const prim = (label, act, enabled, tone) => ({ label, act, enabled, tone });
     const savedText = prim('✓ Saved', null, false, 'quiet');
-    const out = { steps, title: '', sub: '', links: [], primary: null, secondary: null, menu: [], busy: false,
+    // subLinks: words in `sub` that link to a tab ({text, sect}); the panel turns them
+    // into data-sect links.
+    const out = { steps, title: '', sub: '', subLinks: [], links: [], primary: null, secondary: null, menu: [], busy: false,
       checklist: [] };
     const del = sub => ({ act: 'delete', label: 'Delete event', sub: sub || '', tone: 'danger' });
     const addFail = failing(checks && checks.add), pubFail = failing(checks && checks.publish);
@@ -173,7 +188,8 @@
     const NOT_COMPARED = 'Not compared with Eventbrite yet';
     const unNote = nUn === 1 ? "1 change isn't on Eventbrite yet" : nUn + " changes aren't on Eventbrite yet";
     const regLine = () => {
-      const base = 'Published · registration open';
+      const ls = LIVE_STATUS_TEXT[str(input.liveStatus)];
+      const base = 'Published · ' + (ls || (input.ended || past ? 'registration closed' : 'registration open'));
       if (registrants == null) return base;
       return input.capacity ? base + ' · ' + registrants + ' of ' + input.capacity + ' registered'
         : base + ' · ' + plural(registrants, 'registered', 'registered');
@@ -265,12 +281,17 @@
     if (past) {
       out.primary = null; out.secondary = null; out.menu = []; out.links = []; out.checklist = [];
     }
+    if (wrapUp) {
+      out.title = 'This event has happened' + (registrants == null ? '' : ' · ' + plural(registrants, 'registered', 'registered'));
+      out.sub = 'Next: log expenses and capture what you learned — coming soon.';
+      out.subLinks = [{ text: 'expenses', sect: 'budget' }, { text: 'what you learned', sect: 'feedback' }];
+    }
     if (justChanged && justChanged.fields && justChanged.fields.length && (stage === 'published' || stage === 'onEventbrite') && canEdit) {
       const names = justChanged.fields.map(k => (FIELDS[k] ? FIELDS[k].label : k).toLowerCase());
       const what = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
       out.title = 'The ' + what + (names.length > 1 ? ' changed' : ' changed') + '. Let the ' +
         plural(justChanged.registrants || 0, 'registrant', 'registrants') + ' know?';
-      out.sub = '';
+      out.sub = ''; out.subLinks = [];
       out.checklist = [];   // the offer is the whole next step: no readiness rows under it
       out.primary = prim('Email registrants', 'email-registrants', true, 'primary');
       out.secondary = { label: 'Not now', act: 'dismiss-notice' };

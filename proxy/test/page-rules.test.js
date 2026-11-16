@@ -15,7 +15,7 @@ test('sectionFromParam maps aliases and passes other ids through', () => {
   assert.equal(sectionFromParam('volunteers'), 'volunteers');
 });
 
-const FULL = { createdBy: 'Ana', approvedBy: 'Ben', approvedAt: '2026-11-02',
+const FULL = { date: '2026-11-20', createdBy: 'Ana', approvedBy: 'Ben', approvedAt: '2026-11-02',
   lastEbPushAt: '2026-11-03T15:00:00Z', lastPublishedAt: '2026-11-04T15:00:00Z' };
 const fmtDate = s => 'D(' + s.slice(0, 10) + ')';
 // ISO timestamps show by their LOCAL date; the expected value is computed from the same Date.
@@ -25,11 +25,11 @@ const EB = 'D(' + localDay(FULL.lastEbPushAt) + ')', PUB = 'D(' + localDay(FULL.
 
 test('stepNotes gives one note per step', () => {
   assert.deepEqual(stepNotes(FULL, { fmtDate, registrants: 12, capacity: 40 }),
-    ['by Ana', '', 'by Ben · D(2026-11-02)', EB, PUB + ' · 12 of 40 registered']);
+    ['by Ana', '', 'by Ben · D(2026-11-02)', EB, PUB + ' · 12 of 40 registered', 'D(2026-11-20)']);
 });
 
 test('stepNotes is all blank when there is nothing to say', () => {
-  assert.deepEqual(stepNotes({}, { fmtDate, registrants: null, capacity: null }), ['', '', '', '', '']);
+  assert.deepEqual(stepNotes({}, { fmtDate, registrants: null, capacity: null }), ['', '', '', '', '', '']);
 });
 
 test('stepNotes drops or shortens the registered part', () => {
