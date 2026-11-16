@@ -3187,7 +3187,19 @@ async function fetchMe(){
   }catch(_){ state.identity=null; }               // transient network error: keep the token, try again later
   state.authPending=false;
   renderAuth(); applyView();
+  refreshEditorRole();
   document.dispatchEvent(new CustomEvent('est:identity'));   // panels opened before sign-in resolved (deep links) re-fetch on this
+}
+// An editor opened before the role loaded (a ?event= deep link) was built read-only.
+// When the role arrives and grants more than that editor was built with, rebuild it
+// in place: openEditor first queues any edit in an open form (leaveForm), so nothing
+// typed is lost. Losing a permission (sign-out, a /me blip) doesn't rebuild: the
+// Worker refuses the writes, and a network blip mustn't yank the form mid-edit.
+function refreshEditorRole(){
+  if(!editing || !_ctx || _ctx.ev!==editing || !editing.id || _busy.has(editing.id)) return;
+  if(!document.getElementById('modal').classList.contains('ws')) return;   // not the workspace (e.g. still loading)
+  const now=editorCtx(editing).role, was=_ctx.role;
+  if((now.canEdit && !was.canEdit) || (now.canApprove && !was.canApprove)) openEditor(editing, activeSection);
 }
 // Called by estAuth whenever Firebase yields a (refreshed) ID token.
 async function onFirebaseToken(token){ state.idToken = token || null; state.authResolved = true; state.authPending = !!token; renderAuth(); await fetchMe(); }
