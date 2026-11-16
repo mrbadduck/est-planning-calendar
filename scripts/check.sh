@@ -22,9 +22,8 @@ hook=0
 [[ "${1:-}" == "--hook" ]] && hook=1
 
 MAX_LINES=800
-# Files allowed past MAX_LINES for now. app.js is split into small files in the
-# event-page work (Phase 1); remove it from this list when that lands.
-OVERSIZE_OK=(web/app.js)
+# Files allowed past MAX_LINES (none: app.js was split into small files).
+OVERSIZE_OK=()
 
 problems=()
 add() { problems+=("$1"); }

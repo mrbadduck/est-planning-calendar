@@ -1,32 +1,65 @@
 # App map — how `web/` is built
 
 Moved out of CLAUDE.md on 2026-11-16 so it isn't loaded on every task. Read it before
-changing the app. The event-page work (Phase 1) splits `web/app.js` into small files and
-rewrites this page as a file map; until then it walks `app.js` top to bottom.
+changing the app. `web/app.js` was split into small files (event-page work, Phase 1,
+no behavior change); this page is the file map, in load order, with the facts about
+each piece kept under the file that owns it.
 
 Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
 
-## `app.js`, top to bottom
+`web/` is `index.html` + `styles.css` + plain `<script>` files that share globals
+(buildless: no modules, no imports). Each file starts with a header comment — **Owns**
+(names other files use), **Reads/Writes** (shared mutable state from other files),
+**Loaded after** (why its place in the order matters). `./scripts/check.sh` keeps every
+`web/*.js` at 800 lines or fewer.
 
-Split into `web/index.html` + `web/styles.css` + `web/app.js` (buildless; all
-logic in `app.js`). Key pieces of `app.js`, top to bottom:
+## Adding a file
 
+- Scripts load in the order `index.html` lists them. A new file's `<script src>` goes
+  where its top-level statements belong: top-level statements that *run at load*
+  (listener registrations, the `prefs.layers` fix-up, `init()`) keep their original
+  relative order, and a file must not run anything at load that a later file declares
+  (`const`/`let` are not yet defined there). `init();` (main.js) is the last statement.
+  Functions only used at call time can live anywhere.
+- The four Escape `keydown` handlers run in this order: `preview.js` (closes only the
+  preview) → `editor-close.js` `requestClose` → `editor-close.js` ⋮ menu → `help.js`.
+  Three of them call `stopImmediatePropagation`, so reordering changes which one
+  wins. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
+  too; neither stops propagation.)
+- Update the file's header and this page when you add, move or rename things.
+
+## File map (load order)
+
+Before `util.js` (pure helpers, node-tested where noted): `auth-firebase.js` (module;
+Firebase bridge, mirrored from `shared/`), `roster-lib.js` (attendee segments + mailto
+helpers), `help/help-lib.js` (guide parser/renderer), `listing-readiness.js` (shared
+publish rules; also imported by the Worker, so no DOM), `listing-html.js` (description
+sanitizer), `listing-preview.js` (preview model before Eventbrite), `coda-applied.js`
+(honest-save poller), `save-queue.js` (per-event save queue), `editor-head.js` (header
+meta).
+
+1. **`util.js`** — pure helpers: `esc`, `cap`, date/time formatting, `linkify`, `cssColor`.
+2. **`data.js`** — reference lists, local cache, the Coda seam, `CodaSource`.
 - **Data layer**: `PROGRAMS`/`PEOPLE` (built-in palette + editor picker seeds,
   the programs list is replaced live from `/ref/programs`), `MOCK_REFS` (built-in
   holiday/partner overlays, still awaiting Hebcal), `planningRowToEvent` /
   `eventToCodaCells`, and **`CodaSource`** — the single live data source hitting
   the proxy. `const DB = CodaSource;` (the in-memory mock was removed).
+3. **`pickers.js`** — `initTypeahead` (Leads/Volunteers) and `initVenuePicker`.
+4. **`state.js`** — prefs, the `state` object, program-year dates, `loadEvents`, the `_recent`/`_unsaved` local-copy guards, refs settling, date bucketing.
 - **State**: `state` object (program year, current view, layers, role, events).
   Program year runs **Sep→Aug**.
 - **Event model**: normalized event with `scheduling ∈ {exact, range, month}`.
   Undated "ideas" render in the left gutter (Calendar) / month footer (Overview),
   anchored to their rough week/month.
+5. **`calendar.js`** — the Calendar (months), Overview and List views.
 - **Three views**: `renderOverview()` (default — whole year, months as cards, weeks
   bucketed **weeknight Mon–Thu / weekend Fri–Sun**), `renderMonths()`
   (detailed month grids with a left "Ideas" gutter) and `renderList()` (an agenda:
   one row per day with anything on it, refs collapsed to one muted line, undated
   ideas closing out their month). `applyView()` shows `curView()`, which is
   `state.view` — except **phones (≤600px, `PHONE_MQ`) always get the list**.
+6. **`editor-tabs.js`** — the open event (`editing`), the `SECTIONS` registry, the rail, `renderSection`. The next three files (`fields.js`, `tabs-listing-planning.js`, `editor.js`) and the tab files share this editor description:
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
   live sections **Details** (the Eventbrite listing only, in listing order:
   Title, Summary, Description, When, Where — with the Address on listing toggle
@@ -62,27 +95,27 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   `web/editor-head.js`, live as you type), then the status badge and icons. The
   editor runs a compact scale (`:is(.modal.ws,.modal.create)` rules in
   `styles.css`); phones keep 44px tap targets.
-- **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
-  = approved+EB-published and *Past* = date passed are DERIVED, not stored).
-  Action-driven, not a dropdown: the footer is a wizard (`ListingRules.footerModel`
-  in `web/listing-readiness.js`, painted by `renderEditorFooter`). Row 1 = the five
-  steps (Draft → Proposed → Approved → On Eventbrite → Published), full width.
-  Row 2 = what's next (title/sub/links to blocking fields) on the left, with the one
-  primary action and **⋮** on the right, bottom-aligned (the only secondary is the
-  registrant-email offer's "Not now"). Off Details the footer is one line on what
-  the tab is for (`SECTIONS[].foot`) + **⋮** (plus an in-flight Saving…). **⋮** holds **Delete event** before publishing and **Cancel event…**
-  / **Unpublish** after (never both). Approve is gated server-side (Tribal Council).
-  Header = the status badge (`statusInfo`, from the same `stageOf` as the steps, so
-  it repaints with the footer; a button that opens the lifecycle guide) + ? / View
-  in gather / Copy link icons (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
-  Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
-  +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
-  or Live, date gone by) locks the **Details** and **Planning** fields and drops Cancel/Delete; the notes
-  doc, Potluck & Volunteers and Attendees are unaffected. The lock is decided when the event
-  opens (so a Council date typo can still be fixed in that session; approving a
-  past-dated proposal asks first) and is enforced only in the UI — the Worker doesn't
-  check it (#32), and `todayStr` is fixed at page load. Design:
-  `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
+7. **`notes-doc.js`** — the Planning tab's Google Doc notes block (embed/create button, polling, the Coda button push).
+8. **`field-markers.js`** — Eventbrite sync icons, hints and tags on field labels; `listingCardHTML`.
+9. **`preview.js`** — the Preview listing overlay and its Esc-closes-only-the-preview listener.
+10. **`editor.js`** — stage badge, `editorCtx`, header meta, `openEditor`, the create flow, URL sync.
+- **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
+  `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
+11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
+12. **`tabs-listing-planning.js`** — the Details and Planning panels and the private-home address-default rules.
+13. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).
+14. **`tab-potluck.js`** — the Potluck & Volunteers tab: the gather slot builder and its claims.
+15. **`feedback.js`** — the votable Feedback / Ideas board and its modal.
+- **Feedback/Ideas board** (`feedbackBoardHTML`/`wireFeedback`): a votable roadmap
+  board — a global header CTA (`#feedbackBtn`) + a context-tagged board in each
+  coming-soon section. Backed by the Coda `Roadmap Feedback` table
+  (`grid-pP5rwauO2j`) via Worker `GET/POST /feedback` + `POST /feedback/:id/vote`
+  (new var `CODA_FEEDBACK_TABLE`). Design/plan:
+  `docs/superpowers/specs|plans/2026-08-22-event-workspace*`.
+16. **`ui.js`** — toasts and the shared tooltip bubble.
+- **Tooltips**: any element with `data-tip` gets the shared bubble (`showTip`/
+  `hideTip`) on hover and keyboard focus — use it, not `title=`, for icon buttons.
+17. **`save.js`** — the save model, the save pill, `leaveForm`, the unload guard.
 - **Save model (create-then-workspace + on-blur autosave):** a NEW event opens a
   one-shot compact Planning modal (`openNewEventForm`, Cancel/Create) — not the
   workspace, so no premature empty rows; on Create it persists once and
@@ -133,28 +166,32 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   Design/plan:
   `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*` (the queue and
   partial writes replaced its snapshot-and-rewrite save in #24).
-- **URL deep-links**: `?event=<rowId>&section=<id>` two-way synced (`syncUrl`/
-  `clearUrl`/`openFromUrl`); a **Copy link** header button shares the current view.
-- **Feedback/Ideas board** (`feedbackBoardHTML`/`wireFeedback`): a votable roadmap
-  board — a global header CTA (`#feedbackBtn`) + a context-tagged board in each
-  coming-soon section. Backed by the Coda `Roadmap Feedback` table
-  (`grid-pP5rwauO2j`) via Worker `GET/POST /feedback` + `POST /feedback/:id/vote`
-  (new var `CODA_FEEDBACK_TABLE`). Design/plan:
-  `docs/superpowers/specs|plans/2026-08-22-event-workspace*`.
-- **Help drawer** (`openHelp(id)` / `closeHelp` / `renderHelp` — the HELP block near
-  the end of `app.js`): a right-side drawer that renders `web/help/guide.md` +
-  `whats-new.md` through `HelpLib` (`web/help/help-lib.js`). Entry points: the header
-  **?** (`#helpBtn`), the editor header's **?** (`data-act="help"` → the active
-  section's `SECTIONS[].help`), the create form's **?**, the status badge
-  (`data-help="lifecycle"`), the sign-in "New here?" link, `?help=<id>`, and a
-  once-per-device Welcome on first sign-in (`est-help-welcomed`); a What's-new dot
-  (`est-help-seen`). The calendar key is the guide's live `{{legend}}` embed
-  (`legendEmbedHTML`). App code names a guide ONLY via `openHelp('<id>')`,
-  `help:'<id>'` or `data-help="<id>"` — the forms the guard checks. On wide screens
-  (≥1000px) the open drawer pushes the page aside (`body.help-open` padding) rather
-  than covering it.
-- **Tooltips**: any element with `data-tip` gets the shared bubble (`showTip`/
-  `hideTip`) on hover and keyboard focus — use it, not `title=`, for icon buttons.
+18. **`footer.js`** — the editor footer wizard (`ListingRules.footerModel` painted into stable containers), the ⋮ menu, `focusField`.
+19. **`transitions.js`** — `transitionTo`, `cancelEvent`, delete, the Eventbrite-cancel bar. The status state machine (this file and `footer.js`):
+- **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
+  = approved+EB-published and *Past* = date passed are DERIVED, not stored).
+  Action-driven, not a dropdown: the footer is a wizard (`ListingRules.footerModel`
+  in `web/listing-readiness.js`, painted by `renderEditorFooter`). Row 1 = the five
+  steps (Draft → Proposed → Approved → On Eventbrite → Published), full width.
+  Row 2 = what's next (title/sub/links to blocking fields) on the left, with the one
+  primary action and **⋮** on the right, bottom-aligned (the only secondary is the
+  registrant-email offer's "Not now"). Off Details the footer is one line on what
+  the tab is for (`SECTIONS[].foot`) + **⋮** (plus an in-flight Saving…). **⋮** holds **Delete event** before publishing and **Cancel event…**
+  / **Unpublish** after (never both). Approve is gated server-side (Tribal Council).
+  Header = the status badge (`statusInfo`, from the same `stageOf` as the steps, so
+  it repaints with the footer; a button that opens the lifecycle guide) + ? / View
+  in gather / Copy link icons (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
+  Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
+  +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
+  or Live, date gone by) locks the **Details** and **Planning** fields and drops Cancel/Delete; the notes
+  doc, Potluck & Volunteers and Attendees are unaffected. The lock is decided when the event
+  opens (so a Council date typo can still be fixed in that session; approving a
+  past-dated proposal asks first) and is enforced only in the UI — the Worker doesn't
+  check it (#32), and `todayStr` is fixed at page load. Design:
+  `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
+20. **`eventbrite.js`** — the Eventbrite push (`pushToEventbrite`), registrants/edited status, publish checks.
+21. **`editor-close.js`** — the leave guard, `requestClose`, `close`, footer-action dispatch, ⋮ menu keys, header actions.
+22. **`shell.js`** — the app shell: layer toggles, `#months`/`#quarter` click delegation, day picker, `layoutSticky`, view switch (`curView`, `applyView`, `PHONE_MQ`), year nav, `addEvent`, and the ⚙ (`ovfMenu`) and ☰ (`phoneMenu`) menus.
 - **Header + calendar settings (⚙)**: row 2 is view switch + year picker, then ↻,
   ⚙ (`#ovfBtn`) and **+ New event** at the far right. ⚙ opens `#ovfPanel`, which
   holds the layer toggles (`#layers`, `renderLayers`).
@@ -171,7 +208,20 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 - **`layoutSticky()`**: measures header heights into `--bar-h`/`--wh-h` so the
   sticky weekday row + month headers stack correctly; self-corrects on load,
   resize, view switch, and Help opening/closing.
-
+23. **`auth.js`** — Firebase sign-in: token lifecycle, `/me` identity and roles (`fetchMe`), the sign-in gate, the account menu, `refreshEditorRole`, `initAuth`.
+24. **`help.js`** — the Help drawer.
+- **Help drawer** (`openHelp(id)` / `closeHelp` / `renderHelp` — `web/help.js`): a right-side drawer that renders `web/help/guide.md` +
+  `whats-new.md` through `HelpLib` (`web/help/help-lib.js`). Entry points: the header
+  **?** (`#helpBtn`), the editor header's **?** (`data-act="help"` → the active
+  section's `SECTIONS[].help`), the create form's **?**, the status badge
+  (`data-help="lifecycle"`), the sign-in "New here?" link, `?help=<id>`, and a
+  once-per-device Welcome on first sign-in (`est-help-welcomed`); a What's-new dot
+  (`est-help-seen`). The calendar key is the guide's live `{{legend}}` embed
+  (`legendEmbedHTML`). App code names a guide ONLY via `openHelp('<id>')`,
+  `help:'<id>'` or `data-help="<id>"` — the forms the guard checks. On wide screens
+  (≥1000px) the open drawer pushes the page aside (`body.help-open` padding) rather
+  than covering it.
+25. **`main.js`** — `refresh`, `init`, and the final `init();`.
 
 ## Gotchas (things that already bit us)
 
