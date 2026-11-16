@@ -735,8 +735,8 @@
        mid    760–1099   tab strip under the top bar, then main | panel (280px)
        phone  < 760px    status card, tab strip, the tab, sticky bottom bar
      760 = the narrowest page where main keeps ≥ 420px beside the 280px panel
-     (420 + 280 + 22 gap + 2×18 padding = 758). Touch tap targets (44px) stay on the
-     600px media queries: they follow the device, not the layout. */
+     (420 + 280 + 22 gap + 2×18 padding = 758). Touch tap targets (44px) follow the device,
+     not the layout: @media (pointer:coarse), (max-width:600px). */
   @container ep (max-width:1099.98px){
     .ep-grid{--ep-layout:mid;display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 22px;padding-top:0}
     /* the tab strip: full width, sticks under the top bar */
