@@ -99,7 +99,7 @@ export function venuePayload(venue, addressVisibility, area) {
     return { venue: { name: 'Address shared upon registration', address: { city, region, country } } };
   }
   const v = { name: venue.name || 'Venue' };
-  if (venue.address) {
+  if (venue.address && String(venue.address).trim()) {
     // Coda's Address strings already carry city/state (sometimes twice). Send
     // the street alone as address_1, or Eventbrite shows the city repeated (R22).
     const p = parseUsAddress(venue.address, { city, region });
@@ -122,6 +122,39 @@ const ZIP_SEG = new RegExp('^' + ZIP + '$');
 // A trailing segment that names a unit, not a city ("Building B", "Suite 2").
 const UNIT_SEG = /^(suite|ste|unit|apt|apartment|building|bldg|floor|fl|room|rm|dept|po box|p\.?o\.? box|box|#)(\b|\s|\d|$)/i;
 const CITY_WORDS = /^[A-Za-z][A-Za-z .'-]*$/;
+const STATE_NAMES = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO', connecticut: 'CT',
+  delaware: 'DE', 'district of columbia': 'DC', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID', illinois: 'IL',
+  indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY', louisiana: 'LA', maine: 'ME', maryland: 'MD',
+  massachusetts: 'MA', michigan: 'MI', minnesota: 'MN', mississippi: 'MS', missouri: 'MO', montana: 'MT',
+  nebraska: 'NE', nevada: 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+  'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH', oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA',
+  'puerto rico': 'PR', 'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD', tennessee: 'TN', texas: 'TX',
+  utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', 'west virginia': 'WV', wisconsin: 'WI', wyoming: 'WY',
+};
+// Longest names first, so "West Virginia" wins over "Virginia".
+const STATE_NAME_RE = Object.keys(STATE_NAMES).sort((a, b) => b.length - a.length).map(n => n.replace(/ /g, '\\s+')).join('|');
+const WHOLE_NAME = new RegExp('^(' + STATE_NAME_RE + ')(?:\\s+' + ZIP + ')?$', 'i');            // "Tennessee 37219"
+const TRAILING_NAME = new RegExp('^(.*?\\S)\\s+(' + STATE_NAME_RE + ')(?:\\s+' + ZIP + ')?$', 'i'); // "Nashville Tennessee 37219"
+const stateCode = name => STATE_NAMES[name.toLowerCase().replace(/\s+/g, ' ')];
+const isStateSeg = seg => { const m = STATE_SEG.exec(seg); return !!(m && US_STATES.has(m[1])); };
+// Spelled-out state names → USPS codes, so the parser below only sees codes.
+// A whole segment that names a state ("Tennessee") is the state unless a later
+// segment is one too ("New York, NY": then it's the city). A trailing name after
+// a city ("Nashville Tennessee 37219") becomes "Nashville TN 37219"; in the first
+// segment only after the default city (no-comma "100 Main St Nashville Tennessee").
+function normalizeStateNames(segs, dCity) {
+  const out = segs.slice();
+  for (let i = out.length - 1; i >= 0; i--) {
+    const laterState = out.slice(i + 1).some(isStateSeg);
+    let m = WHOLE_NAME.exec(out[i]);
+    if (m) { if (!laterState) out[i] = stateCode(m[1]) + (m[2] ? ' ' + m[2] : ''); continue; }
+    m = TRAILING_NAME.exec(out[i]);
+    if (m && !laterState && (i >= 1 || m[1].toLowerCase().endsWith(' ' + dCity.toLowerCase())))
+      out[i] = m[1] + ' ' + stateCode(m[2]) + (m[3] ? ' ' + m[3] : '');
+  }
+  return out;
+}
 
 // Split a free-text US address ("3914 Gallatin Pike, Nashville, TN, Nashville, TN
 // 37216") into Eventbrite's structured parts. Pure. address_1 is the street only:
@@ -142,7 +175,14 @@ export function parseUsAddress(str, defaults) {
     const tail = ' ' + dCity.toLowerCase();
     return seg.toLowerCase().endsWith(tail) && seg.length > tail.length ? [seg.slice(0, -tail.length).trim(), dCity] : null;
   };
-  const segs = String(str == null ? '' : str).split(',').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let segs = String(str == null ? '' : str).split(',').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  segs = normalizeStateNames(segs, dCity);
+  // No commas at all: "100 Main St Nashville TN 37216" — split off a trailing
+  // "<default city> <ST> [ZIP]" (another city is left as is).
+  if (segs.length === 1) {
+    const m = new RegExp('^(.*?\\S)\\s+' + dCity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+([A-Z]{2})(?:\\s+' + ZIP + ')?$', 'i').exec(segs[0]);
+    if (m && US_STATES.has(m[2].toUpperCase())) segs = [m[1], dCity, m[2].toUpperCase() + (m[3] ? ' ' + m[3] : '')];
+  }
   let street = segs.slice(0, 1), city = '', region = '', zip = '';
   for (let i = 0; i < segs.length; i++) {
     let m = STATE_SEG.exec(segs[i]);

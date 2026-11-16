@@ -161,6 +161,34 @@ test('venuePayload — never sends an empty address_1 for a non-empty Coda addre
   assert.equal(a1('PO Box 123, Nashville, TN 37203'), 'PO Box 123');
   for (const addr of ['Nashville, TN', 'TN 37216', ' , TN', 'x']) assert.ok(a1(addr), addr);
 });
+test('parseUsAddress — spelled-out state names are the state, never the city', () => {
+  assert.deepEqual(parseUsAddress('100 Main St, Nashville, Tennessee'),
+    { address_1: '100 Main St', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('500 Church St, Nashville, Tennessee 37219'),
+    { address_1: '500 Church St', city: 'Nashville', region: 'TN', postal_code: '37219' });
+  assert.deepEqual(parseUsAddress('500 Church St, Nashville Tennessee 37219'),
+    { address_1: '500 Church St', city: 'Nashville', region: 'TN', postal_code: '37219' });
+  assert.deepEqual(parseUsAddress('9 Elm St, Bowling Green, kentucky'),
+    { address_1: '9 Elm St', city: 'Bowling Green', region: 'KY', postal_code: '' });
+  assert.deepEqual(parseUsAddress('1 Pennsylvania Ave, Washington, District of Columbia 20500'),
+    { address_1: '1 Pennsylvania Ave', city: 'Washington', region: 'DC', postal_code: '20500' });
+  // a city named like a state stays the city when a state follows
+  assert.deepEqual(parseUsAddress('1 Broadway, New York, NY 10004'),
+    { address_1: '1 Broadway', city: 'New York', region: 'NY', postal_code: '10004' });
+});
+test('parseUsAddress — no commas: a trailing "<default city> <ST> <ZIP>" is split off', () => {
+  assert.deepEqual(parseUsAddress('100 Main St Nashville TN 37216'),
+    { address_1: '100 Main St', city: 'Nashville', region: 'TN', postal_code: '37216' });
+  assert.deepEqual(parseUsAddress('100 Main St Nashville Tennessee'),
+    { address_1: '100 Main St', city: 'Nashville', region: 'TN', postal_code: '' });
+  // another city with no commas: left as is
+  assert.deepEqual(parseUsAddress('100 Main St Franklin TN 37064'),
+    { address_1: '100 Main St Franklin TN 37064', city: 'Nashville', region: 'TN', postal_code: '' });
+});
+test('venuePayload — a whitespace-only address sends no street line', () => {
+  const v = venuePayload({ name: 'V', address: '   ' }, 'Public', AREA);
+  assert.equal(v.venue.address, undefined);
+});
 test('parseUsAddress — caller defaults are used when the string has no city/state', () => {
   assert.deepEqual(parseUsAddress('1 A St', { city: 'Chattanooga', region: 'TN' }),
     { address_1: '1 A St', city: 'Chattanooga', region: 'TN', postal_code: '' });
