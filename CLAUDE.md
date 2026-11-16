@@ -158,14 +158,16 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   summary/description** (sent to Eventbrite) live in Publish.
 - **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
   = approved+EB-published and *Past* = date passed are DERIVED, not stored).
-  Action-driven, not a dropdown: transitions are footer-left buttons by role/state
-  — Draft→**Propose**|**Cancel**; Proposed→**Approve**(council)|**Cancel**;
-  Approved→**Cancel** (+ Publish in the Publish section); Cancelled→**Reopen**
-  (council). **Delete** is council-only (leads get **Cancel** in that spot);
-  approve gated server-side (Tribal Council). Header = derived status badge (a button
-  that opens the lifecycle guide) + ? / View in gather / Copy link icons; footer =
-  transitions left / save-status right (`statusInfo`, `footerActionsHTML`,
-  `transitionTo`, `cancelEvent`). **Cancel** tears down the
+  Action-driven, not a dropdown: the footer is a wizard (`ListingRules.footerModel`
+  in `web/listing-readiness.js`, painted by `renderEditorFooter`). Row 1 = the five
+  steps (Draft → Proposed → Approved → On Eventbrite → Published), full width.
+  Row 2 = what's next (title/sub/links to blocking fields) on the left, with the one
+  primary action, an optional secondary (Preview listing) and **⋮** on the right,
+  bottom-aligned. **⋮** holds **Delete event** before publishing and **Cancel event…**
+  / **Unpublish** after (never both). Approve is gated server-side (Tribal Council).
+  Header = the status badge (`statusInfo`, from the same `stageOf` as the steps, so
+  it repaints with the footer; a button that opens the lifecycle guide) + ? / View
+  in gather / Copy link icons (`transitionTo`, `cancelEvent`, `deleteEditor`). **Cancel** tears down the
   Eventbrite listing via Worker `POST /cancel/eventbrite` (unpublish, else cancel
   +notify) then sets Status=Cancelled. A past approved event (`isHistory`: Approved
   or Live, date gone by) locks its **Details** tab and drops Cancel/Delete; Notes,
@@ -202,8 +204,12 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   event stays `_lossy` until every reference list is loaded and its names all
   map, and meanwhile the editor waits ("Loading…", first visit) or shows
   Program(s)/Leads/Where read-only (`relationsReady`) — a picker seeded from a
-  partial map would save a partial list. Footer = transitions + a **save-status
-  pill** (`#saveStatus`: Saved/Unsaved/Saving…/failed-retry, click to retry).
+  partial map would save a partial list. Saving shows only in the footer's primary
+  button: **Saving…** while anything is pending (`pendingFor`), **Still saving…**
+  after CodaApplied's 20 s slow mark. A step under way (`_busy` + `_busyLabel`:
+  Propose/Approve/Reopen/Cancel/Delete/Unpublish/push) shows there too, with the
+  secondary and ⋮ disabled, and no busy toast. The `#saveStatus` pill shows only
+  **Save failed — retry** (click to retry); when nothing says Saving, it's saved.
   `close()` — and every opener that replaces the modal, via `leaveForm()` —
   queues a pending edit so a fast Done/Esc/✕ can't drop the last change;
   `beforeunload` (listened for only while an editor is open or a save is pending —

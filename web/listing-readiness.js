@@ -133,7 +133,7 @@
     const toLinks = list => list.map(c => ({ field: c.field, label: c.message }));
     const prim = (label, act, enabled, tone) => ({ label, act, enabled, tone });
     const savedText = prim('✓ Saved', null, false, 'quiet');
-    const out = { steps, title: '', sub: '', links: [], primary: null, secondary: null, menu: [] };
+    const out = { steps, title: '', sub: '', links: [], primary: null, secondary: null, menu: [], busy: false };
     const del = sub => ({ act: 'delete', label: 'Delete event', sub: sub || '', tone: 'danger' });
     const addFail = failing(checks && checks.add), pubFail = failing(checks && checks.publish);
     const nUn = unpushed.length;
@@ -248,6 +248,7 @@
     // queued edits (`pending`, only where there's an action to hold back). After
     // CodaApplied's slow mark (`slow`), "Saving…" reads "Still saving…".
     const busy = input.busy;
+    out.busy = !!busy && canEdit;   // the renderer disables the secondary and ⋮ meanwhile
     if (sending && out.primary) out.primary = prim('Sending to Eventbrite…', null, false, 'primary');   // a push in flight
     else if (busy && canEdit) out.primary = prim(typeof busy === 'string' ? busy : 'Saving…', null, false, 'primary');
     else if (pending && out.primary) out.primary = prim('Saving…', null, false, 'primary');   // no action to hold back → nothing to show

@@ -335,3 +335,14 @@ test('footerModel busy (a transition/cancel/delete in flight) holds the primary 
   // read-only viewers see nothing in flight
   assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, busy: true }).primary, null);
 });
+
+test('footerModel busy marks the footer busy (secondary and ⋮ get disabled); idle and sending-only do not', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  const b = fm({ stage: 'onEventbrite', ev, busy: 'Deleting…' });
+  assert.equal(b.busy, true);
+  assert.equal(b.secondary.act, 'preview-eb');   // still listed, rendered disabled
+  assert.deepEqual(acts(b), ['delete']);
+  assert.equal(fm({ stage: 'onEventbrite', ev }).busy, false);
+  assert.equal(fm({ stage: 'onEventbrite', ev, pending: true }).busy, false);
+  assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, busy: true }).busy, false);
+});

@@ -2339,7 +2339,7 @@ function footerActsHTML(m, onDetails){
     m = { primary: p };
   }
   let h='';
-  if(m.secondary) h += `<button type="button" class="btn fbtn sec" data-act="${esc(m.secondary.act)}">${esc(m.secondary.label)}</button>`;
+  if(m.secondary) h += `<button type="button" class="btn fbtn sec" data-act="${esc(m.secondary.act)}"${m.busy?' disabled':''}>${esc(m.secondary.label)}</button>`;
   const p=m.primary;
   // The model's quiet "✓ Saved" isn't shown (R21): when nothing is saving, it's saved.
   if(p && p.tone!=='quiet'){
@@ -2354,9 +2354,10 @@ function footerActsHTML(m, onDetails){
 }
 // The ⋮ menu has its own container (#edMenu): primary repaints never touch it, and it
 // is rebuilt (closed) only when its items change. Open/close just flips attributes.
-function footerMenuHTML(menu){
+function footerMenuHTML(menu, busy){
   if(!menu.length) return '';
-  return `<button type="button" class="kb" data-act="menu" aria-label="More actions" data-tip="More actions" aria-haspopup="menu" aria-expanded="false">${KEBAB_ICON}</button>`
+  // While a step is under way (busy), ⋮ is disabled: nothing else may start meanwhile.
+  return `<button type="button" class="kb" data-act="menu" aria-label="More actions" data-tip="More actions" aria-haspopup="menu" aria-expanded="false"${busy?' disabled':''}>${KEBAB_ICON}</button>`
     + `<div class="kmenu" role="menu" aria-label="More actions" hidden>${menu.map(it=>
       `<button type="button" class="mi${it.tone==='danger'?' danger':''}" role="menuitem" tabindex="-1" data-act="${esc(it.act)}"><b>${esc(it.label)}</b>${it.sub?`<span>${esc(it.sub)}</span>`:''}</button>`).join('')}</div>`;
 }
@@ -2371,7 +2372,7 @@ function renderEditorFooter(){
   paintInner(msgEl, onDetails ? footerMsgHTML(m) : '');
   const bEl=document.getElementById('mBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage
   paintInner(actEl, footerActsHTML(m, onDetails));
-  if(paintInner(menuEl, footerMenuHTML(m.menu))) _menuOpen=false;   // items changed: it's a new (closed) menu
+  if(paintInner(menuEl, footerMenuHTML(m.menu, m.busy))) _menuOpen=false;   // items changed: it's a new (closed) menu
   paintFieldMarks();   // field markers/tags follow the same event state as the footer
 }
 function kebabMenu(open, focusFirst){
@@ -2742,8 +2743,7 @@ async function pushToEventbrite(act){
       toast('Your changes didn’t save, so nothing was sent to Eventbrite. Try again.','err');
       return;
     }
-    toast(spec.draftOnly ? 'Sending to Eventbrite…' : 'Publishing…','busy');
-    _sending.add(id); if(editing===ev) renderEditorFooter();
+    _sending.add(id); if(editing===ev) renderEditorFooter();   // the footer's button says Sending to Eventbrite… (R21), no busy toast
     let res;
     try{ res=await DB.publishEventbrite(id, spec.draftOnly, force); }
     catch(err){
