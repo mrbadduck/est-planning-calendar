@@ -108,14 +108,14 @@ The event opens in full as a **Draft**. Nothing is public yet, so keep adding de
 
 Click an event to open it. It has these tabs:
 
-- [[Details]]: what goes on the Eventbrite listing, in the order people see it: [[Title]], [[Summary]], [[Description]], **When**, **Where** and [[Capacity]]. Summary, Description, Capacity and [[Address on listing]] open once the event is approved; see [Put an event on Eventbrite](#publish).
+- [[Details]]: what goes on the Eventbrite listing, in the order people see it: [[Title]], [[Summary]], [[Description]], **When**, **Where** (with [[Address on listing]]) and **Ticketing** ([[Free tickets]]). You can fill them all in from the start, even in a draft. The box at the top says whether the event is on Eventbrite yet; click [[Preview listing]] there at any time to see how the listing will look. See [Put an event on Eventbrite](#publish).
 - [[Planning]]: what only the planning team sees: [[Program(s)]], [[Leads]], [[Internal description]] and a Google Doc for your planning notes.
 - [[Potluck & Volunteers]]: sign-up slots for members.
 - [[Attendees]]: who's coming.
 
 **At the top of an open event** are its title, its first program (in that program's color, with **+1** and so on when there are more), and under them the first line of its [[Internal description]].
 
-**At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. The label at the top of the event always matches the step. On [[Details]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, only **⋮** shows.
+**At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. The label at the top of the event always matches the step. On [[Details]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, the bottom says in one line what that tab is for, next to **⋮**.
 
 **Changes save by themselves** when you move out of a field. While a change is saving, the button at the bottom says **Saving…**, and it waits until everything has saved. A save can take up to half a minute; when it's slow, the button says **Still saving…**. Your change is safe meanwhile. When nothing says Saving, everything is saved. If [[Save failed — retry]] appears beside the button, click it to try again.
 
@@ -207,7 +207,7 @@ Until these are done, the button can't be clicked. The bottom of the event lists
 
 - Approval from Tribal Council, and a title.
 - An exact date that hasn't passed, with a start time and a later end time. Date ranges, whole months and all-day events can't go on Eventbrite.
-- A [[Capacity]] of at least 1: how many free tickets Eventbrite offers.
+- At least 1 in [[Free tickets]]: how many free General Admission tickets Eventbrite offers.
 - A venue picked from the list, not a new name you typed in (ask Tribal Council to add it to the list). With no venue, Eventbrite lists the event as online.
 - A street address saved on the venue, unless [[Address on listing]] is [[Registrants only]].
 - To publish, a [[Description]] too. [[Summary]] is optional.
@@ -216,10 +216,11 @@ Until these are done, the button can't be clicked. The bottom of the event lists
 
 ### Steps
 
-1. In [[Details]], fill in [[Summary]], [[Description]] and [[Capacity]]. [[Copy internal description]] starts you off from the internal one, but take out planning notes first: this text goes public.
-2. Click [[Add to Eventbrite]].
-3. Click [[Preview listing]] to see exactly what Eventbrite has.
-4. Click [[Publish]]. Anyone can now register.
+1. In [[Details]], fill in [[Summary]], [[Description]] and [[Free tickets]]. You can do this before approval too. [[Copy internal description]] starts you off from the internal one, but take out planning notes first: this text goes public.
+2. Click [[Preview listing]] at the top of [[Details]] to see how the listing will look. Before the event is on Eventbrite, the preview is built from your fields; the street address isn't shown, only the venue name.
+3. Click [[Add to Eventbrite]].
+4. Click [[Preview listing]] again to see exactly what Eventbrite has.
+5. Click [[Publish]]. Anyone can now register.
 
 Every listing has free General Admission tickets. Paid tickets and discount codes are coming later.
 

@@ -143,10 +143,19 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
 - **Editor = a section-model workspace** (`SECTIONS` registry; rail + `#wpanel`):
   live sections **Details** (the Eventbrite listing only, in listing order:
   Title, Summary, Description, When, Where — with the Address on listing toggle
-  and its hints inside the Where block — and Capacity; the listing card
-  `#listingCard` on top. Summary/Description/Capacity/Address open once approved;
-  before that a muted note stands in), **Planning** (SECTIONS id `notes`, kept for
-  `?section=notes` links; label changed from "Planning Notes" 2026-11: Program(s) +
+  and its hints inside the Where block — and **Ticketing** (`ticketingGroupHTML`:
+  the "Free tickets" field = Coda column `Capacity`, plus a muted "Paid tickets and
+  discount codes: coming later"). Every listing field shows and is editable at
+  every stage (R27); approval gates only Add to Eventbrite/Publish (readiness).
+  The listing card `#listingCard` sits on top at every stage with **Preview
+  listing** (`data-pv-open` → `openPreview`): before the event is on Eventbrite a
+  modest "Not on Eventbrite yet" row and a preview built from the form
+  (`ListingPreview.fromForm` in `web/listing-preview.js` → the Worker
+  `previewModel` shape, node-tested); once on Eventbrite the Worker's
+  `/eventbrite/preview` (Eventbrite's draft data). Both render through
+  `previewBodyHTML` (text escaped, description via `ListingHtml.sanitize`)),
+  **Planning** (SECTIONS id `planning`; legacy `?section=notes` maps to it;
+  label changed from "Planning Notes" 2026-11: Program(s) +
   Leads side by side, **Internal description** (`description`), then the notes
   doc — the fields take the same cancelled/past lock as Details, the doc only the
   cancelled one), **Potluck & Volunteers** and **Attendees**
@@ -172,8 +181,9 @@ logic in `app.js`). Key pieces of `app.js`, top to bottom:
   in `web/listing-readiness.js`, painted by `renderEditorFooter`). Row 1 = the five
   steps (Draft → Proposed → Approved → On Eventbrite → Published), full width.
   Row 2 = what's next (title/sub/links to blocking fields) on the left, with the one
-  primary action, an optional secondary (Preview listing) and **⋮** on the right,
-  bottom-aligned. **⋮** holds **Delete event** before publishing and **Cancel event…**
+  primary action and **⋮** on the right, bottom-aligned (the only secondary is the
+  registrant-email offer's "Not now"). Off Details the footer is one line on what
+  the tab is for (`SECTIONS[].foot`) + **⋮** (plus an in-flight Saving…). **⋮** holds **Delete event** before publishing and **Cancel event…**
   / **Unpublish** after (never both). Approve is gated server-side (Tribal Council).
   Header = the status badge (`statusInfo`, from the same `stageOf` as the steps, so
   it repaints with the footer; a button that opens the lifecycle guide) + ? / View

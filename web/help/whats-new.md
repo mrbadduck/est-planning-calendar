@@ -6,7 +6,11 @@
 -->
 
 ## 2026-11-16
-- **Details is the listing.** The **Details** tab now holds just what goes on Eventbrite, in the order people see it: Title, Summary, Description, When, Where and Capacity. **Public summary** and **Public description** are now **Summary** and **Description**.
+- **Preview any time.** **Preview listing** is now in the box at the top of **Details**, and it works at every stage. Before the event is on Eventbrite, it shows how the listing will look from your own fields.
+- **Write the listing early.** Summary, Description, Free tickets and Address on listing are open from the draft on. You still need approval before **Add to Eventbrite**.
+- **Capacity is now Free tickets.** It sits in a new **Ticketing** section: how many free General Admission tickets Eventbrite offers. Paid tickets and discount codes are coming later.
+- **Every tab explains itself.** At the bottom of each tab other than Details, one line says what the tab is for.
+- **Details is the listing.** The **Details** tab now holds just what goes on Eventbrite, in the order people see it: Title, Summary, Description, When, Where and Ticketing. **Public summary** and **Public description** are now **Summary** and **Description**.
 - **New Planning tab.** **Planning Notes** is now **Planning**. It holds what only the planning team sees: Program(s), Leads, **Internal description** and the planning notes doc.
 - **A clearer top of the event.** Next to the title is its program, in the program's color, and under it the first line of the internal description.
 - **A more compact editor.** Smaller spacing, fields and buttons, so more of an event fits on screen. Phones keep big buttons.
