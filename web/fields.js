@@ -1,6 +1,6 @@
 /* fields.js — one HTML builder per event field, the Planning/create-form panels, wireEventFields and readForm.
    Owns: titleFieldHTML, internalNotesFieldHTML, programsFieldHTML, leadsFieldHTML, whenGroupHTML, whereGroupHTML, ticketingGroupHTML, REL_NOTE, lockNotesHTML, fieldLab, renderPlanning, wirePlanning, wireEventFields, readForm
-   Reads: editing (editor-tabs.js)
+   Reads: editing (editor-tabs.js); reference lists (data.js)
    Writes: whenType (editor-tabs.js)
    Loaded after: editor.js (file-map order; no load-time dependency) */
 

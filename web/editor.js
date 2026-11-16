@@ -1,8 +1,8 @@
 /* editor.js — the editor shell: stage badge, editorCtx, header meta, openEditor, the create flow and URL sync.
    Paints modal containers (ids in index.html): mStripe, mTitle, mTag, mSub, mBadges, mActions, mBody, mFoot.
    Owns: statusInfo, badgesHTML, isPastEvent, isHistory, venueRecord, editorCtx, _ctx, paintHeadMeta, clearHeadMeta, openEditor, openNewEventForm, createFromForm, clearUrl, openFromUrl
-   Reads: state (state.js); _form (app.js)
-   Writes: editing, activeSection (editor-tabs.js); _form (app.js); owns _ctx, _creating
+   Reads: state, _refsSettled (state.js); reference lists (data.js); _form (app.js)
+   Writes: editing, activeSection (editor-tabs.js); _form, _menuOpen, _ebBlock (reassigned), _pushChecks (Map .delete) (app.js); owns _ctx, _creating
    Loaded after: preview.js (file-map order; calls renderSection, readForm at call time) */
 
 /* ---- status state machine (draft → proposed → approved; bail → cancelled) ----
