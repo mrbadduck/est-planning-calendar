@@ -1,7 +1,7 @@
 /* status-panel.js — the event page's Status & next step panel: ListingRules.footerModel painted into stable containers, the ⋮ menu, field focus.
    Owns: _menuOpen, editorFooterModel, paintInner, statusPanelHTML, renderStatusPanel, kebabMenu, toggleSteps, placePhoneBar, layoutEventPage, focusField
    Reads: editing, activeSection (editor-tabs.js); _ctx (editor.js); PageRules (page-rules.js); PHONE_MQ (shell.js; at call time);
-          _busy, _busyLabel, _slow (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged (eventbrite.js); _ebBlock (transitions.js, via paintEbBlock)
+          _busy, _busyLabel, _slow (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged (eventbrite.js)
    Writes: _conflictShown (eventbrite.js; add/delete)
    Loaded after: save.js (file-map order; no load-time dependency) */
 

@@ -6,7 +6,7 @@
 
 // Lifecycle transition (Propose/Approve/Reopen): the event's queued field edits
 // land first, then the new Status goes out on its own, then the editor is rebuilt
-// so locked/panel/publish reflect the new state. Works on the event it started
+// (openEditor → the event page) so its locks and the Status & next step panel reflect the new state. Works on the event it started
 // with — `editing` may close or change while it waits. Cancel is separate (it
 // tears down Eventbrite).
 async function transitionTo(status){
