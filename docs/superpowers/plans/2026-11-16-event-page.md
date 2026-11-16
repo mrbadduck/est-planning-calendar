@@ -31,7 +31,7 @@
 
 ## Local smoke (used by many tasks)
 
-- **Server:** `npx -y live-server web --port=8080 --no-browser` from the task's worktree. Only `localhost:8080` is in the Worker's CORS allowlist. Port 8080 is currently Eric's #35 server (PID 2307, `.worktrees/publish-wizard/web`): the controller asks Eric before stopping it, and restarts it the same way afterwards if he still wants it. Record the PID; stop it by PID at the end of the step.
+- **Server:** `npx -y live-server web --port=8080 --no-browser` from the task's worktree. Only `localhost:8080` is in the Worker's CORS allowlist. Port 8080 is currently Eric's #35 server (PID 2307, `.worktrees/publish-wizard/web`): Eric OK'd stopping it (2026-11-16); stop it by PID and serve the task's worktree instead. Record the PID; stop it by PID at the end of the step.
 - **Sign-in:** Eric's Firebase session at `localhost:8080` persists per origin. If the gate shows, ask Eric to sign in; never type credentials.
 - **Stub writes** before clicking anything, in the page console:
   ```js
@@ -194,7 +194,7 @@ Until Task 7 deletes it, `web/app.js` holds what hasn't moved yet. Each task ins
 
 # Phase 2 — the event page
 
-**Before Task 8:** Eric confirms **Listing** vs **Details** for the first tab's label (asked when this plan was handed over). Tasks below say "Listing"; if Eric keeps "Details", use "Details" wherever the plan says the tab label, and keep everything else.
+**Confirmed by Eric (2026-11-16):** the first tab is labeled **Listing**.
 
 Names Phase 2 introduces (used across tasks):
 
@@ -286,7 +286,7 @@ Names Phase 2 introduces (used across tasks):
 - Rename `web/footer.js` → `web/status-panel.js` (update `index.html`, its header).
 - Modify `web/status-panel.js`: `renderEditorFooter` → `renderStatusPanel()`; `footerStepsHTML` → `checklistStepsHTML(m, notes: string[])` (vertical list: done ✓ / current / to do, each with its `stepNotes` line), `footerMsgHTML` → `nextStepHTML(m)` (title, then `m.checklist` rows as ✓/✗ — each ✗ row is `<a href="#" data-focus-field="<field>">` with its `message`; ✓ rows show the `label`), the primary and ⋮ (`footerActsHTML` / `footerMenuHTML` unchanged, always "on Details" now: the panel shows on every tab), then `m.sub`. Containers (D1, all stable, filled with `paintInner`): `#edStatus` (steps), `#edChecks` (title + rows), `#edActs`, `#edMenu`, `#edSub`, `#edBars` (registrant-email offer and the conflict / needs-Eventbrite-cancel bars that today render in the footer or `#edBlock`), `#listingCard`, `#saveStatus` (failure only).
 - Modify `web/field-markers.js` / `web/tabs-listing-planning.js`: `#listingCard` moves from the top of Listing into the panel on desktop (on phones it stays at the top of Listing — Task 12).
-- Modify `web/editor-tabs.js`: the main column's heading `#epHead` shows the tab label and its one-line description (`SECTIONS[].foot`; add one for `details`: `What people see on Eventbrite. Edits save here first; push them with the button on the right.`). Rename the `details` label to `Listing` (pending Eric). The tab list marks Listing with a red dot (`.tab-dot`, `aria-label="Needs attention"`) when any `m.links` entry's field is on Listing (`FIELD_SECTION[field] || 'details'` is `'details'`); repainted by `renderStatusPanel`. No counts that need a fetch.
+- Modify `web/editor-tabs.js`: the main column's heading `#epHead` shows the tab label and its one-line description (`SECTIONS[].foot`; add one for `details`: `What people see on Eventbrite. Edits save here first; push them with the button on the right.`). Rename the `details` label to `Listing`. The tab list marks Listing with a red dot (`.tab-dot`, `aria-label="Needs attention"`) when any `m.links` entry's field is on Listing (`FIELD_SECTION[field] || 'details'` is `'details'`); repainted by `renderStatusPanel`. No counts that need a fetch.
 - Modify every caller: `grep -n "renderEditorFooter" web/*.js` must return nothing after this task; each call site now calls `renderStatusPanel()`.
 - Modify `web/editor-close.js`: the `#mFoot` click listener (save retry, `data-focus-field`, `data-act`, ⋮) moves to `#epPanel` (and `#epPhoneBar`, Task 12); `focusField` switches tabs through `#epTabs`.
 - Modify `web/styles.css`: panel cards; remove the footer's `.edsteps/.fsteps*` rules that nothing uses now.
@@ -323,7 +323,7 @@ Names Phase 2 introduces (used across tasks):
 
 ### Task 14: Help, docs, cleanup
 
-**Files:** Modify `web/help/guide.md` (`#edit-details`, `#lifecycle`, `#planning-notes` (the spec's `#planning`; keep the id, links use it), `#field-markers`, `#publish`, `#publish-changes`, `#share-link` (Back and Copy link), and `#reading-the-calendar` or `#getting-around` gets a line on Needs approval), `web/help/whats-new.md` (a `## 2026-11-<day>` entry: the event opens as a page, the Status & next step panel, Back works, Listing (if renamed), Needs approval), `docs/app-map.md` (the page, the panel, routing, the new files), `docs/GLOSSARY.md` (Listing, Status & next step panel, checklist, Needs approval), `web/styles.css` (delete `.modal.ws`/workspace rules nothing uses; keep `.modal.create`).
+**Files:** Modify `web/help/guide.md` (`#edit-details`, `#lifecycle`, `#planning-notes` (the spec's `#planning`; keep the id, links use it), `#field-markers`, `#publish`, `#publish-changes`, `#share-link` (Back and Copy link), and `#reading-the-calendar` or `#getting-around` gets a line on Needs approval), `web/help/whats-new.md` (a `## 2026-11-<day>` entry: the event opens as a page, the Status & next step panel, Back works, Listing (renamed from Details), Needs approval), `docs/app-map.md` (the page, the panel, routing, the new files), `docs/GLOSSARY.md` (Listing, Status & next step panel, checklist, Needs approval), `web/styles.css` (delete `.modal.ws`/workspace rules nothing uses; keep `.modal.create`).
 
 - [ ] **Step 1:** Write the guide changes for a non-technical lead (writing guide at the top of `guide.md`); every `[[label]]` is exact on-screen text (e.g. `[[← Calendar]]`, `[[Needs approval]]`, `[[Status & next step]]` if that is the panel's on-screen heading, `[[Propose to council]]`).
 - [ ] **Step 2:** `node scripts/check-help.mjs` and `node scripts/check-help.mjs --branch HEAD --base refactor/split-app` — Expected: no findings. `./scripts/check.sh` passes.
