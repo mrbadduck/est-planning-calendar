@@ -99,8 +99,64 @@ export function venuePayload(venue, addressVisibility, area) {
     return { venue: { name: 'Address shared upon registration', address: { city, region, country } } };
   }
   const v = { name: venue.name || 'Venue' };
-  if (venue.address) v.address = { address_1: venue.address, city, region, country };
+  if (venue.address) {
+    // Coda's Address strings already carry city/state (sometimes twice). Send
+    // the street alone as address_1, or Eventbrite shows the city repeated (R22).
+    const p = parseUsAddress(venue.address, { city, region });
+    v.address = { address_1: p.address_1, city: p.city, region: p.region, country };
+    if (p.postal_code) v.address.postal_code = p.postal_code;
+  }
   return { venue: v };
+}
+
+const US_STATES = new Set(('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT ' +
+  'NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR').split(' '));
+const ZIP = '(\\d{5}(?:-\\d{4})?)';
+const STATE_SEG = new RegExp('^([A-Z]{2})(?:\\s+' + ZIP + ')?$');            // "TN" | "TN 37216"
+const CITY_STATE_SEG = new RegExp('^(.*?\\S)\\s+([A-Z]{2})(?:\\s+' + ZIP + ')?$'); // "Nashville TN 37216"
+const ZIP_SEG = new RegExp('^' + ZIP + '$');
+
+// Split a free-text US address ("3914 Gallatin Pike, Nashville, TN, Nashville, TN
+// 37216") into Eventbrite's structured parts. Pure. address_1 is the street only:
+// the comma segments before the first "City, ST" pair (or the first segment when
+// no pair is found). The state must be an uppercase USPS code, so street words
+// like "Ct"/"St" aren't mistaken for one. A repeated "City, ST" tail is ignored.
+// `defaults` ({city, region}, default Nashville, TN) fill in only what the string
+// doesn't say. postal_code is '' when no ZIP follows a state.
+export function parseUsAddress(str, defaults) {
+  const d = defaults || {};
+  const dCity = d.city || 'Nashville', dRegion = d.region || 'TN';
+  const segs = String(str == null ? '' : str).split(',').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let street = segs.slice(0, 1), city = '', region = '', zip = '';
+  for (let i = 0; i < segs.length; i++) {
+    let m = STATE_SEG.exec(segs[i]);
+    if (m && US_STATES.has(m[1])) {
+      region = m[1]; zip = m[2] || '';
+      if (i >= 2) { city = segs[i - 1]; street = segs.slice(0, i - 1); }
+      else if (i === 1) {
+        // "Nashville, TN" (no street) vs "1115 Delmas Ave Nashville, TN" (no comma
+        // before the city): a leading digit means it's a street.
+        if (/^\d/.test(segs[0])) street = segs.slice(0, 1);
+        else { city = segs[0]; street = []; }
+      } else street = [];
+    } else if (i >= 1 && (m = CITY_STATE_SEG.exec(segs[i])) && US_STATES.has(m[2])) {
+      city = m[1]; region = m[2]; zip = m[3] || ''; street = segs.slice(0, i);
+    } else continue;
+    // A ZIP may still follow in a later segment (a repeated tail or a bare ZIP).
+    for (let j = i + 1; j < segs.length && !zip; j++) {
+      const z = /(?:^|\s)(\d{5}(?:-\d{4})?)$/.exec(segs[j]);
+      if (z && (ZIP_SEG.test(segs[j]) || STATE_SEG.test(segs[j]) || CITY_STATE_SEG.test(segs[j]))) zip = z[1];
+    }
+    break;
+  }
+  let address_1 = street.join(', ');
+  if (!city) {
+    city = dCity;
+    // "1115 Delmas Ave Nashville" — drop the default city glued onto the street.
+    const tail = ' ' + dCity.toLowerCase();
+    if (address_1.toLowerCase().endsWith(tail) && address_1.length > tail.length) address_1 = address_1.slice(0, -tail.length).trim();
+  }
+  return { address_1, city, region: region || dRegion, postal_code: zip };
 }
 
 export function eventbriteWebUrl(eventId) {

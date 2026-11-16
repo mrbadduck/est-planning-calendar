@@ -4,6 +4,7 @@ import {
   zonedToUtcISO, eventToEventbritePayload, ticketClassPayload,
   structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
+  parseUsAddress,
 } from '../src/eventbrite.js';
 
 const TZ = 'America/Chicago';
@@ -80,12 +81,62 @@ test('nextScVersion — brand-new event (no structured content yet) → 0', () =
 });
 
 const AREA = { city: 'Nashville', region: 'TN', country: 'US' };
-test('venuePayload — public sends the full street address + structured city/region/country', () => {
+test('venuePayload — public sends the street only as address_1 + structured city/region/country', () => {
   const v = venuePayload({ name: 'JCC', address: '801 Percy Warner Blvd, Nashville, TN' }, 'Public', AREA);
   assert.equal(v.venue.name, 'JCC');
-  assert.equal(v.venue.address.address_1, '801 Percy Warner Blvd, Nashville, TN');
+  assert.equal(v.venue.address.address_1, '801 Percy Warner Blvd');
   assert.equal(v.venue.address.city, 'Nashville');
+  assert.equal(v.venue.address.region, 'TN');
   assert.equal(v.venue.address.country, 'US');
+  assert.equal(v.venue.address.postal_code, undefined);
+});
+test('venuePayload — public: a Coda address that repeats the city is sent once, with its ZIP (R22)', () => {
+  const v = venuePayload({ name: 'Inglewood Lounge', address: '3914 Gallatin Pike, Nashville, TN, Nashville, TN 37216' }, 'Public', AREA);
+  assert.deepEqual(v.venue.address,
+    { address_1: '3914 Gallatin Pike', city: 'Nashville', region: 'TN', postal_code: '37216', country: 'US' });
+});
+test('venuePayload — public: a non-Nashville city is kept, not overwritten by the default area', () => {
+  const v = venuePayload({ name: 'X', address: '100 Main St, Franklin, TN 37064' }, 'Public', AREA);
+  assert.equal(v.venue.address.city, 'Franklin');
+  assert.equal(v.venue.address.address_1, '100 Main St');
+});
+
+test('parseUsAddress — the Inglewood double-city string', () => {
+  assert.deepEqual(parseUsAddress('3914 Gallatin Pike, Nashville, TN, Nashville, TN 37216'),
+    { address_1: '3914 Gallatin Pike', city: 'Nashville', region: 'TN', postal_code: '37216' });
+});
+test('parseUsAddress — a street only falls back to the default city/state, no ZIP', () => {
+  assert.deepEqual(parseUsAddress('123 Main St'),
+    { address_1: '123 Main St', city: 'Nashville', region: 'TN', postal_code: '' });
+});
+test('parseUsAddress — the plain street, city, state ZIP shape', () => {
+  assert.deepEqual(parseUsAddress('500 Church St, Nashville, TN 37219'),
+    { address_1: '500 Church St', city: 'Nashville', region: 'TN', postal_code: '37219' });
+});
+test('parseUsAddress — a suite segment stays with the street', () => {
+  assert.deepEqual(parseUsAddress('500 Church St, Suite 2, Nashville, TN 37219'),
+    { address_1: '500 Church St, Suite 2', city: 'Nashville', region: 'TN', postal_code: '37219' });
+});
+test('parseUsAddress — another city and state, ZIP+4, city and state in one segment', () => {
+  assert.deepEqual(parseUsAddress('22 Peachtree Rd, Atlanta GA 30303-1234'),
+    { address_1: '22 Peachtree Rd', city: 'Atlanta', region: 'GA', postal_code: '30303-1234' });
+  assert.deepEqual(parseUsAddress('9 Elm St, Bowling Green, KY'),
+    { address_1: '9 Elm St', city: 'Bowling Green', region: 'KY', postal_code: '' });
+});
+test('parseUsAddress — no comma before the state: the city is peeled off the street', () => {
+  assert.deepEqual(parseUsAddress('1115 Delmas Ave Nashville, TN 37216'),
+    { address_1: '1115 Delmas Ave', city: 'Nashville', region: 'TN', postal_code: '37216' });
+});
+test('parseUsAddress — street words that look like states (Ct, St) are not states; empty input', () => {
+  assert.deepEqual(parseUsAddress('7 Oak Ct'),
+    { address_1: '7 Oak Ct', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress(''), { address_1: '', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('  1 A St ,  Memphis ,  TN  '),
+    { address_1: '1 A St', city: 'Memphis', region: 'TN', postal_code: '' });
+});
+test('parseUsAddress — caller defaults are used when the string has no city/state', () => {
+  assert.deepEqual(parseUsAddress('1 A St', { city: 'Chattanooga', region: 'TN' }),
+    { address_1: '1 A St', city: 'Chattanooga', region: 'TN', postal_code: '' });
 });
 test('venuePayload — registrants-only sends only a coarse area + generic name, never the real street/name (safety invariant)', () => {
   const v = venuePayload({ name: "Eric & Hilary's House", address: '1115 Delmas Ave Nashville, TN 37216' }, 'Registrants only', AREA);
