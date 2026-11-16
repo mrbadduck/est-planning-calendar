@@ -714,13 +714,48 @@
     body.help-open .ep-panel{grid-column:2;grid-row:1;position:static;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
     body.help-open .ep-main{grid-column:2;grid-row:2;justify-self:stretch}
   }
-  @media (max-width:600px){   /* phones get their own layout in Task 12; until then one column */
-    .event-page .mhead.ep-top{padding:8px 12px}
-    .ep-grid{grid-template-columns:minmax(0,1fr);padding:0 0 80px;row-gap:0}
-    .event-page .wrail.ep-tabs{grid-row:1;position:static;padding:6px 12px 4px;border-bottom:.5px solid var(--hair);overflow-x:auto}
-    .ep-panel{grid-column:1;grid-row:2;margin:12px 12px 0;display:flex}
+  /* phones only: the step-list toggle and the sticky bottom bar (spec 5.6) */
+  .sp-more,.ep-phonebar{display:none}
+  @media (max-width:600px){   /* phones (spec 5.6): top bar, status card, tab strip, the tab, sticky bar */
+    /* top bar: ← and the title on row 1; tag, badge and the icons on row 2; the subtitle under them */
+    .event-page .mhead.ep-top{padding:4px 12px 8px;column-gap:8px;row-gap:2px}
+    #epTop .mhead-title,#epTop .mhead-ttlrow{display:contents}
+    #epTop .ep-back{order:0;min-height:44px;padding:0 8px;margin-left:-8px}
+    #epTop .stripe{order:1;height:24px}
+    #epTop h1{order:2;flex:1 1 0;min-width:0}
+    #epTop::after{content:"";order:3;flex:0 0 100%;height:0}   /* the row break */
+    #epTop .mhead-tag{order:4;flex:0 1 auto;min-width:0;max-width:none;overflow:hidden}
+    #epTop .mhead-badges{order:5;margin:0}
+    #epTop .mhead-actions{order:6;margin-left:auto}
+    #epTop .mhead-sub{order:7;flex:1 1 100%}
+    /* one column: the status card, then the tab strip, then the active tab */
+    body.event-open .event-page{display:flex;flex-direction:column;min-height:100dvh}   /* short tabs still put the bar at the bottom */
+    .ep-grid{flex:1 0 auto;margin:0;grid-template-columns:minmax(0,1fr);padding:0 0 16px;row-gap:0}
+    .ep-panel{grid-column:1;grid-row:1;position:static;margin:10px 12px 0;display:flex}
+    .event-page .wrail.ep-tabs{grid-column:1;grid-row:2;position:static;margin-top:10px;padding:0 12px;border-bottom:.5px solid var(--hair);overflow-x:auto}
     .ep-main{grid-column:1;grid-row:3;padding:12px 12px 0}
-    .ep-back{min-height:44px}
+    /* the status card: title + the first failing row, "Step N of 5 · see all steps", then
+       (when open) the whole step list and every row; the sentence and bars stay */
+    .sp-card{gap:8px;padding:10px 12px}
+    .sp-card .sp-h{display:none}
+    .sp-card #edChecks{order:1}
+    .sp-card .sp-more{order:2;display:inline-flex;align-items:center;gap:6px;align-self:flex-start;min-height:44px;margin:-8px 0 -6px;padding:0;border:0;background:none;font:inherit;font-size:12.5px;font-weight:600;color:var(--accent);cursor:pointer}
+    .sp-card .sp-more:empty{display:none}
+    .sp-chev{display:inline-block;transition:transform .15s}
+    .sp-card.open .sp-chev{transform:rotate(180deg)}
+    .sp-card #edStatus{order:3}
+    .sp-card .sp-acts{order:4}
+    .sp-card #edSub{order:5}
+    .sp-card #edBars{order:6}
+    .sp-card:not(.open) #edStatus,.sp-card:not(.open) .sp-rows li.ok,.sp-card:not(.open) .sp-rows li.bad ~ li.bad{display:none}
+    /* the sticky bottom bar: the primary (and Not now) + ⋮, moved here by placePhoneBar */
+    .ep-phonebar{position:sticky;bottom:0;z-index:40;align-items:center;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--hair-strong)}
+    .ep-phonebar:has(button){display:flex}
+    .ep-phonebar .edacts{flex:1 1 auto;min-width:0}
+    .ep-phonebar .edacts .fbtn{flex:1 1 0;min-width:0;justify-content:center}
+    .ep-phonebar .kbwrap{position:static}   /* ⋮'s menu hangs from the whole bar, opening upward */
+    .ep-phonebar .kmenu{left:12px;right:12px;width:auto;max-width:none;top:auto;bottom:calc(100% + 6px);max-height:calc(100dvh - 140px);overflow-y:auto}
+    .ep-phonebar .kmenu .mi{min-height:44px;justify-content:center}
   }
   /* Planning tab: Program(s) + Leads side by side, then Internal description, then the doc */
   .frow2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}

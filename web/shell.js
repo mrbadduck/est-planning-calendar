@@ -113,7 +113,7 @@ function applyView(){
   document.getElementById('listView').classList.toggle('on', v==='list');
   rerender(); updateNavLabel(); layoutSticky();
 }
-PHONE_MQ.addEventListener('change', ()=>{ phoneMenu(false); applyView(); });   // rotated, or a window resized across 600px
+PHONE_MQ.addEventListener('change', ()=>{ phoneMenu(false); applyView(); layoutEventPage(); });   // rotated, or a window resized across 600px
 document.getElementById('viewSeg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
   state.view=b.dataset.view; prefs.view=state.view; savePrefs();

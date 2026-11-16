@@ -146,12 +146,14 @@ function onPanelClick(e){
   if(ff){ e.preventDefault(); focusField(ff.dataset.focusField); return; }
   if(e.target.closest('[data-block="email"]')){ if(editing) emailRegistrants(editing, 'Update: ' + (editing.title || ''), ''); return; }
   if(e.target.closest('#epPanel [data-pv-open]')){ openPreview(); return; }   // the listing card, when it's in the panel
+  if(e.target.closest('#edMore')){ toggleSteps(); return; }   // phones: see all steps
   const act=e.target.closest('[data-act]')?.dataset.act; if(!act) return;
   if(act==='menu'){ kebabMenu(!_menuOpen, true); return; }
   if(e.target.closest('.kmenu')) kebabMenu(false);
   footerAct(act);
 }
 document.getElementById('epPanel').addEventListener('click', onPanelClick);
+document.getElementById('epPhoneBar').addEventListener('click', onPanelClick);   // phones: the primary and ⋮ live in the bottom bar
 // One dispatcher for the modal footer's, the panel's and the preview's actions.
 function footerAct(act){
   if(act==='close') requestClose();

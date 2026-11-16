@@ -1,5 +1,5 @@
 /* editor.js — the editor shell: stage badge, editorCtx, header meta, openEditor → the event page (openEventPage) or the reference-event modal, the create flow and URL sync.
-   Paints the event page (ids in index.html): epStripe, epTitle, epTag, epSub, epBadges, epActions, epTabs, wpanel, epPanel; and, for the
+   Paints the event page (ids in index.html): epStripe, epTitle, epTag, epSub, epBadges, epActions, epTabs, wpanel, epPanel (and epPhoneBar, via placePhoneBar); and, for the
    reference event, the create form and its loading state, the modal: mStripe, mTitle, mBadges, mActions, mBody, mFoot.
    Owns: statusInfo, badgesHTML, isPastEvent, isHistory, venueRecord, editorCtx, _ctx, paintHeadMeta, openEditor, pageOpen, _calScrollY, openNewEventForm, createFromForm, _epState, eventUrl, calendarUrl, openedInApp, openFromUrl
    Reads: state, _refsSettled (state.js); reference lists (data.js); _form (save.js); _calPlaced (shell.js)
@@ -152,7 +152,7 @@ function openEventPage(ev, section, how){
   if(canEdit && !locked && !pastLocked && !relationsReady(ev) && !_refsSettled){
     page.classList.add('loading');
     for(const id of ['epBadges','epActions','epHead']) paintInner(document.getElementById(id), '');
-    paintInner(tabs, ''); paintInner(side, '');
+    paintInner(tabs, ''); paintInner(side, ''); placePhoneBar();   // no panel: the phone bar empties too
     panel.innerHTML=`<div class="ndoc-loading"><span class="ndoc-spin"></span> Loading…</div>`;
     afterRefs(()=>{ if(editing===ev) openEventPage(ev, section, 'none'); });   // try again as each list lands (its entry is written)
     return;
@@ -172,6 +172,7 @@ function openEventPage(ev, section, how){
   // renderStatusPanel (D1); the save pill only where the form saves.
   side.innerHTML = statusPanelHTML(canEdit && !locked && !pastLocked);
   side._html=undefined;
+  placePhoneBar();   // phones: the primary and ⋮ go to the sticky bottom bar (#epPhoneBar)
 
   // tab list + the active tab (one tab's inputs in the DOM; the tab click is wired once, below)
   tabs.innerHTML = railHTML(); tabs._html=undefined;
@@ -204,6 +205,7 @@ document.getElementById('epTabs').addEventListener('click', e=>{
   const sec=SECTIONS.find(s=>s.id===id); if(sec && sec.live) syncUrl(ev, id);
 });
 document.getElementById('wpanel').addEventListener('focusout', ()=>scheduleAutosave());   // no-op unless an editable form is bound
+document.getElementById('wpanel').addEventListener('click', e=>{ if(e.target.closest('#listingCard [data-pv-open]')) openPreview(); });   // the listing card atop Listing (phones)
 // Placeholder while the reference lists load, for the create form (a first visit only — see relationsReady).
 function showModalLoading(title, color){
   document.getElementById('mStripe').style.setProperty('--c', color);

@@ -263,6 +263,7 @@
       out.title = 'The ' + what + (names.length > 1 ? ' changed' : ' changed') + '. Let the ' +
         plural(justChanged.registrants || 0, 'registrant', 'registrants') + ' know?';
       out.sub = '';
+      out.checklist = [];   // the offer is the whole next step: no readiness rows under it
       out.primary = prim('Email registrants', 'email-registrants', true, 'primary');
       out.secondary = { label: 'Not now', act: 'dismiss-notice' };
     }

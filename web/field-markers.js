@@ -1,7 +1,7 @@
 /* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the listing card (in the panel, or atop Listing).
    Owns: ICON_PRIVATE, TIP_PRIVATE, ADDR_DEFAULT_HINT, ADDR_HOME_PUBLIC_WARN, fmkIcon, fieldMarkModel, fieldLabelHTML, fieldHintSlot, listingCardHome, listingCardHTML, paintFieldMarks
-   Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js); _ebStatus, _conflictShown (eventbrite.js)
-   Writes: _conflictShown (eventbrite.js; add/delete)
+   Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js); _ebStatus (eventbrite.js); PHONE_MQ (shell.js; at call time)
+   Writes: nothing
    Loaded after: notes-doc.js (file-map order; no load-time dependency) */
 
 /* ---- Eventbrite listing on the Listing tab (spec 5.4, 5.7; D1, D4) -----------
@@ -36,7 +36,7 @@ const ADDR_HOME_PUBLIC_WARN = 'This is a private home. Its full street address w
 const fmkIcon = (cls, icon, tip, aria) => `<span class="fic${cls?' '+cls:''}" role="img" data-tip="${esc(tip)}" aria-label="${esc(aria)}">${icon}</span>`;
 // What the markers show for the open editor: sync status per public field (only
 // once the event is on Eventbrite) and the fields the next action is waiting on —
-// the same set as the footer's links.
+// the same set as the panel's readiness links.
 function fieldMarkModel(ev){
   const R=ListingRules, linked=!!ev.eventbriteId;
   const sync = linked ? R.syncStatus(ev, ev.pushed || null) : {};
@@ -89,8 +89,9 @@ const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
 // Where the listing card (#listingCard) lives: 'panel' (the Status & next step panel,
 // under the status card, spec 5.3) or 'tab' (the top of the Listing tab, phones,
 // spec 5.6). The one switch: statusPanelHTML and renderDetails both ask it, so only
-// one #listingCard is ever in the DOM. (Task 12 flips it to 'tab' by PHONE_MQ.)
-function listingCardHome(){ return 'panel'; }
+// one #listingCard is ever in the DOM; layoutEventPage moves it when the page
+// crosses 600px.
+function listingCardHome(){ return PHONE_MQ.matches ? 'tab' : 'panel'; }
 // The listing card, at every stage, with Preview listing (R26). Before
 // the event is on Eventbrite it is one modest row ("Not on Eventbrite yet" + the
 // button; the preview is built from the form). Once it is, the registered
@@ -122,8 +123,9 @@ function listingCardHTML(ev){
     <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span></div>${conflict}${err}`;
 }
 // Repaint every marker, hint and the card from the open editor's event.
-// Called with the footer (open, tab switch, every save-state change), so markers
-// follow the same event state the footer reads.
+// Called by renderStatusPanel (open, tab switch, every save-state change), so the
+// markers follow the same event state the panel reads. (Whether the conflict notice
+// was seen, D8, is decided there.)
 function paintFieldMarks(){
   const panel=document.getElementById('wpanel');
   if(!panel || !editing || !_ctx || _ctx.ev!==editing) return;
@@ -138,10 +140,6 @@ function paintFieldMarks(){
   });
   panel.querySelectorAll('[data-fhint]').forEach(el=>paintInner(el, fieldHintHTML(el.dataset.fhint, m)));
   const c=document.getElementById('listingCard');
-  if(c){
-    paintInner(c, listingCardHTML(editing));
-    // The next push may overwrite only right after a real notice was seen (D8).
-    if(editing.eventbriteId && ebConflict(editing.id)) _conflictShown.add(editing.id); else _conflictShown.delete(editing.id);
-  }
+  if(c) paintInner(c, listingCardHTML(editing));
   const dh=document.getElementById('f_pubdeschint'); if(dh) paintInner(dh, esc(pubDescHintText(!!editing.eventbriteId)));
 }

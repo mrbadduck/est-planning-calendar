@@ -396,6 +396,16 @@ test('footerModel checklist is empty for a past event (nothing left to do, R10)'
   assert.deepEqual(m.links, []);
 });
 
+test('footerModel checklist is empty while the registrant-email offer shows', () => {
+  for (const stage of ['published', 'onEventbrite']) {
+    const ev = ready();   // no public description: the publish list has a failing row
+    assert.ok(fm({ stage, ev }).checklist.length > 0, stage);
+    const m = fm({ stage, ev, justChanged: { fields: ['date'], registrants: 3 } });
+    assert.equal(m.primary.act, 'email-registrants', stage);
+    assert.deepEqual(m.checklist, [], stage);
+  }
+});
+
 test('footerModel copy names the panel, not the footer or the title', () => {
   const subs = [
     R.footerModel({ stage: 'proposed', past: false, role: LEAD, unpushed: [], checks: R.readiness(ready(), { todayISO: TODAY }) }).sub,

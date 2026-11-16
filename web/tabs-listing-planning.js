@@ -10,7 +10,8 @@
    Publish, not on the fields. Cancelled and past events keep their locks.
    The listing card (#listingCard, a stable container repainted in place, with
    Preview listing, R26) sits in the panel, or on top of this tab where
-   listingCardHome() says so (phones). The fields always show the event's own
+   listingCardHome() says so (phones); #wpanel's click listener (editor.js) opens
+   its Preview. The fields always show the event's own
    (Coda) values (D4). */
 const pubDescHintText = linked => linked ? 'Editing here turns the description into plain text on Eventbrite (any bold, links or lists added there are removed).'
   : 'If you copy the internal description, take out planning notes first. This text goes public.';
@@ -27,12 +28,10 @@ function renderDetails(ev, canEdit, locked, canApprove){
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){
   wireEventFields(panel, ev, canEdit, locked);
-  const card=panel.querySelector('#listingCard');   // stable container: its inside repaints (here only on phones; the panel handles its own)
-  if(card) card.addEventListener('click', e=>{ if(e.target.closest('[data-pv-open]')) openPreview(); });
 }
 
 /* Planning tab: the private fields — Program(s), Leads, Internal description — then the
-   event's Google Doc. The fields take the Details lock (cancelled, or a past
+   event's Google Doc. The fields take the Listing tab's lock (cancelled, or a past
    approved event); the notes doc only the cancelled one. */
 function renderPlanningTab(ev, canEdit, fieldsLocked, docLocked){
   const dis = (!canEdit || fieldsLocked) ? 'disabled' : '', relOK = relationsReady(ev), lab = fieldLab(ev);
@@ -84,7 +83,7 @@ function setAddressVisibility(val){
 // to Registrants only and says why (spec 5.7). Runs only when the venue picker
 // changes, and never overrides a value someone chose — an explicit Public stays.
 function applyAddressDefault(venBox){
-  const seg=document.getElementById('f_addrvis'); if(!seg || !venBox) return;   // the toggle is on Details only
+  const seg=document.getElementById('f_addrvis'); if(!seg || !venBox) return;   // the toggle is on Listing only
   const pressed=seg.querySelector('button[aria-pressed="true"]');
   const current=pressed ? pressed.dataset.addrvis : '';
   const next=ListingRules.addressVisibilityDefault(current, formVenueRecord());
