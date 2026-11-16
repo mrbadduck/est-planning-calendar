@@ -103,7 +103,11 @@ export function venuePayload(venue, addressVisibility, area) {
     // Coda's Address strings already carry city/state (sometimes twice). Send
     // the street alone as address_1, or Eventbrite shows the city repeated (R22).
     const p = parseUsAddress(venue.address, { city, region });
-    v.address = { address_1: p.address_1, city: p.city, region: p.region, country };
+    // Never an empty street line for a non-empty address ("Nashville, TN", "TN 37216"):
+    // fall back to its first non-empty segment.
+    const raw = String(venue.address);
+    const street = p.address_1 || raw.split(',').map(x => x.trim()).find(Boolean) || raw.trim();
+    v.address = { address_1: street, city: p.city, region: p.region, country };
     if (p.postal_code) v.address.postal_code = p.postal_code;
   }
   return { venue: v };
@@ -115,17 +119,29 @@ const ZIP = '(\\d{5}(?:-\\d{4})?)';
 const STATE_SEG = new RegExp('^([A-Z]{2})(?:\\s+' + ZIP + ')?$');            // "TN" | "TN 37216"
 const CITY_STATE_SEG = new RegExp('^(.*?\\S)\\s+([A-Z]{2})(?:\\s+' + ZIP + ')?$'); // "Nashville TN 37216"
 const ZIP_SEG = new RegExp('^' + ZIP + '$');
+// A trailing segment that names a unit, not a city ("Building B", "Suite 2").
+const UNIT_SEG = /^(suite|ste|unit|apt|apartment|building|bldg|floor|fl|room|rm|dept|po box|p\.?o\.? box|box|#)(\b|\s|\d|$)/i;
+const CITY_WORDS = /^[A-Za-z][A-Za-z .'-]*$/;
 
 // Split a free-text US address ("3914 Gallatin Pike, Nashville, TN, Nashville, TN
 // 37216") into Eventbrite's structured parts. Pure. address_1 is the street only:
-// the comma segments before the first "City, ST" pair (or the first segment when
-// no pair is found). The state must be an uppercase USPS code, so street words
+// the comma segments before the first "City, ST" pair (with no state: all but a
+// trailing city). The state must be an uppercase USPS code, so street words
 // like "Ct"/"St" aren't mistaken for one. A repeated "City, ST" tail is ignored.
 // `defaults` ({city, region}, default Nashville, TN) fill in only what the string
-// doesn't say. postal_code is '' when no ZIP follows a state.
+// doesn't say, and never replace a city the string does name: with no state, a
+// trailing letters-only segment that isn't a unit ("Building B") is the city.
+// A place name with the default city glued on ("Shelby Bottoms Greenway
+// Nashville, TN") is split. address_1 can be '' ("Nashville, TN"); venuePayload
+// then falls back to the raw text. postal_code is '' when no ZIP follows a state.
 export function parseUsAddress(str, defaults) {
   const d = defaults || {};
   const dCity = d.city || 'Nashville', dRegion = d.region || 'TN';
+  // "Shelby Bottoms Greenway Nashville" → ["Shelby Bottoms Greenway", "Nashville"]; null if it doesn't end in the city
+  const peel = seg => {
+    const tail = ' ' + dCity.toLowerCase();
+    return seg.toLowerCase().endsWith(tail) && seg.length > tail.length ? [seg.slice(0, -tail.length).trim(), dCity] : null;
+  };
   const segs = String(str == null ? '' : str).split(',').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
   let street = segs.slice(0, 1), city = '', region = '', zip = '';
   for (let i = 0; i < segs.length; i++) {
@@ -135,8 +151,11 @@ export function parseUsAddress(str, defaults) {
       if (i >= 2) { city = segs[i - 1]; street = segs.slice(0, i - 1); }
       else if (i === 1) {
         // "Nashville, TN" (no street) vs "1115 Delmas Ave Nashville, TN" (no comma
-        // before the city): a leading digit means it's a street.
-        if (/^\d/.test(segs[0])) street = segs.slice(0, 1);
+        // before the city): a leading digit means it's a street. A place name may
+        // carry the city on its end ("Shelby Bottoms Greenway Nashville").
+        const pl = peel(segs[0]);
+        if (pl) { street = [pl[0]]; city = pl[1]; }
+        else if (/^\d/.test(segs[0])) street = segs.slice(0, 1);
         else { city = segs[0]; street = []; }
       } else street = [];
     } else if (i >= 1 && (m = CITY_STATE_SEG.exec(segs[i])) && US_STATES.has(m[2])) {
@@ -148,6 +167,12 @@ export function parseUsAddress(str, defaults) {
       if (z && (ZIP_SEG.test(segs[j]) || STATE_SEG.test(segs[j]) || CITY_STATE_SEG.test(segs[j]))) zip = z[1];
     }
     break;
+  }
+  if (!region && segs.length >= 2) {
+    // No state: a trailing city-looking segment is the city, the rest the street.
+    const last = segs[segs.length - 1];
+    if (CITY_WORDS.test(last) && !UNIT_SEG.test(last)) { city = last; street = segs.slice(0, -1); }
+    else street = segs;
   }
   let address_1 = street.join(', ');
   if (!city) {

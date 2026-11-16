@@ -134,6 +134,33 @@ test('parseUsAddress — street words that look like states (Ct, St) are not sta
   assert.deepEqual(parseUsAddress('  1 A St ,  Memphis ,  TN  '),
     { address_1: '1 A St', city: 'Memphis', region: 'TN', postal_code: '' });
 });
+test('parseUsAddress — no state: a trailing city is kept, never replaced by the default', () => {
+  assert.deepEqual(parseUsAddress('123 Main St, Franklin'),
+    { address_1: '123 Main St', city: 'Franklin', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('123 Main St, Building B, Franklin'),
+    { address_1: '123 Main St, Building B', city: 'Franklin', region: 'TN', postal_code: '' });
+  // a trailing unit/suite segment isn't a city: everything stays in the street
+  assert.deepEqual(parseUsAddress('123 Main St, Building B'),
+    { address_1: '123 Main St, Building B', city: 'Nashville', region: 'TN', postal_code: '' });
+});
+test('parseUsAddress — a place name with the city glued on, a bare city, a bare state, a PO Box', () => {
+  assert.deepEqual(parseUsAddress('Shelby Bottoms Greenway Nashville, TN'),
+    { address_1: 'Shelby Bottoms Greenway', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('Nashville, TN'),
+    { address_1: '', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('TN 37216'),
+    { address_1: '', city: 'Nashville', region: 'TN', postal_code: '37216' });
+  assert.deepEqual(parseUsAddress('PO Box 123, Nashville, TN 37203'),
+    { address_1: 'PO Box 123', city: 'Nashville', region: 'TN', postal_code: '37203' });
+});
+test('venuePayload — never sends an empty address_1 for a non-empty Coda address', () => {
+  const a1 = addr => venuePayload({ name: 'V', address: addr }, 'Public', AREA).venue.address.address_1;
+  assert.equal(a1('Nashville, TN'), 'Nashville');
+  assert.equal(a1('TN 37216'), 'TN 37216');
+  assert.equal(a1('Shelby Bottoms Greenway Nashville, TN'), 'Shelby Bottoms Greenway');
+  assert.equal(a1('PO Box 123, Nashville, TN 37203'), 'PO Box 123');
+  for (const addr of ['Nashville, TN', 'TN 37216', ' , TN', 'x']) assert.ok(a1(addr), addr);
+});
 test('parseUsAddress — caller defaults are used when the string has no city/state', () => {
   assert.deepEqual(parseUsAddress('1 A St', { city: 'Chattanooga', region: 'TN' }),
     { address_1: '1 A St', city: 'Chattanooga', region: 'TN', postal_code: '' });
