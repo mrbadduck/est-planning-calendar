@@ -960,7 +960,7 @@ const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
 // The listing card (linked events; empty, and hidden, before that). The registered
 // count comes from the live status (refreshEbStatus) and is left out until it
 // loads. Counts and the tickets line show what was pushed (what Eventbrite has),
-// never the form's Capacity. The conflict notice (D8) shows when Eventbrite was
+// never the form's Free tickets. The conflict notice (D8) shows when Eventbrite was
 // edited since our last push; once it has been shown, the next push overwrites.
 function listingCardHTML(ev){
   if(!ev.eventbriteId) return '';
@@ -1465,6 +1465,15 @@ function whereGroupHTML(ev, dis, lab, relOK, listing){
       ${addr}
     </div>`;
 }
+// Ticketing (R29): for now just the free General Admission ticket count (Coda
+// column Capacity); paid tickets and discount codes will join it here.
+function ticketingGroupHTML(ev, dis, lab){
+  return `<div class="fieldgroup">
+      <div class="fieldgroup-h">Ticketing</div>
+      <div class="fld"><label>${lab('capacity','Free tickets')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">How many free General Admission tickets Eventbrite offers.</span></div>
+      <div class="hint">Paid tickets and discount codes: coming later</div>
+    </div>`;
+}
 // Why the fields can't be edited, if they can't.
 // `relNote` names the relation fields this view shows ('' = none).
 const REL_NOTE = { all:'Program(s), Leads and Where can’t be changed right now because their lists haven’t loaded.',
@@ -1560,7 +1569,7 @@ function wireEventFields(panel, ev, canEdit, locked){
 }
 
 /* Details tab = the listing, in the order Eventbrite shows it: Title, Summary,
-   Description, When, Where (with Address on listing), Capacity. Every field shows
+   Description, When, Where (with Address on listing), Ticketing (Free tickets). Every field shows
    and is editable at every stage (R27); the approval gate is on Add to Eventbrite /
    Publish, not on the fields. Cancelled and past events keep their locks.
    The listing card (#listingCard, a stable container: empty and hidden until the
@@ -1575,9 +1584,8 @@ function renderDetails(ev, canEdit, locked, canApprove){
   const summary = `<div class="fld full"><label>${lab('publicSummary','Summary')} <span class="hint" id="f_sumcount">${String(ev.publicSummary||'').length} / 140</span></label><input id="f_pubsummary" maxlength="140" value="${esc(ev.publicSummary||'')}" ${dis} placeholder="One-line blurb for the listing">${fieldHintSlot('publicSummary')}</div>
     <div class="fld full"><label>${lab('publicDescription','Description')} <button type="button" class="btn xs" data-act="copy-internal" ${dis}>Copy internal description</button></label><textarea id="f_pubdesc" rows="4" ${dis} placeholder="What attendees see on Eventbrite">${esc(ev.publicDescription||'')}</textarea>${fieldHintSlot('publicDescription')}
       <span class="hint" id="f_pubdeschint">${pubDescHintText(linked)}</span></div>`;
-  const capacity = `<div class="fld"><label>${lab('capacity','Capacity')}</label><input id="f_capacity" type="number" min="0" step="1" value="${ev.capacity!==''&&ev.capacity!=null?esc(ev.capacity):''}" ${dis} placeholder="e.g. 40">${fieldHintSlot('capacity')}<span class="hint">Sets how many free tickets Eventbrite offers.</span></div>`;
   return card + titleFieldHTML(ev, dis, lab) + summary + whenGroupHTML(ev, dis)
-    + whereGroupHTML(ev, dis, lab, relOK, true) + capacity
+    + whereGroupHTML(ev, dis, lab, relOK, true) + ticketingGroupHTML(ev, dis, lab)
     + lockNotesHTML(ev, canEdit, locked, relOK, REL_NOTE.where);
 }
 function wireDetails(panel, ev, canEdit, locked, canApprove){ wireEventFields(panel, ev, canEdit, locked); }

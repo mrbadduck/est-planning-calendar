@@ -37,7 +37,7 @@
     venue: pub('Venue'),
     publicSummary: pub('Summary'),
     publicDescription: pub('Description'),
-    capacity: pub('Capacity'),
+    capacity: pub('Free tickets'),   // Coda column Capacity: the free General Admission ticket count (R29)
     addressVisibility: pub('Address on listing'),
   };
   for (const k of Object.keys(FIELDS)) if (FIELDS[k].public) FIELDS[k].pushedKey = k;
@@ -67,7 +67,7 @@
       chk('start', 'start', hasStart, 'Add a start time'),
       chk('end', 'end', hasEnd, 'Add an end time'),
       chk('endAfterStart', 'end', !hasStart || !hasEnd || str(ev.end) > str(ev.start), 'End time must be after the start time'),
-      chk('capacity', 'capacity', wholeNumber(ev.capacity), 'Add a capacity: how many free tickets Eventbrite offers'),
+      chk('capacity', 'capacity', wholeNumber(ev.capacity), 'Add the number of free tickets'),
       chk('venueOther', 'venue', blank(ev.venueOther) || !blank(ev.venueName),
         'Add this venue to Venues first, so Eventbrite gets its address'),
       chk('venueAddress', 'venue', !venue || !(vis === '' || vis === 'Public') || venue.hasAddress,

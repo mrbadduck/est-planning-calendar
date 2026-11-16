@@ -53,7 +53,7 @@ const cases = [
   ['start', { start: '' }, 'Add a start time'],
   ['end', { end: '' }, 'Add an end time'],
   ['endAfterStart', { end: '18:00' }, 'End time must be after the start time'],
-  ['capacity', { capacity: '' }, 'Add a capacity: how many free tickets Eventbrite offers'],
+  ['capacity', { capacity: '' }, 'Add the number of free tickets'],
   ['venueOther', { venueOther: "Bob's house", venueName: '' }, 'Add this venue to Venues first, so Eventbrite gets its address'],
 ];
 for (const [key, patch, message] of cases) {
@@ -345,4 +345,10 @@ test('footerModel busy marks the footer busy (secondary and ⋮ get disabled); i
   assert.equal(fm({ stage: 'onEventbrite', ev }).busy, false);
   assert.equal(fm({ stage: 'onEventbrite', ev, pending: true }).busy, false);
   assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, busy: true }).busy, false);
+});
+
+test('Capacity reads as Free tickets (R29)', () => {
+  assert.equal(R.FIELDS.capacity.label, 'Free tickets');
+  const m = fm({ stage: 'published', ev: { ...ready(), publicDescription: 'x' }, unpushed: ['capacity'] });
+  assert.match(m.sub, /Not on Eventbrite yet: Free tickets\./);
 });
