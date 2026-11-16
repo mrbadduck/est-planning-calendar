@@ -6,18 +6,22 @@
 -->
 
 ## 2026-11-16
-- **Preview any time.** **Preview listing** is now in the box at the top of **Details**, and it works at every stage. Before the event is on Eventbrite, it shows how the listing will look from your own fields.
+- **Events open as a page.** Clicking an event opens it as its own page instead of a pop-up. **← Calendar** or your browser's Back button takes you back to the calendar just as you left it. A copied link opens the event's page directly.
+- **Status & next step.** On a computer, a panel beside every tab shows the five steps as a checklist, with who and when where the app knows; what's left before the next step, each linked to its field; the one next-step button and **⋮**; and the listing box with **Preview listing**. On a phone, it's a box at the top of the event, and the next-step button sits at the bottom of the screen.
+- **Details is now Listing.** The first tab of an event is called **Listing**. A dot on it means something there is holding up the next step.
+- **Needs approval.** In the List view, **Needs approval** shows only the events waiting for Tribal Council, with a count. Anyone can use it.
+- **Preview any time.** **Preview listing** is now in the listing box, and it works at every stage. Before the event is on Eventbrite, it shows how the listing will look from your own fields.
 - **Write the listing early.** Summary, Description, Free tickets and Address on listing are open from the draft on. You still need approval before **Add to Eventbrite**.
 - **Capacity is now Free tickets.** It sits in a new **Ticketing** section: how many free General Admission tickets Eventbrite offers. Paid tickets and discount codes are coming later.
-- **Every tab explains itself.** At the bottom of each tab other than Details, one line says what the tab is for.
-- **Details is the listing.** The **Details** tab now holds just what goes on Eventbrite, in the order people see it: Title, Summary, Description, When, Where and Ticketing. **Public summary** and **Public description** are now **Summary** and **Description**.
+- **Every tab explains itself.** Under each tab's name, one line says what the tab is for.
+- **Listing holds just the listing.** The **Listing** tab now holds just what goes on Eventbrite, in the order people see it: Title, Summary, Description, When, Where and Ticketing. **Public summary** and **Public description** are now **Summary** and **Description**.
 - **New Planning tab.** **Planning Notes** is now **Planning**. It holds what only the planning team sees: Program(s), Leads, **Internal description** and the planning notes doc.
 - **A clearer top of the event.** Next to the title is its program, in the program's color, and under it the first line of the internal description.
 - **A more compact editor.** Smaller spacing, fields and buttons, so more of an event fits on screen. Phones keep big buttons.
-- **Cleaner Details tab.** The little key and the **Event** heading at the top of the form are gone. Point at the icon next to a field to see where it goes.
+- **Cleaner Listing tab.** The little key and the **Event** heading at the top of the form are gone. Point at the icon next to a field to see where it goes.
 - **One icon per field.** Each field name now has a single icon: a crossed-out eye for private fields, a gray clock for fields that go on Eventbrite once the event is added, then a green check when it matches Eventbrite or amber arrows when your change isn't on Eventbrite yet.
-- **Quieter saving.** The **Saved** label is gone. While something saves, the button at the bottom says **Saving…** (or **Still saving…** when it's slow); otherwise it's saved. Only a failed save shows a message. Proposing, approving, cancelling and deleting show in that button too.
-- **Tidier bottom bar.** The five steps have their own row, the bar no longer jumps as its message changes, and the label at the top of an event changes at the same moment as the steps, including **On Eventbrite**.
+- **Quieter saving.** The **Saved** label is gone. While something saves, the next-step button says **Saving…** (or **Still saving…** when it's slow); otherwise it's saved. Only a failed save shows a message. Proposing, approving, cancelling and deleting show in that button too.
+- **Steps and label agree.** The label at the top of an event changes at the same moment as the steps, including **On Eventbrite**.
 - **Fixes.** An event opened from a link before your sign-in finished no longer stays read-only. The listing preview keeps the summary and description as separate paragraphs. Venues added to Eventbrite from now on no longer repeat the city in their address.
 
 ## 2026-11-15

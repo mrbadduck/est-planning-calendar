@@ -17,7 +17,7 @@ let whenType='exact';
 // heading (#epHead). The first tab's id stays 'details' (old links, syncUrl).
 const SECTIONS = [
   { id:'details',   label:'Listing',              live:true,  help:'edit-details',
-    foot:'What people see on Eventbrite. Edits save here first; push them with the button on the right.' },
+    foot:'What people see on Eventbrite. Edits save here first; send them to Eventbrite with the next-step button.' },
   { id:'planning',  label:'Planning',             live:true,  help:'planning-notes',
     foot:'Private planning space for leads and council; nothing here goes on Eventbrite.' },
   { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups',

@@ -69,11 +69,13 @@ There are three views:
 - [[Calendar]]: a full grid for each month. Ideas without a firm date sit in the [[Ideas]] column.
 - [[List]]: every day that has something on it, in order. Holidays and other reference dates share one line under their day. Ideas without a firm date close out their month under **Date TBD**.
 
+**Waiting for approval.** At the top of [[List]], click [[Needs approval]] to see only the events proposed to Tribal Council. Its number is how many are waiting in this program year. Click it again to see everything. Anyone can use it, and this device remembers whether it's on.
+
 **On a phone**, you always get the list. Tap **☰** at the top for everything else: your account, [[Help]], [[Feedback / Ideas]], the program year, and which calendars to show.
 
 **Layers.** Click **⚙** at the top (on a phone, **☰**) to choose what the calendar shows: [[Planning events]] (your plans), plus reference calendars such as Jewish holidays and partner organizations. A hidden layer looks faded and crossed out. Reference events are read-only. Your choices are remembered on this device, and so is the view you last picked on a computer.
 
-Click any event to open it. The calendar refreshes itself every minute and whenever you come back to it; on a computer, click **↻** to refresh right away.
+Click any event to open it as its own page. [[← Calendar]] at the top of the page, or your browser's Back button, brings you back to the same view, year and spot. The calendar refreshes itself every minute and whenever you come back to it; on a computer, click **↻** to refresh right away.
 
 ## Read the calendar {#reading-the-calendar}
 
@@ -100,30 +102,30 @@ Program Leads and Tribal Council can add events.
 4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, set **Venue type** to [[Any]] to search every venue, or type its name and choose **＋ New venue**.
 5. Click [[Create]].
 
-The event opens in full as a **Draft**. Nothing is public yet, so keep adding details whenever you like.
+The event opens as its own page, as a **Draft**. Nothing is public yet, so keep adding details whenever you like.
 
 > **Tip:** Not sure of the date? Choose [[Whole month]] and pin it to a day later.
 
 ## Edit an event {#edit-details}
 
-Click an event to open it. It has these tabs:
+Click an event to open it. It opens as its own page. To go back, click [[← Calendar]] at the top of the page or use your browser's Back button; the calendar is just as you left it. Your last change is saved on the way out.
 
-- [[Listing]]: what goes on the Eventbrite listing, in the order people see it: [[Title]], [[Summary]], [[Description]], **When**, **Where** (with [[Address on listing]]) and **Ticketing** ([[Free tickets]]). You can fill them all in from the start, even in a draft. The box at the top says whether the event is on Eventbrite yet; click [[Preview listing]] there at any time to see how the listing will look. See [Put an event on Eventbrite](#publish).
+The page has these tabs (on a phone, a row you can scroll sideways):
+
+- [[Listing]]: what goes on the Eventbrite listing, in the order people see it: [[Title]], [[Summary]], [[Description]], **When**, **Where** (with [[Address on listing]]) and **Ticketing** ([[Free tickets]]). You can fill them all in from the start, even in a draft. See [Put an event on Eventbrite](#publish).
 - [[Planning]]: what only the planning team sees: [[Program(s)]], [[Leads]], [[Internal description]] and a Google Doc for your planning notes.
 - [[Potluck & Volunteers]]: sign-up slots for members.
 - [[Attendees]]: who's coming.
 
-**At the top of an open event** are its title, its first program (in that program's color, with **+1** and so on when there are more), and under them the first line of its [[Internal description]].
+Under each tab's name, one line says what the tab is for. A dot on [[Listing]] means something there is holding up the next step.
 
-**At the bottom of an open event**, a row of steps shows how far it has got: **Draft**, **Proposed**, **Approved**, **On Eventbrite**, **Published**. The label at the top of the event always matches the step. On [[Listing]], it says what's next, with one button for the next step. The **⋮** button (it says *More actions* when you point at it) holds the rest, such as [[Delete event]]. On the other tabs, the bottom says in one line what that tab is for, next to **⋮**.
+**At the top of the page** are the title, its first program (with **+1** and so on when there are more), the first line of its [[Internal description]], and its status label.
 
-**Changes save by themselves** when you move out of a field. While a change is saving, the button at the bottom says **Saving…**, and it waits until everything has saved. A save can take up to half a minute; when it's slow, the button says **Still saving…**. Your change is safe meanwhile. When nothing says Saving, everything is saved. If [[Save failed — retry]] appears beside the button, click it to try again.
+**Status & next step** shows on every tab: the event's steps, what's left, and one button for the next step. It also has the box that says whether the event is on Eventbrite, with [[Preview listing]] (on a phone, that box is at the top of [[Listing]]). See [From draft to published](#lifecycle).
 
-The same button shows a step that's under way, such as **Saving…** after you propose or approve, **Cancelling…** or **Deleting…**.
+**Changes save by themselves** when you move out of a field. Meanwhile the next-step button says **Saving…** (**Still saving…** when it's slow; a save can take half a minute), and it shows steps under way too, such as **Cancelling…**. When nothing says Saving, everything is saved. If [[Save failed — retry]] appears, click it to try again.
 
-**The icons beside each field name** show what's private, what goes on Eventbrite, and what's missing; see [Field icons](#field-markers).
-
-You can keep editing after approval, and the event doesn't need approving again. Close it with **×** or the Esc key; your last change is saved on the way out.
+**The icons beside each field name** show what's private and what goes on Eventbrite; see [Field icons](#field-markers). You can keep editing after approval, and the event doesn't need approving again.
 
 ## Field icons {#field-markers}
 
@@ -144,7 +146,7 @@ The icons and tags update once the field has saved.
 
 ## From draft to published {#lifecycle}
 
-The steps at the bottom of an open event show where it is:
+**Status & next step**, in an open event, lists the five steps. Done ones get a ✓ and, where the app knows, who and when. On a phone, it's the box at the top: tap **see all steps**. The next-step button and **⋮** (*More actions*) stay at the bottom of a phone's screen.
 
 - **Draft**: being planned. Click [[Propose to council]] when it's ready.
 - **Proposed**: waiting for Tribal Council. You can keep editing. Tribal Council clicks [[Approve]].
@@ -160,7 +162,7 @@ The app doesn't tell Tribal Council when something is proposed, so let them know
 - **Once it's published**, Delete is gone. Use [[Cancel event…]], which takes the listing down. If people have registered, see [Change or take down a listing](#publish-changes).
 - **A cancelled event** can be brought back to planning by Tribal Council with [[Reopen]], which doesn't put it back on Eventbrite. Tribal Council can also delete it.
 
-**After the date,** an approved event is history: the fields on [[Listing]] and [[Planning]] lock and there's nothing left to do at the bottom. Its notes doc, sign-ups and [[Attendees]] still work.
+**After the date,** an approved event is history: the fields on [[Listing]] and [[Planning]] lock and there's no next step. Its notes doc, sign-ups and [[Attendees]] still work.
 
 > **Tip:** Click the status label at the top of an open event to come back to this guide.
 
@@ -203,7 +205,7 @@ Once an event is approved, Program Leads and Tribal Council can put it on Eventb
 
 ### What Eventbrite needs
 
-Until these are done, the button can't be clicked. The bottom of the event lists what's left; click an item to jump to its field.
+Until these are done, the button can't be clicked. **Status & next step** lists what's left, each with a ✗; click one to jump to its field.
 
 - Approval from Tribal Council, and a title.
 - An exact date that hasn't passed, with a start time and a later end time. Date ranges, whole months and all-day events can't go on Eventbrite.
@@ -217,7 +219,7 @@ Until these are done, the button can't be clicked. The bottom of the event lists
 ### Steps
 
 1. In [[Listing]], fill in [[Summary]], [[Description]] and [[Free tickets]]. You can do this before approval too. [[Copy internal description]] starts you off from the internal one, but take out planning notes first: this text goes public.
-2. Click [[Preview listing]] at the top of [[Listing]] to see how the listing will look. Before the event is on Eventbrite, the preview is built from your fields; the street address isn't shown: you see the venue name, or just the city for [[Registrants only]].
+2. Click [[Preview listing]] (on a phone, it's at the top of [[Listing]]) to see how the listing will look. Before the event is on Eventbrite, the preview is built from your fields; the street address isn't shown: you see the venue name, or just the city for [[Registrants only]].
 3. Click [[Add to Eventbrite]].
 4. Click [[Preview listing]] again to see exactly what Eventbrite has.
 5. Click [[Publish]]. Anyone can now register.
@@ -226,7 +228,7 @@ Every listing has free General Admission tickets. Paid tickets and discount code
 
 ## Change or take down a listing {#publish-changes}
 
-**To change it,** edit the fields as usual. Each changed field says **Not on Eventbrite yet** until you click [[Update draft]] (private draft) or [[Update listing]] (published). If you close the event first, you're asked; [[Close anyway]] leaves the changes off Eventbrite.
+**To change it,** edit the fields as usual. Each changed field says **Not on Eventbrite yet** until you click [[Update draft]] (private draft) or [[Update listing]] (published). If you leave the event first, with [[← Calendar]] or Back, you're asked: [[Keep editing]] stays, and [[Close anyway]] leaves the changes off Eventbrite.
 
 - If someone edited the listing directly on Eventbrite, a notice says updating will replace their changes.
 - Editing [[Description]] here turns it into plain text on Eventbrite: any bold, links or lists added there are removed.
@@ -257,7 +259,7 @@ The app never sends email itself. It comes from your own account.
 
 ## Share a link {#share-link}
 
-**To an event:** open it and click its link icon at the top (it says *Copy link* when you point at it). The link opens that event, on the same tab. If the person has to sign in with an emailed link first, they'll land on the calendar; have them open your link again.
+**To an event:** open it and click its link icon at the top (it says *Copy link* when you point at it). The link opens that event's page, on the same tab, and [[← Calendar]] takes them to the calendar. If the person has to sign in with an emailed link first, they'll land on the calendar; have them open your link again.
 
 **To a guide:** open the guide and copy the address from your browser's address bar. It opens straight to that guide, even for someone who hasn't signed in yet. It's handy for welcoming a new lead.
 
@@ -273,15 +275,15 @@ The app never sends email itself. It comes from your own account.
 
 **I can't find an event.** Check the program year, and make sure [[Planning events]] isn't crossed out under **⚙** (on a phone, both are in the **☰** menu). Click **↻** to refresh, or on a phone, reload the page. Undated ideas sit under **date TBD** (Overview and List) or in the [[Ideas]] column (Calendar).
 
-**It says Saving… for a long time.** A save can take up to half a minute, and the button at the bottom says **Still saving…** when it's slow. Wait for it to turn back into the next step. If [[Save failed — retry]] appears, click it.
+**It says Saving… for a long time.** A save can take up to half a minute, and the next-step button says **Still saving…** when it's slow. Wait for it to turn back into the next step. If [[Save failed — retry]] appears, click it.
 
-**My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you closed the event, make the change again.
+**My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you left the event, make the change again.
 
-**I can't click Add to Eventbrite or Publish.** Something it needs is missing. The bottom of the event lists what, and the field says **Needed for Eventbrite**; see [What Eventbrite needs](#publish).
+**I can't click Add to Eventbrite or Publish.** Something it needs is missing. **Status & next step** lists what, and the field says **Needed for Eventbrite**; see [What Eventbrite needs](#publish).
 
 **Everything is grayed out.** The event's date has passed (no one can change it), it's cancelled (Tribal Council can reopen it), or you don't have the Program Lead role yet (see above).
 
-**Only Program(s), Leads and Where are grayed out.** Their lists haven't loaded yet: close and reopen the event in a moment, or reload the page.
+**Only Program(s), Leads and Where are grayed out.** Their lists haven't loaded yet: go back to the calendar and reopen the event in a moment, or reload the page.
 
 ## Suggest an improvement {#feedback}
 
