@@ -149,21 +149,21 @@ The icons and tags update once the field has saved.
 Program Leads and Tribal Council can add a venue and fix a venue's address under **Where**: in the new-event form, or on an event's [[Listing]] tab at any stage, draft or approved. Only an event that's cancelled or has happened can't.
 
 ### Add a venue
-1. Under **Where**, type the venue's name. If no venue has that name, the last choice is **+ Add … as a venue** (with your name in it). Click it.
+1. Under **Where**, type the venue's name. If no venue has that name, the last choice is **+ Add … as a venue** (with your name in it). Click it, and a window opens.
 2. Fill in the name, type, street, unit, city, state and ZIP. Only a private home can go without a street.
 3. Click [[Add venue]]. It says **Adding venue…** while it saves, which can take about half a minute. Then **Venue added** shows, and the venue is picked on your event.
 
-The venue is saved for everyone, so the next event there can just pick it. [[Cancel]] closes the form without adding anything.
+The venue is saved for everyone, so the next event there can just pick it. [[Cancel]] (or Esc) closes the window without adding anything. While it's saving, the window stays open until it's done.
 
 ### Fix an address
-Once a venue is picked, its address shows under **Where**. Click [[Edit address]] (or [[Add address]] if it says **No street address yet**), change it and click [[Save address]].
+Once a venue is picked, its address shows under **Where**. Click [[Edit address]] (or [[Add address]] if it says **No street address yet**). A window opens: change the address and click [[Save address]].
 
 > **Heads up:** this changes the address for every event at this venue. Events already on Eventbrite use the new address the next time you update their listing.
 
 ### Private homes
 A home's street address is shown only to leads and Tribal Council editing the event. With [[Address on listing]] set to [[Registrants only]], it stays off the public listing, and the address line under the venue says **Shared with registrants only**.
 
-The two venue steps in **Status & next step** open these forms: click one to add the venue or its address.
+The two venue steps in **Status & next step** open the same windows: click one to add the venue or its address.
 
 ## From draft to published {#lifecycle}
 

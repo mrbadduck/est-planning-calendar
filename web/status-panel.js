@@ -207,7 +207,7 @@ function kebabMenu(open, focusFirst){
   if(open){ hideTip(); if(focusFirst){ const f=menu.querySelector('[role="menuitem"]'); if(f) f.focus(); } }
 }
 // Readiness links name a field that blocks the next step: bring it into view and focus it.
-// `check` is the failing check's key: the two venue checks open the Where block's form
+// `check` is the failing check's key: the two venue checks open the venue dialog
 // instead (venueOther → Add a venue prefilled with Venue (other); venueAddress → the
 // address form; openVenueFormFor, venue-form.js), when the event can be edited.
 const FOCUS_FIELD_EL = { title:'f_title', description:'f_desc', programs:'f_progs', leads:'f_leads', date:'f_date', start:'f_start', end:'f_end',
@@ -220,7 +220,7 @@ function focusField(field, check){
   let el=document.getElementById(FOCUS_FIELD_EL[field]||'');
   if(!el && (field==='date' || field==='start' || field==='end')) el=document.getElementById('f_when');   // not an exact date yet
   if(!el) return;
-  if(field==='venue' && check && openVenueFormFor(check)) return;   // the form scrolled to and focused itself
+  if(field==='venue' && check && openVenueFormFor(check)) return;   // the dialog opened and focused its first empty field
   el.scrollIntoView({ block:'center', behavior:'smooth' });
   const target = el.matches('input,select,textarea,button') ? el : el.querySelector('input:not([disabled]),select,textarea,button:not([disabled])');
   if(target) target.focus({ preventScroll:true });

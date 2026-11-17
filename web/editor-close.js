@@ -1,6 +1,6 @@
 /* editor-close.js — leaving: the leave guard, requestClose/closeModal (the modal), leaveEventPage/← Calendar (the event page), the modal footer's and the panel's action dispatch, ⋮ menu keys, header actions.
    Owns: show, leaveGuard, hideLeaveGuard, closeModal, leaveEventPage, onPopState, footerAct, _headMenuOpen, headMenuHTML, headMenu
-   Reads: editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen, openedInApp, eventUrl, calendarUrl, openFromUrl (editor.js); _form, _unconfirmed (save.js); scrollCalendarToToday (shell.js); KEBAB_ICON, kebabMenu (status-panel.js; call time)
+   Reads: dismissVenueDialog (venue-form.js; call time); editing, activeSection, SECTIONS (editor-tabs.js); _ctx, _calScrollY, pageOpen, openedInApp, eventUrl, calendarUrl, openFromUrl (editor.js); _form, _unconfirmed (save.js); scrollCalendarToToday (shell.js); KEBAB_ICON, kebabMenu (status-panel.js; call time)
    Writes: editing (editor-tabs.js; closeModal, leaveEventPage); _epState (editor.js; leaveEventPage); _ndocGen (notes-doc.js; leaveEventPage); _menuOpen (status-panel.js); _regFetch (eventbrite.js)
    Loaded after: eventbrite.js (file-map order; its Escape and click listeners keep their order after preview.js and before help.js's) */
 
@@ -64,6 +64,7 @@ document.getElementById('edGuard').addEventListener('click', e=>{
 // The modal (create form, reference event, day picker, Feedback) goes away.
 function closeModal(){
   hideTip();
+  dismissVenueDialog();   // the create form's Add a venue / Edit address goes with it (a write mid-wait still toasts)
   leaveForm();   // (the create form binds no _form; harmless)
   document.getElementById('scrim').classList.remove('open');
   document.body.classList.remove('modal-open');
@@ -80,7 +81,7 @@ function closeModal(){
 function leaveEventPage(how){
   if(how==='back') how = openedInApp() ? 'goBack' : 'push';
   _ndocGen++;
-  hideLeaveGuard(); closePreview(); clearEbBlock();
+  hideLeaveGuard(); closePreview(); clearEbBlock(); dismissVenueDialog();
   if(editing && editing.id) _regFetch.delete(editing.id);   // a registrants read doesn't outlive the editor
   // Queue any edit before tearing down so a fast ← Calendar can't drop the last
   // change — including a field still being typed in (no blur yet).
@@ -89,7 +90,7 @@ function leaveEventPage(how){
   hideTip(); kebabMenu(false); headMenu(false);
   leaveForm();   // (retries the open form's failed save once)
   document.getElementById('eventPage').hidden=true;
-  document.getElementById('wpanel').replaceChildren();   // its fields' ids (f_title, f_venue_box, venueForm…) must not shadow the create form's
+  document.getElementById('wpanel').replaceChildren();   // its fields' ids (f_title, f_venue_box, venueAddr…) must not shadow the create form's
   document.getElementById('eventPage').classList.remove('loading', 'ep-fill', 'ep-scroll');
   document.body.classList.remove('event-open');
   editing=null; _epState=null;
@@ -127,8 +128,8 @@ function onPopState(){
 document.getElementById('scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') requestClose(); });
 document.getElementById('mClose').addEventListener('click', ()=>requestClose());   // dedicated top-right ✕ (avoids mis-hitting Approve)
 document.getElementById('epBack').addEventListener('click', backToCalendar);
-// Esc: the modal closes; on the page it only takes down the leave bar (the preview,
-// ⋮ and Help peel off first in their own capture-phase listeners).
+// Esc: the modal closes; on the page it only takes down the leave bar (the preview, the
+// venue dialog, ⋮ and Help peel off first in their own capture-phase listeners).
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
   if(document.getElementById('scrim').classList.contains('open')) requestClose(true);

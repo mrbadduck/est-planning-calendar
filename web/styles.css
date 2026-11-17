@@ -359,22 +359,49 @@
   .venue-other{flex:1;border:0!important;padding:2px 4px!important;font:inherit;font-size:12px;background:transparent!important}
   .venue-other:focus{outline:none!important}
   .venue-clear{border:0;background:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0 2px;flex:0 0 auto}
-  /* the venue's address line and the inline add/address form (venue-form.js) */
-  .vaddr:empty,.vform:empty{display:none}
+  /* the venue's address line (venue-form.js) */
+  .vaddr:empty{display:none}
   .vaddr{font-size:12px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
   .vaddr-txt.none{font-style:italic}
   .vaddr .lnk{margin-left:4px}
-  .vform-fs{border:1px solid var(--hair-strong);border-radius:8px;background:var(--surface);margin:0;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+  /* the venue dialog (#venueDialog): above the event page and #modal (z 60), below Help and Preview (z 70) */
+  .vd-scrim{position:fixed;inset:0;z-index:66;background:rgba(28,27,34,.4);display:flex;align-items:flex-start;justify-content:center;padding:72px 16px 16px;overflow:auto}
+  .vd-scrim[hidden]{display:none}
+  body.vd-open{overflow:hidden}
+  .vd{width:100%;max-width:440px;max-height:calc(100dvh - 96px);display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--hair-strong);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .vd:focus{outline:none}
+  .vd-head{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+  .vd-head h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0}
+  .vd-sub{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vd-sub:empty{display:none}
+  .vd-body{flex:1 1 auto;min-height:0;overflow:auto;padding:14px 18px 4px}
+  .vform-fs{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;min-width:0}
   .vform-fs:disabled{opacity:.75}
-  .vform-h{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding:0 4px}
+  .vd-foot{margin-top:0}
+  .vd .btn[disabled]{cursor:default}
+  .vd .btn:not(.primary)[disabled]{color:var(--faint)}
+  .vd .btn:not(.primary)[disabled]:hover{border-color:var(--hair-strong);color:var(--faint)}
+  .vd .btn.primary[disabled],.vd .btn.primary[disabled]:hover{background:var(--accent);border-color:var(--accent);color:#fff;opacity:.85}
+  .vd .btn.primary .ndoc-spin{width:11px;height:11px;border-color:rgba(255,255,255,.45);border-top-color:#fff;vertical-align:-2px;margin-right:7px}
   .vform-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr) minmax(0,1.4fr);gap:8px}
   .vform-grid .vf-name,.vform-grid .vf-type,.vform-grid .vf-street,.vform-grid .vf-unit{grid-column:1/-1}
   .vform .hint{font-size:11px;color:var(--faint)}
   .vform .hint:empty{display:none}
   .vform .hint.err{color:#B3261E}
-  .vform-acts{display:flex;gap:8px;flex-wrap:wrap}
-  @media (max-width:600px){ .vform-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} .vform-grid .vf-city{grid-column:1/-1} }
-  @media (pointer:coarse), (max-width:600px){ :is(.event-page,.modal.create) .vform-acts .btn{min-height:44px;padding:0 14px} .modal.create .vaddr .lnk{padding:12px 4px;margin:-12px 0 -12px 0} }
+  /* phones: a bottom sheet the full width of the screen */
+  @media (max-width:600px){
+    .vform-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} .vform-grid .vf-city{grid-column:1/-1}
+    .vd-scrim{padding:0;align-items:flex-end;overflow:hidden}
+    .vd{max-width:none;max-height:92dvh;border-radius:14px 14px 0 0;border-bottom:0}
+    .vd-head{padding:14px 16px 11px}
+    .vd-body{padding:14px 16px 4px}
+    .vd-foot{padding:12px 16px calc(14px + env(safe-area-inset-bottom))}
+  }
+  @media (pointer:coarse), (max-width:600px){
+    .vd-foot .btn{min-height:44px;padding:0 16px}
+    .vd .fld input,.vd .fld select{min-height:44px}
+    .modal.create .vaddr .lnk{padding:12px 4px;margin:-12px 0 -12px 0}
+  }
   .venue-clear:hover{color:var(--accent)}
   .ta-opt.ta-new{color:var(--accent-dk);font-weight:500;border-top:1px solid var(--hair);margin-top:2px;padding-top:8px}
   .meta{grid-column:1/3;font-size:11px;color:var(--faint);border-top:1px dashed var(--hair);padding-top:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}

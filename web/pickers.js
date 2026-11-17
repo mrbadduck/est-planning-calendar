@@ -58,7 +58,7 @@ function initTypeahead(container, opts){
 /* Single-select Venue picker: typeahead over venues (alphabetized, filtered by the
    Venue Type select, closed hidden). With opts.onAdd, the last row is
    + Add "<typed>" as a venue whenever no venue has exactly that name
-   (VenueAddress.offerAdd); it hands the text to onAdd (the Where block's add form,
+   (VenueAddress.offerAdd); it hands the text to onAdd (the Add a venue dialog,
    venue-form.js), which returns falsy when the form can't open (the typed text stays). Without onAdd, "＋ New venue" drops the text into other-mode (an
    editable field with a clear ✕ that returns to select mode) — other-mode still
    shows an event's stored Venue (other). State lives on container.dataset.venueId /

@@ -21,11 +21,15 @@ Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
   relative order, and a file must not run anything at load that a later file declares
   (`const`/`let` are not yet defined there). `init();` (main.js) is the last statement.
   Functions only used at call time can live anywhere.
-- The four Escape `keydown` handlers run in this order: `preview.js` (closes only the
-  preview) → `editor-close.js` (`requestClose` when the modal is open; on the event page
-  it only hides the leave bar) → `editor-close.js` ⋮ menus (the panel's `#edMenu` and the top bar's `#epMenu`, one listener) → `help.js`.
-  Three of them call `stopImmediatePropagation`, so reordering changes which one
-  wins. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
+- The five Escape `keydown` handlers run in this order: `preview.js` (capture; closes only the
+  preview) → `venue-form.js` (capture; closes only the venue dialog `#venueDialog`, and
+  while its write waits for Coda swallows Esc without closing anything) → `editor-close.js`
+  (`requestClose` when the modal is open; on the event page it only hides the leave bar) →
+  `editor-close.js` ⋮ menus (capture; the panel's `#edMenu` and the top bar's `#epMenu`, one
+  listener) → `help.js` (capture). Capture listeners on `document` run in registration
+  (script load) order; four of them call `stopImmediatePropagation`, so reordering changes
+  which one wins. The preview and the venue dialog can't be open together (each covers
+  the page with its own scrim), so the venue dialog is in practice the first to act. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
   too; neither stops propagation.)
 - Update the file's header and this page when you add, move or rename things.
 
@@ -162,7 +166,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   link** header button shares the current view.
 11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
 12. **`tabs-listing-planning.js`** — the Listing and Planning panels and the private-home address-default rules.
-13. **`venue-form.js`** — the Where block's venue address line (`#venueAddr`: the picked venue's address from `GET /venues/:id`, fetched once per venue per session, editors only; **Edit address** / **No street address yet** + **Add address**; "Shared with registrants only" on a Registrants-only event) and its inline form (`#venueForm`): **Add venue** (from the picker's **+ Add "<name>" as a venue** row or the `venueOther` readiness link) and **Save address** (from the line or the `venueAddress` readiness link). Both wait until Coda applies the write (`CodaApplied`, D3) before the app selects the new venue or repaints readiness, and update the local `VENUES` list themselves at once, then `refreshVenues` (data.js) re-reads `/ref/venues?fresh=1` in the background and merges it (`VenueAddress.mergeVenues`: fresh wins, this session's adds are kept until the fresh list has them). A Save address with the address already saved comes back `{unchanged:true}` and doesn't wait. A failed readiness row carries its check key (`checklist[].check`) so `focusField` can open the right form.
+13. **`venue-form.js`** — the Where block's venue address line (`#venueAddr`: the picked venue's address from `GET /venues/:id`, fetched once per venue per session, editors only; **Edit address** / **No street address yet** + **Add address**; "Shared with registrants only" on a Registrants-only event) and the venue dialog (`#venueDialog` > `#vdBox` in `index.html`, one stable element painted with `paintInner`, D1; z-index 66: above the event page and the create form's `#modal`, below Help and Preview): **Add a venue** → **Add venue** (from the picker's **+ Add "<name>" as a venue** row or the `venueOther` readiness link) and **Edit address** → **Save address** (from the line or the `venueAddress` readiness link). `role="dialog"`, `aria-modal`; focus goes to the first empty field, Tab is trapped (keydown wrap + a `focusin` guard that lets the Help drawer keep focus), Enter in a text field submits, Esc / Cancel / a scrim click close it and return focus to the opener — all disabled while the write waits for Coda (busy: fields, Cancel and the primary disabled, spinner + **Adding venue…** / **Saving address…**). Leaving the page or the create form (`leaveEventPage`, `closeModal` → `dismissVenueDialog`) takes it down even mid-write; that write finishes and reports by toast. Both wait until Coda applies the write (`CodaApplied`, D3) before the app selects the new venue or repaints readiness, and update the local `VENUES` list themselves at once, then `refreshVenues` (data.js) re-reads `/ref/venues?fresh=1` in the background and merges it (`VenueAddress.mergeVenues`: fresh wins, this session's adds are kept until the fresh list has them). A Save address with the address already saved comes back `{unchanged:true}` and doesn't wait. A failed readiness row carries its check key (`checklist[].check`) so `focusField` can open the right form.
 14. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).
 15. **`tab-potluck.js`** — the Potluck & Volunteers tab: the gather slot builder and its claims.
 16. **`feedback.js`** — the votable Feedback / Ideas board and its modal.

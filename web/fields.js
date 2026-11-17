@@ -44,8 +44,8 @@ function whenGroupHTML(ev, dis){
       <div class="fld full" id="whenFields"></div>
     </div>`;
 }
-// Where: venue type + venue, the venue's address line (#venueAddr) and add/address
-// form (#venueForm; venue-form.js), the street-address note and — on the Listing tab —
+// Where: venue type + venue, the venue's address line (#venueAddr; its Add a venue /
+// Edit address dialog is #venueDialog, venue-form.js), the street-address note and — on the Listing tab —
 // the Address on listing toggle with its hints, all in one block.
 function whereGroupHTML(ev, dis, lab, relOK, listing){
   const av = ev.addressVisibility || '';
