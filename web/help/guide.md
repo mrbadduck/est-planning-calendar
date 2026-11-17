@@ -144,6 +144,27 @@ Two tags can appear too:
 
 The icons and tags update once the field has saved.
 
+## Add a venue or fix its address {#venues}
+
+Program Leads and Tribal Council can add a venue and fix a venue's address under **Where**: in the new-event form, or on an event's [[Listing]] tab at any stage, draft or approved. Only an event that's cancelled or has happened can't.
+
+### Add a venue
+1. Under **Where**, type the venue's name. If no venue has that name, the last choice is **+ Add … as a venue** (with your name in it). Click it.
+2. Fill in the name, type, street, unit, city, state and ZIP. Only a private home can go without a street.
+3. Click [[Add venue]]. It says **Adding venue…** while it saves, which can take about half a minute. Then **Venue added** shows, and the venue is picked on your event.
+
+The venue is saved for everyone, so the next event there can just pick it. [[Cancel]] closes the form without adding anything.
+
+### Fix an address
+Once a venue is picked, its address shows under **Where**. Click [[Edit address]] (or [[Add address]] if it says **No street address yet**), change it and click [[Save address]].
+
+> **Heads up:** this changes the address for every event at this venue. Events already on Eventbrite use the new address the next time you update their listing.
+
+### Private homes
+A home's street address is shown only to leads and Tribal Council editing the event. With [[Address on listing]] set to [[Registrants only]], it stays off the public listing, and the address line under the venue says **Shared with registrants only**.
+
+The two venue steps in **Status & next step** open these forms: click one to add the venue or its address.
+
 ## From draft to published {#lifecycle}
 
 **Status & next step**, in an open event, lists the six steps. Done ones get a ✓ and, where the app knows, who and when. On a phone, it's the box at the top: tap **see all steps**. The next-step button and **⋮** (*More actions*) stay at the bottom of a phone's screen.
@@ -196,27 +217,6 @@ To sign someone up yourself, click [[+ Add sign-up]] under a slot, pick their na
 **When members see them:** slots show up in gather once the event is published. After approval, Program Leads and Tribal Council can preview them there. The **View in gather** icon at the top of an open event takes you straight there (on a phone, it's under **⋮** at the top right).
 
 # After approval
-
-## Add a venue or fix its address {#venues}
-
-Program Leads and Tribal Council can add a venue from the **Where** section of an event's [[Listing]] tab, and fix a venue's address there.
-
-### Add a venue
-1. Under **Where**, type the venue's name. If no venue has that name, the last choice is **+ Add … as a venue** (with your name in it). Click it.
-2. Fill in the name, type, street, unit, city, state and ZIP. Only a private home can go without a street.
-3. Click [[Add venue]]. It says **Adding venue…** while it saves, which can take about half a minute. Then **Venue added** shows, and the venue is picked on your event.
-
-The venue is saved for everyone, so the next event there can just pick it. [[Cancel]] closes the form without adding anything.
-
-### Fix an address
-Once a venue is picked, its address shows under **Where**. Click [[Edit address]] (or [[Add address]] if it says **No street address yet**), change it and click [[Save address]].
-
-> **Heads up:** this changes the address for every event at this venue. Events already on Eventbrite use the new address the next time you update their listing.
-
-### Private homes
-A home's street address is shown only to leads and Tribal Council editing the event. With [[Address on listing]] set to [[Registrants only]], it stays off the public listing, and the form notes **Shared with registrants only**.
-
-The two venue steps in **Status & next step** open these forms: click one to add the venue or its address.
 
 ## Put an event on Eventbrite {#publish}
 
