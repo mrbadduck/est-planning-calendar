@@ -58,7 +58,7 @@ export const PEOPLE_COLS = {
 // plan); Address stays as the composed one-line form, kept in step on every write.
 export const VENUE_COLS = {
   name:             'c-qOEGjzi8TZ', // Venue Name
-  address:          'c-19lFeKZu_W', // Address (composed: "Street, Unit, City, ST ZIP")
+  address:          'c-19lFeKZu_W', // Address (plain text column, no formula; the app/Worker write it composed as "Street, Unit, City, ST ZIP")
   type:             'c-Yqz2FaSKTR', // Venue Type (lookup → Venue Types, grid-idEVRQX7SL)
   ebVenueId:        'c-8q1sI7FT2R', // Eventbrite Venue ID (public EB venue, Worker cache)
   ebPrivateVenueId: 'c-KPZs1NHQFF', // Eventbrite Private Venue ID (registrants-only EB venue, Worker cache)

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planRow, renderTable, cellsFor } from '../../scripts/backfill-venue-address.mjs';
+import { planRow, renderTable, cellsFor, buildWrite } from '../../scripts/backfill-venue-address.mjs';
 import { VENUE_COLS as C } from '../src/coda-columns.js';
 
 const row = (address, extra = {}) => ({ id: 'i-1', values: { [C.name]: 'V', [C.address]: address, ...extra } });
@@ -36,4 +36,17 @@ test('a trailing Apt/Unit moves into Unit; a letter after the house number does 
   const b = planRow(row('1709 A 5th Ave North, Nashville, TN 37208'));
   assert.equal(b.fields.street, '1709 A 5th Ave North');
   assert.equal(b.fields.unit, '');
+});
+
+test('words that merely start with a designator are not split', () => {
+  assert.equal(planRow(row('100 Webster, Nashville, TN 37203')).fields.unit, '');
+  const u = planRow(row('12 Unitas Rd, Nashville, TN 37203')).fields;
+  assert.equal(u.street, '12 Unitas Rd');
+  assert.equal(u.unit, '');
+});
+
+test('buildWrite: PUT to the row, five column ids only', () => {
+  const w = buildWrite('i-1', { street: 'a', unit: '', city: 'c', state: 'TN', zip: '' });
+  assert.match(w.url, /\/tables\/grid-foC40iAOaX\/rows\/i-1$/);
+  assert.deepEqual(w.body.row.cells.map(c => c.column), [C.street, C.unit, C.city, C.state, C.zip]);
 });

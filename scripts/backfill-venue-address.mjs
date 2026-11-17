@@ -30,8 +30,8 @@ export function planRow(row) {
   const p = parseUsAddress(out.address, { city: 'Nashville', region: 'TN' });
   let street = p.address_1, unit = p.address_2 || '';
   // A trailing "Apt 222" / "Unit 4" / "#5" belongs in Unit, not Street (parseUsAddress is left alone: the Worker's publish path uses it).
-  const um = !unit && /\s*,?\s*((?:apt|apartment|unit|suite|ste|#)\.?\s*[\w-]+)$/i.exec(street);
-  if (um && um.index > 0) { unit = um[1]; street = street.slice(0, um.index); }
+  const um = !unit && /(?:^|[\s,])((?:apt|apartment|unit|suite|ste|#)\.?\s*[\w-]+)$/i.exec(street);
+  if (um && um.index > 0) { unit = um[1]; street = street.slice(0, um.index).replace(/[\s,]+$/, ''); }
   const fields = VA.normalize({ street, unit, city: p.city, state: p.region, zip: p.postal_code || '' });
   const whole = out.address.replace(/\s+/g, ' ');
   if (fields.street.toLowerCase() === whole.toLowerCase()) return { ...flag('no city/state found in Address'), fields };
@@ -66,10 +66,28 @@ function readToken() {
   return m[1];
 }
 
+// The PUT for one row: URL + body, the five structured columns only (by id).
+export function buildWrite(id, fields) {
+  return { url: `${BASE}/docs/${DOC}/tables/${TABLE}/rows/${encodeURIComponent(id)}`, body: { row: { cells: cellsFor(fields) } } };
+}
+
 async function codaFetch(token, url, init) {
   const r = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
-  if (!r.ok) throw new Error(`Coda ${init && init.method || 'GET'} ${r.status}`);
+  if (!r.ok) { const e = new Error(`Coda ${init && init.method || 'GET'} ${r.status}`); e.status = r.status; throw e; }
   return r.json();
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// PUT one row; retries 429/5xx up to 3 times (1s, 3s, 9s). Failure names the row.
+async function writeRow(token, p) {
+  const w = buildWrite(p.id, p.fields);
+  for (let attempt = 0; ; attempt++) {
+    try { return await codaFetch(token, w.url, { method: 'PUT', body: JSON.stringify(w.body) }); }
+    catch (e) {
+      if (attempt < 3 && (e.status === 429 || e.status >= 500)) { await sleep(1000 * 3 ** attempt); continue; }
+      throw new Error(`${e.message} writing ${p.id} ${p.name}`);
+    }
+  }
 }
 
 async function readRows(token) {
@@ -83,21 +101,37 @@ async function readRows(token) {
   return rows;
 }
 
+const USAGE = 'usage: backfill-venue-address.mjs [--write --yes] [--only <rowId>[,<rowId>...]]';
+
 async function main() {
   const args = process.argv.slice(2);
-  const write = args.includes('--write');
-  if (write && !args.includes('--yes')) { console.error('--write needs --yes'); process.exit(1); }
+  let write = false, yes = false, only = null;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--write') write = true;
+    else if (a === '--yes') yes = true;
+    else if (a === '--only' && args[i + 1] && !args[i + 1].startsWith('--')) only = args[++i].split(',').map(x => x.trim()).filter(Boolean);
+    else { console.error(USAGE); process.exit(2); }
+  }
+  if (write && !yes) { console.error('--write needs --yes'); process.exit(1); }
   const token = readToken();
   const plans = (await readRows(token)).map(planRow);
   console.log(renderTable(plans));
   if (!write) return;
-  const ok = plans.filter(p => p.status === 'OK');
-  for (let i = 0; i < ok.length; i += 20) {   // batches of 20, one row PUT at a time (five fields only)
-    for (const p of ok.slice(i, i + 20)) {
-      await codaFetch(token, `${BASE}/docs/${DOC}/tables/${TABLE}/rows/${encodeURIComponent(p.id)}`, { method: 'PUT', body: JSON.stringify({ row: { cells: cellsFor(p.fields) } }) });
-    }
-    console.error(`wrote ${Math.min(i + 20, ok.length)}/${ok.length}`);
+  let ok = plans.filter(p => p.status === 'OK');
+  if (only) {
+    const bad = only.filter(id => !ok.some(p => p.id === id));
+    if (bad.length) { console.error(`--only: not an OK row: ${bad.join(', ')}`); process.exit(1); }
+    ok = ok.filter(p => only.includes(p.id));
   }
+  const reqIds = [];
+  for (const p of ok) {   // sequential, paced
+    const res = await writeRow(token, p);
+    reqIds.push(res.requestId);
+    console.error(`wrote ${p.id} ${p.name} (requestId ${res.requestId})`);
+    await sleep(250);
+  }
+  console.error(`requestIds: ${reqIds.join(' ')}`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
