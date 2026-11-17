@@ -1,6 +1,6 @@
 /* venue-form.js — the Where block's venue address line and its inline form: add a venue, fix a venue's address.
    Owns: venueSlotsHTML, wireVenueForm, paintVenueAddr, openVenueAdd, openVenueAddress, openVenueFormFor, closeVenueForm
-   Reads: VENUES, VENUE_TYPES, DB, cacheSet, setVenues (data.js); VenueAddress (venue-address.js); CodaApplied (coda-applied.js);
+   Reads: VENUES, VENUE_TYPES, DB, cacheSet, setVenues, refreshVenues (data.js); VenueAddress (venue-address.js); CodaApplied (coda-applied.js);
           editing (editor-tabs.js); esc (util.js); toast (ui.js; call time); renderStatusPanel (status-panel.js; call time);
           _pushChecks (eventbrite.js; call time)
    Writes: VENUES (via setVenues + an entry's hasAddress); _pushChecks (eventbrite.js; delete)
@@ -16,7 +16,9 @@
    A write waits until Coda has applied it (D3) before the app uses the new row or
    says the address changed: an event must never point at a venue row Coda hasn't
    applied. /ref/venues is busted before Coda applies, so the local VENUES list is
-   updated here rather than refetched. Read-only, locked and signed-out views get
+   updated here at once, then refreshVenues re-reads /ref/venues?fresh=1 in the
+   background (the write has applied by then) and refills the Worker's caches.
+   A PUT with the address already saved comes back {unchanged:true}: no wait. Read-only, locked and signed-out views get
    neither container's controls and fetch nothing. */
 const _vaddr=new Map();   // venue id → { status:'loading'|'ok'|'err', v:{id,name,type,street,unit,city,state,zip,address} }
 let _vctx=null;           // { ev, editable } for the Where block on screen
@@ -228,6 +230,7 @@ async function submitAdd(f){
     _vfPendingAdd=null;
     const v={ id:p.id, name, type:typeName, closed:false, hasAddress:VenueAddress.hasAddress(addr) };
     setVenues(VENUES.filter(x=>x.id!==v.id).concat([v])); cacheSet('venues', VENUES);
+    refreshVenues(v.id);   // not awaited: pulls the applied list past the Worker's caches
     _vaddr.set(v.id, { status:'ok', v:Object.assign({ id:v.id, name, type:typeName, address:VenueAddress.compose(addr) }, addr) });
     f.busy=false;
     if(_vf===f) closeVenueForm();
@@ -251,10 +254,14 @@ async function submitAddress(f){
   vfErrors(null); f.busy=true; vfBusy(true, 'Saving address…');
   try{
     const r=await DB.updateVenue(id, addr);
-    try{ await venueApplied(r && r.requestId); }
-    catch(_){ const e=new Error('Coda didn’t confirm the address yet. Try Save address again in a minute.'); throw e; }
+    const unchanged=!!(r && r.unchanged);   // the same address as saved: nothing was written, nothing to wait for
+    if(!unchanged){
+      try{ await venueApplied(r && r.requestId); }
+      catch(_){ const e=new Error('Coda didn’t confirm the address yet. Try Save address again in a minute.'); throw e; }
+    }
     _vaddr.set(id, { status:'ok', v:Object.assign({}, ent && ent.v, addr, { address:VenueAddress.compose(addr) }) });
     if(rec.id){ rec.hasAddress=VenueAddress.hasAddress(addr); setVenues(VENUES); cacheSet('venues', VENUES); }
+    if(!unchanged) refreshVenues(id);   // not awaited
     f.busy=false;
     if(_vf===f) closeVenueForm();
     paintVenueAddr();

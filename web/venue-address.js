@@ -8,6 +8,10 @@
    - validate(a, {allowBlank}): {ok, errors}
    - hasAddress(v): structured Street+City, else a non-blank legacy `address`
    - sameName(a, b): case-insensitive, whitespace-collapsed equality
+   - zipText(z): a ZIP cell as text; Coda may hand back a number (2134), so pad it to 5 digits ("02134")
+   - mergeVenues(fresh, local, keepIds): the app's venue list after a fresh /ref/venues read —
+     the fresh list, plus any local entry whose id is in keepIds (added or changed here)
+     that the fresh list doesn't have yet; an id in both comes from the fresh list
    - offerAdd(typed, venues): the venue picker offers + Add "<typed>" as a venue —
      something typed, and no venue (closed or not, any type) has that name */
 (function (root) {
@@ -48,7 +52,16 @@
 
   const sameName = (a, b) => clean(a).toLowerCase() === clean(b).toLowerCase();
 
+  const zipText = z => (Array.isArray(z) ? zipText(z[0]) : typeof z === 'number' ? String(z).padStart(5, '0') : clean(z));
+
+  function mergeVenues(fresh, local, keepIds) {
+    const list = (fresh || []).filter(Boolean);
+    const have = new Set(list.map(v => v.id));
+    const keep = new Set(keepIds || []);
+    return list.concat((local || []).filter(v => v && keep.has(v.id) && !have.has(v.id)));
+  }
+
   const offerAdd = (typed, venues) => !!clean(typed) && !(venues || []).some(v => v && sameName(v.name, typed));
 
-  root.VenueAddress = { normalize, compose, validate, hasAddress, sameName, offerAdd, US_STATES };
+  root.VenueAddress = { normalize, compose, validate, hasAddress, sameName, offerAdd, zipText, mergeVenues, US_STATES };
 })(globalThis);

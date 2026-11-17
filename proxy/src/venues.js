@@ -16,7 +16,7 @@ export function venueFromRow(row) {
     name: str(v[C.name]) || (row && row.name) || '',
     type: str(v[C.type]),
     street: str(v[C.street]), unit: str(v[C.unit]), city: str(v[C.city]),
-    state: str(v[C.state]), zip: str(v[C.zip]),
+    state: str(v[C.state]), zip: VA.zipText(v[C.zip]),   // a numeric ZIP keeps its leading zero
     address: str(v[C.address]),
     ebVenueId: str(v[C.ebVenueId]), ebPrivateVenueId: str(v[C.ebPrivateVenueId]),
   };
@@ -71,6 +71,9 @@ export function createCells(body, { venues, types }) {
 // PUT /venues/:rowId body {street, unit, city, state, zip}; `venue` = venueFromRow of the
 // current row. Clears BOTH cached Eventbrite venue ids in the same write, so the next
 // push creates an Eventbrite venue with the new address.
+// The same address as the row already holds (normalized, and its composed Address
+// already matches) → {cells:[], unchanged:true}: nothing is written and the cached
+// Eventbrite venue ids stay.
 export function updateCells(body, venue) {
   if (!venue) return { error: 'venue not found', status: 404 };
   const n = VA.normalize(body || {});
@@ -78,5 +81,8 @@ export function updateCells(body, venue) {
   if (long) return long;
   const v = VA.validate(n, { allowBlank: venue.type === 'Home' });
   if (!v.ok) return invalid(v);
+  const cur = VA.normalize(venue);
+  if (['street', 'unit', 'city', 'state', 'zip'].every(k => n[k] === cur[k]) && String(venue.address || '').trim() === VA.compose(n))
+    return { cells: [], unchanged: true };
   return { cells: [...addressCells(n), { column: C.ebVenueId, value: '' }, { column: C.ebPrivateVenueId, value: '' }] };
 }

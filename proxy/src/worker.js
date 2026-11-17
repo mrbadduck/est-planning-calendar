@@ -10,7 +10,7 @@
  *   POST   /rows        create a row  (body: { rows: [{ cells: [...] }] })
  *   PUT    /rows/:id    update a row  (body: { row:  { cells: [...] } })
  *   DELETE /rows/:id    delete a row (refused while Published?; deletes its Eventbrite draft first)
- *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
+ *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types); /ref/venues?fresh=1 bypasses + refills the caches
  *   GET    /me          verify Firebase token -> { signedIn, name, canWrite, canApprove }
  *   POST   /notes-doc   push the row's notes-doc button by id (body: { rowId }) — role-gated
  *   POST   /unpublish/eventbrite  take a listing back to a private draft (body: { rowId }) — refused with registrants
@@ -18,7 +18,7 @@
  *   GET    /roster/:rowId  lead-facing attendee roster (Eventbrite orders ∪ gather claimants) — role-gated; ?fresh=1 bypasses KV
  *   GET    /venues/:rowId  one venue's structured address for the edit form — role-gated (canWrite)
  *   POST   /venues         add a venue (body: {name, typeId, street, unit, city, state, zip}) -> {id, requestId} — role-gated
- *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} — role-gated
+ *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} | {requestId:null, unchanged:true} (same address: no write) — role-gated
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -261,8 +261,11 @@ export default {
         const refTable = REF[name];
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
         // L1 per-isolate cache over the KV SWR snapshot — ref data changes rarely.
+        // /ref/venues?fresh=1 (the app, once a venue write has applied) skips both
+        // caches, reads Coda and refills them — like /rows?fresh=1.
+        const fresh = name === 'venues' && url.searchParams.get('fresh') === '1';
         const hit = REF_CACHE.get(name);
-        if (hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
+        if (!fresh && hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
         // People is ~1128 rows x ~50 cols — serve the pickers' {id, name, lead}
         // projection straight from the shared slim People snapshot (id-keyed, so
         // this read is rename-proof too). `lead` = write-authorized leadership:
@@ -281,12 +284,19 @@ export default {
             // Venues are projected (venueRefItem) before caching: the Address column
             // holds private home addresses and /ref is unauthenticated (R12).
             const isVenues = name === 'venues';
-            items = await swrGet(env, ctx, isVenues ? VENUES_KV_KEY : `ref-${name}-v1`, 5 * 60_000, 24 * 3600_000, async () => {   // soft 5min / hard 24h
+            const kvKey = isVenues ? VENUES_KV_KEY : `ref-${name}-v1`;
+            const fetchRef = async () => {
               // Venues are read by column id (venueRefItem keys by VENUE_COLS).
               const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth, { byId: isVenues });
               if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
               return isVenues ? out.items.map(venueRefItem) : out.items;
-            });
+            };
+            if (fresh) {
+              items = await fetchRef();
+              if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at: Date.now(), data: items })); } catch (_) {} }
+            } else {
+              items = await swrGet(env, ctx, kvKey, 5 * 60_000, 24 * 3600_000, fetchRef);   // soft 5min / hard 24h
+            }
           } catch (e) { return json({ error: String((e && e.message) || e) }, 502, cors); }
         }
         REF_CACHE.set(name, { items, exp: Date.now() + 5 * 60 * 1000 });
@@ -349,6 +359,7 @@ export default {
         if (got.failed) return pass(got.failed, cors);
         const out = venueUpdateCells(body, got.venue);
         if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
+        if (out.unchanged) return json({ requestId: null, unchanged: true }, 200, cors);   // same address: no write, Eventbrite ids kept
         const w = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: out.cells } }) });
         if (!w.ok) return pass(w, cors);
         await bustVenues();

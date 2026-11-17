@@ -1,6 +1,6 @@
 /* data.js — reference lists (programs, people, venues, refs), the local cache, the
    Coda row <-> event seam (planningRowToEvent / eventToCodaCells) and CodaSource (DB).
-   Owns: PROGRAMS, PROG, REF_LAYERS, REF, rebuildRefs, _live, progColor, cacheGet, loadPrograms, loadPeople, loadVenues, PEOPLE_LIST, LEADS_LIST, peopleById, peopleIdByName, VENUES, VENUE_TYPES, PROXY_BASE, mapRelations, planningRowToEvent, eventToCodaCells, venueTypeIdByName, DB
+   Owns: PROGRAMS, PROG, REF_LAYERS, REF, rebuildRefs, _live, progColor, cacheGet, loadPrograms, loadPeople, loadVenues, refreshVenues, PEOPLE_LIST, LEADS_LIST, peopleById, peopleIdByName, VENUES, VENUE_TYPES, PROXY_BASE, mapRelations, planningRowToEvent, eventToCodaCells, venueTypeIdByName, DB
    Reads: state.layers, state.idToken (state.js; only when called, not at load)
    Writes: state.layers (rebuildRefs)
    Loaded after: editor-head.js (nothing needed at load) */
@@ -102,6 +102,26 @@ let VENUE_TYPES = [];     // {id,name}
 let venueIdByName = {}, venueTypeIdByName = {};
 function setVenues(list){ VENUES=list; venueIdByName=Object.fromEntries(VENUES.map(v=>[v.name,v.id])); _live.venues=true; }
 function setVenueTypes(list){ VENUE_TYPES=list; venueTypeIdByName=Object.fromEntries(VENUE_TYPES.map(t=>[t.name,t.id])); _live.venueTypes=true; }
+// /ref/venues items → the app's {id,name,type,closed,hasAddress} list.
+const venueRefList = items => (items || []).filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
+  type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true),
+  hasAddress: x.hasAddress != null ? !!x.hasAddress : !!(x.values && x.values['Address']) }));   // the Worker sends whether a venue has an address, never the address (R12); an older /ref/venues (or cache) still sends Address
+// Venues added or changed in this session (venue-form.js): kept through a fresh read that doesn't show them yet.
+const _venuesLocal = new Set();
+// After a venue write has applied: re-read /ref/venues past the Worker's caches and
+// replace VENUES (VenueAddress.mergeVenues keeps this session's entries the fresh list
+// lacks). Fire and forget; a failed read keeps the local list.
+async function refreshVenues(id){
+  if(id) _venuesLocal.add(id);
+  if(!PROXY_BASE) return;
+  try{
+    const r=await fetch(`${PROXY_BASE}/ref/venues?fresh=1`);
+    if(!r.ok) return;
+    const fresh=venueRefList((await r.json()).items);
+    if(!fresh.length) return;
+    setVenues(VenueAddress.mergeVenues(fresh, VENUES, _venuesLocal)); cacheSet('venues', VENUES);
+  }catch(err){ console.warn('venues refresh failed:', err); }
+}
 async function loadVenues(){
   const cv=cacheGet('venues'), ct=cacheGet('venue-types');               // instant from cache
   if(cv && cv.length) setVenues(cv);
@@ -110,10 +130,7 @@ async function loadVenues(){
   try{
     const [rv, rt] = await Promise.all([ fetch(`${PROXY_BASE}/ref/venues`), fetch(`${PROXY_BASE}/ref/venue-types`) ]);
     if(rv && rv.ok){
-      const items = (await rv.json()).items || [];
-      const list = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
-        type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true),
-        hasAddress: x.hasAddress != null ? !!x.hasAddress : !!(x.values && x.values['Address']) }));   // the Worker sends whether a venue has an address, never the address (R12); an older /ref/venues (or cache) still sends Address
+      const list = venueRefList((await rv.json()).items);
       if(list.length){ setVenues(list); cacheSet('venues', list); }
     }
     if(rt && rt.ok){

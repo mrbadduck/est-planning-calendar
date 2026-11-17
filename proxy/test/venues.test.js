@@ -117,3 +117,21 @@ test('updateCells: length caps apply to an address change too', () => {
   assert.equal(out.status, 400); assert.equal(out.error, 'Street is too long');
   assert.equal(updateCells({ street: '9 New Rd', city: 'Nashville', state: 'TN', zip: '1'.repeat(11) }, ROW).error, 'ZIP is too long');
 });
+test('venueFromRow: a numeric ZIP keeps its leading zero; ZIP+4 text unchanged', () => {
+  assert.equal(venueFromRow({ id: 'a', values: { [C.zip]: 2134 } }).zip, '02134');
+  assert.equal(venueFromRow({ id: 'b', values: { [C.zip]: 37216 } }).zip, '37216');
+  assert.equal(venueFromRow({ id: 'c', values: { [C.zip]: '37216-1234' } }).zip, '37216-1234');
+  assert.equal(venueFromRow({ id: 'd', values: { [C.zip]: [2134] } }).zip, '02134');
+});
+test('updateCells: the same address (after normalizing) → unchanged, no cells, EB ids kept', () => {
+  assert.deepEqual(updateCells({ street: ' 1  Old St', unit: '', city: 'Nashville', state: 'tn', zip: '' }, ROW), { cells: [], unchanged: true });
+  // a numeric-ZIP row read as "02134" matches the typed "02134"
+  const z = { ...ROW, zip: '02134', address: '1 Old St, Nashville, TN 02134' };
+  assert.equal(updateCells({ street: '1 Old St', city: 'Nashville', state: 'TN', zip: '02134' }, z).unchanged, true);
+});
+test('updateCells: any field changed, or a stale composed Address → a real write', () => {
+  assert.ok(updateCells({ street: '1 Old St', unit: 'Apt 2', city: 'Nashville', state: 'TN' }, ROW).cells.length);
+  const stale = { ...ROW, address: '1 Old Street, Nashville TN' };
+  const out = updateCells({ street: '1 Old St', city: 'Nashville', state: 'TN' }, stale);
+  assert.ok(!out.unchanged); assert.equal(cell(out.cells, C.address), '1 Old St, Nashville, TN');
+});

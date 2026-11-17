@@ -162,7 +162,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   link** header button shares the current view.
 11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
 12. **`tabs-listing-planning.js`** — the Listing and Planning panels and the private-home address-default rules.
-13. **`venue-form.js`** — the Where block's venue address line (`#venueAddr`: the picked venue's address from `GET /venues/:id`, fetched once per venue per session, editors only; **Edit address** / **No street address yet** + **Add address**; "Shared with registrants only" on a Registrants-only event) and its inline form (`#venueForm`): **Add venue** (from the picker's **+ Add "<name>" as a venue** row or the `venueOther` readiness link) and **Save address** (from the line or the `venueAddress` readiness link). Both wait until Coda applies the write (`CodaApplied`, D3) before the app selects the new venue or repaints readiness, and update the local `VENUES` list themselves (`/ref/venues` is stale for minutes after a venue write). A failed readiness row carries its check key (`checklist[].check`) so `focusField` can open the right form.
+13. **`venue-form.js`** — the Where block's venue address line (`#venueAddr`: the picked venue's address from `GET /venues/:id`, fetched once per venue per session, editors only; **Edit address** / **No street address yet** + **Add address**; "Shared with registrants only" on a Registrants-only event) and its inline form (`#venueForm`): **Add venue** (from the picker's **+ Add "<name>" as a venue** row or the `venueOther` readiness link) and **Save address** (from the line or the `venueAddress` readiness link). Both wait until Coda applies the write (`CodaApplied`, D3) before the app selects the new venue or repaints readiness, and update the local `VENUES` list themselves at once, then `refreshVenues` (data.js) re-reads `/ref/venues?fresh=1` in the background and merges it (`VenueAddress.mergeVenues`: fresh wins, this session's adds are kept until the fresh list has them). A Save address with the address already saved comes back `{unchanged:true}` and doesn't wait. A failed readiness row carries its check key (`checklist[].check`) so `focusField` can open the right form.
 14. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).
 15. **`tab-potluck.js`** — the Potluck & Volunteers tab: the gather slot builder and its claims.
 16. **`feedback.js`** — the votable Feedback / Ideas board and its modal.
@@ -294,7 +294,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 
 ## Gotchas (things that already bit us)
 
-- `web/listing-readiness.js` is imported by the Worker: keep it free of DOM/browser globals; editing it redeploys the Worker.
+- `web/listing-readiness.js` and `web/venue-address.js` are imported by the Worker: keep them free of DOM/browser globals; editing either redeploys the Worker.
 - All calendar grid columns use `minmax(0,1fr)`, **not** bare `1fr` — that's what
   keeps columns equal and clips long chips instead of stretching. Don't revert.
 - **Class-name collision watch:** the month grid is `.mgrid`; the modal body is
@@ -358,7 +358,7 @@ form — addresses never go in the shared `/ref/venues` list), `POST /venues` (a
 name required and unique case/space-insensitively → else 409, type must be a Venue Types
 row, address via `web/venue-address.js` — blank only for a Home; returns `{id, requestId}`)
 and `PUT /venues/:rowId` (change the address; also clears both cached Eventbrite venue ids;
-returns `{requestId}`); every venue write also sets the composed `Address`. `scripts/backfill-venue-address.mjs` is the one-off that split the old `Address` text into the structured columns (ran 2026-11-16, 17 rows). The Eventbrite routes
+returns `{requestId}`, or `{requestId:null, unchanged:true}` without writing when the address is the one already saved); `GET /ref/venues?fresh=1` skips the KV/isolate caches and refills them; every venue write also sets the composed `Address`. `scripts/backfill-venue-address.mjs` is the one-off that split the old `Address` text into the structured columns (ran 2026-11-16, 17 rows). The Eventbrite routes
 (`/publish/eventbrite`, `/cancel/eventbrite`, unpublish, `/eventbrite/preview`), and
 role-gated writes that inject person attribution. Points at `EST Planning Events SRC`
 (`grid--gYIvdD-cE`).

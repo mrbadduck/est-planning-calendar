@@ -73,3 +73,22 @@ test('offerAdd: something typed and no venue of that name (case/space-insensitiv
   assert.equal(V.offerAdd('', venues), false);
   assert.equal(V.offerAdd('Anything', null), true);
 });
+
+test('zipText: a numeric ZIP is padded to 5 digits; text is kept as-is', () => {
+  assert.equal(V.zipText(2134), '02134');
+  assert.equal(V.zipText(37216), '37216');
+  assert.equal(V.zipText('37216-1234'), '37216-1234');
+  assert.equal(V.zipText('02134'), '02134');
+  assert.equal(V.zipText(null), '');
+  assert.equal(V.zipText(''), '');
+});
+
+test('mergeVenues: fresh wins by id; kept local entries missing from fresh are appended; others dropped', () => {
+  const fresh = [{ id: 'a', name: 'A', hasAddress: true }, { id: 'b', name: 'B', hasAddress: true }];
+  const local = [{ id: 'a', name: 'A', hasAddress: false }, { id: 'n', name: 'New', hasAddress: true }, { id: 'gone', name: 'Gone' }];
+  assert.deepEqual(V.mergeVenues(fresh, local, new Set(['a', 'n'])),
+    [{ id: 'a', name: 'A', hasAddress: true }, { id: 'b', name: 'B', hasAddress: true }, { id: 'n', name: 'New', hasAddress: true }]);
+  assert.deepEqual(V.mergeVenues(fresh, local, ['n']).map(v => v.id), ['a', 'b', 'n']);
+  assert.deepEqual(V.mergeVenues(fresh, local, null).map(v => v.id), ['a', 'b']);
+  assert.deepEqual(V.mergeVenues([], local, ['n']).map(v => v.id), ['n']);
+});
