@@ -32,7 +32,7 @@ test('createCells: ok — trimmed name, type id, the five fields normalized, com
   assert.ok(out.cells, JSON.stringify(out));
   const k = out.cells;
   assert.equal(cell(k, C.name), 'New Place');
-  assert.equal(cell(k, C.type), 'i-partner');
+  assert.deepEqual(cell(k, C.type), ['i-partner'], 'a relation is written as a list of row ids');
   assert.equal(cell(k, C.street), '12 Main St');
   assert.equal(cell(k, C.unit), 'Apt 2');
   assert.equal(cell(k, C.city), 'Nashville');
@@ -99,4 +99,21 @@ test('updateCells: a Home may clear its address', () => {
   assert.ok(out.cells);
   assert.equal(cell(out.cells, C.address), '');
   assert.equal(cell(out.cells, C.ebVenueId), '');
+});
+
+test('createCells: length caps — name > 120, address fields > 120, ZIP > 10 → 400', () => {
+  const ctx = { venues: VENUES, types: TYPES };
+  const ok = { name: 'X', typeId: 'i-partner', ...ADDR };
+  assert.ok(createCells({ ...ok, name: 'n'.repeat(120) }, ctx).cells, '120 is allowed');
+  assert.deepEqual(createCells({ ...ok, name: 'n'.repeat(121) }, ctx), { error: 'Name is too long', status: 400 });
+  const st = createCells({ ...ok, street: 's'.repeat(121) }, ctx);
+  assert.equal(st.status, 400); assert.equal(st.error, 'Street is too long'); assert.equal(st.errors.street, 'Street is too long');
+  assert.equal(createCells({ ...ok, unit: 'u'.repeat(121) }, ctx).error, 'Unit is too long');
+  assert.equal(createCells({ ...ok, city: 'c'.repeat(121) }, ctx).error, 'City is too long');
+  assert.equal(createCells({ ...ok, zip: '37206-12345' }, ctx).error, 'ZIP is too long');
+});
+test('updateCells: length caps apply to an address change too', () => {
+  const out = updateCells({ street: 's'.repeat(121), city: 'Nashville', state: 'TN' }, ROW);
+  assert.equal(out.status, 400); assert.equal(out.error, 'Street is too long');
+  assert.equal(updateCells({ street: '9 New Rd', city: 'Nashville', state: 'TN', zip: '1'.repeat(11) }, ROW).error, 'ZIP is too long');
 });
