@@ -81,7 +81,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 `roster-lib.js` **[node-tested]** (attendee segments + mailto helpers),
 `help/help-lib.js` **[node-tested]** (guide parser/renderer), `listing-readiness.js`
 **[node-tested]** (shared publish rules; also imported by the Worker, so no DOM),
-`listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
+`venue-address.js` **[node-tested]** (`VenueAddress`: pure structured-address rules for venues, also imported by the Worker, so no DOM), `listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
 **[node-tested]** (preview model before Eventbrite), `coda-applied.js` **[node-tested]**
 (honest-save poller), `save-queue.js` **[node-tested]** (per-event save queue),
 `editor-head.js` **[node-tested]** (header meta), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval).
@@ -358,7 +358,7 @@ form — addresses never go in the shared `/ref/venues` list), `POST /venues` (a
 name required and unique case/space-insensitively → else 409, type must be a Venue Types
 row, address via `web/venue-address.js` — blank only for a Home; returns `{id, requestId}`)
 and `PUT /venues/:rowId` (change the address; also clears both cached Eventbrite venue ids;
-returns `{requestId}`); every venue write also sets the composed `Address`. The Eventbrite routes
+returns `{requestId}`); every venue write also sets the composed `Address`. `scripts/backfill-venue-address.mjs` is the one-off that split the old `Address` text into the structured columns (ran 2026-11-16, 17 rows). The Eventbrite routes
 (`/publish/eventbrite`, `/cancel/eventbrite`, unpublish, `/eventbrite/preview`), and
 role-gated writes that inject person attribution. Points at `EST Planning Events SRC`
 (`grid--gYIvdD-cE`).

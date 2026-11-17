@@ -57,6 +57,9 @@ the sixth step the current one.
 | Free tickets | `Capacity` | `capacity` | Public. The free General Admission ticket count. Blank = no cap. |
 | Address on listing | `Address visibility` | `addressVisibility` | Public. `Public` or `Registrants only`. Private homes default to Registrants only. |
 | Venue | `Venue` (relation), `Venue (other)` | `venueName`, `venueOther` | Public. The pushed snapshot stores it as `venueName`. |
+| Street / Unit / City / State / ZIP | `Street`, `Unit`, `City`, `State`, `ZIP` on `EST Venues SRC` | `VenueAddress` (`web/venue-address.js`), `proxy/src/venues.js` | Private to editors (`GET /venues/:id`). Read and written by column id. |
+| Has an address | derived | `venue.hasAddress` | True when Street and City are both filled; for venues not yet split, when the old `Address` text is non-blank. |
+| Address (venue) | `Address` on `EST Venues SRC` | composed text | Plain text, kept composed from the parts on every venue write; what Eventbrite and older rows read. |
 | Program(s), Leads | `Program(s)`, `Leads` (relations) | `programs`/`programNames`, `leads`/`leadNames` | Private. Arrive as names; `mapRelations` maps them to row ids. |
 
 ## Publishing

@@ -99,7 +99,7 @@ Program Leads and Tribal Council can add events.
 1. Click [[+ New event]] (on a phone, tap the round **+** button that floats over the list), or point at a day in Calendar view, or a weeknight or weekend lane in Overview, and click the **+** that appears. On a touch screen, those **+** buttons always show. In Calendar view, the **+** at the top of a month's [[Ideas]] column adds a whole-month idea.
 2. Give it a [[Title]].
 3. Under **When**, pick [[Exact date]], [[Date range]] (sometime in a window) or [[Whole month]]. A new exact-date event starts at 6:30–8:00 pm, so check the times.
-4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, set **Venue type** to [[Any]] to search every venue, or type its name and choose **＋ New venue**.
+4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, set **Venue type** to [[Any]] to search every venue, or type its name and add it: see [Add a venue or fix its address](#venues).
 5. Click [[Create]].
 
 The event opens as its own page, as a **Draft**. Nothing is public yet, so keep adding details whenever you like.
@@ -197,6 +197,27 @@ To sign someone up yourself, click [[+ Add sign-up]] under a slot, pick their na
 
 # After approval
 
+## Add a venue or fix its address {#venues}
+
+Program Leads and Tribal Council can add a venue from the **Where** section of an event's [[Listing]] tab, and fix a venue's address there.
+
+### Add a venue
+1. Under **Where**, type the venue's name. If no venue has that name, the last choice is **+ Add … as a venue** (with your name in it). Click it.
+2. Fill in the name, type, street, unit, city, state and ZIP. Only a private home can go without a street.
+3. Click [[Add venue]]. It says **Adding venue…** while it saves, which can take about half a minute. Then **Venue added** shows, and the venue is picked on your event.
+
+The venue is saved for everyone, so the next event there can just pick it. [[Cancel]] closes the form without adding anything.
+
+### Fix an address
+Once a venue is picked, its address shows under **Where**. Click [[Edit address]] (or [[Add address]] if it says **No street address yet**), change it and click [[Save address]].
+
+> **Heads up:** this changes the address for every event at this venue. Events already on Eventbrite use the new address the next time you update their listing.
+
+### Private homes
+A home's street address is shown only to leads and Tribal Council editing the event. With [[Address on listing]] set to [[Registrants only]], it stays off the public listing, and the form notes **Shared with registrants only**.
+
+The two venue steps in **Status & next step** open these forms: click one to add the venue or its address.
+
 ## Put an event on Eventbrite {#publish}
 
 Once an event is approved, Program Leads and Tribal Council can put it on Eventbrite, in two steps:
@@ -211,8 +232,8 @@ Until these are done, the button can't be clicked. **Status & next step** lists 
 - Approval from Tribal Council, and a title.
 - An exact date that hasn't passed, with a start time and a later end time. Date ranges, whole months and all-day events can't go on Eventbrite.
 - At least 1 in [[Free tickets]]: how many free General Admission tickets Eventbrite offers.
-- A venue picked from the list, not a new name you typed in (ask Tribal Council to add it to the list). With no venue, Eventbrite lists the event as online.
-- A street address saved on the venue, unless [[Address on listing]] is [[Registrants only]].
+- A venue picked from the list, not a new name you typed in (add it with **+ Add … as a venue**: see [Add a venue or fix its address](#venues)). With no venue, Eventbrite lists the event as online.
+- A street address saved on the venue (see [Add a venue or fix its address](#venues)), unless [[Address on listing]] is [[Registrants only]].
 - To publish, a [[Description]] too. [[Summary]] is optional.
 
 **At a private home,** [[Address on listing]] starts as [[Registrants only]], so the public sees just the city; send the address yourself from [[Attendees]]. Choosing [[Public]] there shows a warning.
