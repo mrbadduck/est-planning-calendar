@@ -9,7 +9,7 @@
 #   1. node --check on every web/*.js (syntax)
 #   2. shared/ mirrors are in sync (scripts/sync-shared.sh --check)
 #   3. the help guard's content check (scripts/check-help.mjs)
-#   4. web/listing-readiness.js stays free of browser globals — the Worker bundles it
+#   4. web/listing-readiness.js and web/venue-address.js stay free of browser globals — the Worker bundles them
 #   5. no outerHTML assignments in web/ (decision D1: stable containers, inner HTML only)
 #   6. web/*.js files stay under MAX_LINES (small, focused files)
 #
@@ -42,8 +42,8 @@ $out"
 out=$(node scripts/check-help.mjs 2>&1) || add "help guard:
 $out"
 
-# 4. listing-readiness.js is bundled into the Worker: no DOM/browser globals.
-out=$(grep -nE '\b(document|window|localStorage|sessionStorage|navigator)\b' web/listing-readiness.js web/venue-address.js) && add "web/listing-readiness.js uses a browser global (the Worker bundles this file):
+# 4. listing-readiness.js and venue-address.js are bundled into the Worker: no DOM/browser globals.
+out=$(grep -nE '\b(document|window|localStorage|sessionStorage|navigator)\b' web/listing-readiness.js web/venue-address.js) && add "web/listing-readiness.js or web/venue-address.js uses a browser global (the Worker bundles both files):
 $out"
 
 # 5. D1: no outerHTML assignments (a swap that carries its own wrapper nested labels once).

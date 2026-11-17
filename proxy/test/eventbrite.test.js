@@ -280,3 +280,26 @@ test('ebEventSnapshot.sold sums ticket_classes quantity_sold (registrant count f
   assert.equal(ebEventSnapshot({ ticket_classes: [{ quantity_sold: 3 }, { quantity_sold: 9 }] }).sold, 12);
   assert.equal(ebEventSnapshot({ status: 'live' }).sold, 0);
 });
+
+// --- structured venue addresses (venues plan, Task 2) ---
+const STRUCT = { name: 'Inglewood Lounge', street: '3914 Gallatin Pike', unit: 'Suite 2', city: 'Nashville', state: 'TN', zip: '37216',
+  address: '3914 Gallatin Pike, Nashville, TN, Nashville, TN 37216' };
+test('venuePayload — public + structured fields: sent as they are, no parsing', () => {
+  const v = venuePayload(STRUCT, 'Public', AREA);
+  assert.deepEqual(v.venue, { name: 'Inglewood Lounge', address: {
+    address_1: '3914 Gallatin Pike', address_2: 'Suite 2', city: 'Nashville', region: 'TN', postal_code: '37216', country: 'US' } });
+});
+test('venuePayload — public + structured, no unit or ZIP: those keys are left out', () => {
+  const v = venuePayload({ name: 'X', street: '100 Main St', unit: '', city: 'Franklin', state: 'TN', zip: '' }, 'Public', AREA);
+  assert.deepEqual(v.venue.address, { address_1: '100 Main St', city: 'Franklin', region: 'TN', country: 'US' });
+});
+test('venuePayload — registrants-only + structured fields: no street, unit, ZIP or name leaks', () => {
+  const v = venuePayload({ ...STRUCT, name: "Eric's House", street: '1115 Delmas Ave' }, 'Registrants only', AREA);
+  assert.deepEqual(v, { venue: { name: 'Address shared upon registration', address: { city: 'Nashville', region: 'TN', country: 'US' } } });
+  const s = JSON.stringify(v);
+  for (const leak of ['Delmas', 'Suite 2', '37216', 'Eric']) assert.ok(!s.includes(leak), leak);
+});
+test('venuePayload — street without city falls back to parsing the legacy Address', () => {
+  const v = venuePayload({ name: 'V', street: '9 Elm St', city: '', address: '100 Main St, Franklin, TN 37064' }, 'Public', AREA);
+  assert.deepEqual(v.venue.address, { address_1: '100 Main St', city: 'Franklin', region: 'TN', postal_code: '37064', country: 'US' });
+});

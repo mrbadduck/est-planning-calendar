@@ -53,3 +53,19 @@ export const PEOPLE_COLS = {
   notes:            'c-5arbru61lv', // Notes
   activeMember:     'c-yJfWc0GMsQ', // Active Member? (formula: any active Givebutter plan — Coda owns the rule)
 };
+
+// EST Venues SRC (grid-foC40iAOaX). Street..ZIP are the structured address (venues
+// plan); Address stays as the composed one-line form, kept in step on every write.
+export const VENUE_COLS = {
+  name:             'c-qOEGjzi8TZ', // Venue Name
+  address:          'c-19lFeKZu_W', // Address (composed: "Street, Unit, City, ST ZIP")
+  type:             'c-Yqz2FaSKTR', // Venue Type (lookup → Venue Types, grid-idEVRQX7SL)
+  ebVenueId:        'c-8q1sI7FT2R', // Eventbrite Venue ID (public EB venue, Worker cache)
+  ebPrivateVenueId: 'c-KPZs1NHQFF', // Eventbrite Private Venue ID (registrants-only EB venue, Worker cache)
+  closed:           'c-ZWCo5eGocY', // Closed/Unavailable?
+  street:           'c-DVGodIB9ff', // Street
+  unit:             'c-I_Mey38jb9', // Unit
+  city:             'c-PDWYIzqJtG', // City
+  state:            'c-nJ_J6R0IFM', // State
+  zip:              'c-TEQbfD91Y5', // ZIP
+};

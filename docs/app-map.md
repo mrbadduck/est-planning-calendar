@@ -336,7 +336,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   with live verification):** (a) the planning read/write seam
   (`planningRowToEvent`/`eventToCodaCells` + the Worker `/rows`) — ideally moved
   server-side so the UI stops learning the Coda row shape (decision #4); (b) the
-  generic `/ref` reads (programs/people/venues), the Eventbrite payload builders,
+  generic `/ref` reads (programs/people; `/ref/venues` and the publish route's
+  venue read went by-id with the venues work), the Eventbrite payload builders,
   and the feedback `Voters` write.
 
 
@@ -349,7 +350,14 @@ from a session). **Doc-scoped read+write** token, `ALLOW_WRITES="true"`,
 (verifies the Firebase ID token → matches email to `EST People SRC` → role),
 `GET /roster/:rowId` (lead-only attendee roster: live Eventbrite orders + gather claims,
 resolved to People by `All Emails`, Active Member? badge from `c-yJfWc0GMsQ`),
-`GET /mutation/:id` (has Coda applied a write), the Eventbrite routes
+`GET /mutation/:id` (has Coda applied a write), the venue routes (all `canWrite`, read
+and written by column id via `VENUE_COLS`, pure parts in `proxy/src/venues.js`, writes
+bust `ref-venues-v2`): `GET /venues/:rowId` (one venue's structured address for the edit
+form — addresses never go in the shared `/ref/venues` list), `POST /venues` (add a venue:
+name required and unique case/space-insensitively → else 409, type must be a Venue Types
+row, address via `web/venue-address.js` — blank only for a Home; returns `{id, requestId}`)
+and `PUT /venues/:rowId` (change the address; also clears both cached Eventbrite venue ids;
+returns `{requestId}`); every venue write also sets the composed `Address`. The Eventbrite routes
 (`/publish/eventbrite`, `/cancel/eventbrite`, unpublish, `/eventbrite/preview`), and
 role-gated writes that inject person attribution. Points at `EST Planning Events SRC`
 (`grid--gYIvdD-cE`).

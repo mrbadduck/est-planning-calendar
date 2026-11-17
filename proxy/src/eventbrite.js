@@ -3,6 +3,7 @@
  * The rich description goes through Structured Content (event.description was
  * deprecated 2021); publish requires a ticket class + venue/online.
  */
+import '../../web/venue-address.js';   // attaches globalThis.VenueAddress (US state list, address rules)
 
 // Offset (ms) of `tz` at a given instant: format that instant AS the tz, read it
 // back as if UTC, subtract. Intl with timeZone is available in Workers and Node.
@@ -86,7 +87,8 @@ export function structuredContentBody(html, versionToWrite) {
   };
 }
 
-// Venue body. Public → the real name + street address. Registrants-only → a
+// Venue body. Public → the real name + street address (the structured Street/Unit/
+// City/State/ZIP when Street and City are set, else parsed from the legacy Address). Registrants-only → a
 // generic name + a COARSE area (`privateArea`, e.g. "Nashville, TN") — NEVER the
 // real street address and NEVER the (possibly host-identifying) venue name.
 // Eventbrite rejects an addressless venue, and has no hide-address feature, so a
@@ -99,7 +101,17 @@ export function venuePayload(venue, addressVisibility, area) {
     return { venue: { name: 'Address shared upon registration', address: { city, region, country } } };
   }
   const v = { name: venue.name || 'Venue' };
-  if (venue.address && String(venue.address).trim()) {
+  const n = globalThis.VenueAddress.normalize(venue);
+  if (n.street && n.city) {
+    // Structured fields (Street + City present): sent as they are, no parsing.
+    v.address = { address_1: n.street };
+    if (n.unit) v.address.address_2 = n.unit;
+    v.address.city = n.city;
+    v.address.region = n.state || region;
+    if (n.zip) v.address.postal_code = n.zip;
+    v.address.country = country;
+  } else if (venue.address && String(venue.address).trim()) {
+    // Old rows not yet backfilled: parse the one-line Address.
     // Coda's Address strings already carry city/state (sometimes twice). Send
     // the street alone as address_1, or Eventbrite shows the city repeated (R22).
     const p = parseUsAddress(venue.address, { city, region });
@@ -113,8 +125,7 @@ export function venuePayload(venue, addressVisibility, area) {
   return { venue: v };
 }
 
-const US_STATES = new Set(('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT ' +
-  'NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR').split(' '));
+const US_STATES = globalThis.VenueAddress.US_STATES;   // one list, shared with the app
 const ZIP = '(\\d{5}(?:-\\d{4})?)';
 const STATE_SEG = new RegExp('^([A-Z]{2})(?:\\s+' + ZIP + ')?$');            // "TN" | "TN 37216"
 const CITY_STATE_SEG = new RegExp('^(.*?\\S)\\s+([A-Z]{2})(?:\\s+' + ZIP + ')?$'); // "Nashville TN 37216"

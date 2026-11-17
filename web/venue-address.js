@@ -9,7 +9,7 @@
    - hasAddress(v): structured Street+City, else a non-blank legacy `address`
    - sameName(a, b): case-insensitive, whitespace-collapsed equality */
 (function (root) {
-  // Same set as proxy/src/eventbrite.js US_STATES (copied: this file can't import Worker code).
+  // USPS codes (50 states + DC + PR). The Worker's address parser (proxy/src/eventbrite.js) uses this set too.
   const US_STATES = new Set(('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT ' +
     'NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR').split(' '));
   const clean = v => (v == null ? '' : String(v)).replace(/\s+/g, ' ').trim();

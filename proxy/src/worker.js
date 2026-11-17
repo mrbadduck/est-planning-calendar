@@ -16,6 +16,9 @@
  *   POST   /unpublish/eventbrite  take a listing back to a private draft (body: { rowId }) — refused with registrants
  *   POST   /cancel/eventbrite     cancel a planning event + tear down its listing (body: { rowId }) — refused with registrants
  *   GET    /roster/:rowId  lead-facing attendee roster (Eventbrite orders ∪ gather claimants) — role-gated; ?fresh=1 bypasses KV
+ *   GET    /venues/:rowId  one venue's structured address for the edit form — role-gated (canWrite)
+ *   POST   /venues         add a venue (body: {name, typeId, street, unit, city, state, zip}) -> {id, requestId} — role-gated
+ *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} — role-gated
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -33,7 +36,8 @@ import {
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
 } from './eventbrite.js';
 import { verifyFirebaseIdToken, verifyFirebaseToken, authErrorStatus } from './auth.js';
-import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
+import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from './coda-columns.js';   // stable column ids
+import { venueFromRow, venueForEditor, createCells as venueCreateCells, updateCells as venueUpdateCells } from './venues.js';
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
@@ -42,6 +46,7 @@ import {
 import { buildRoster } from './roster.js';
 import { mutationResult, rowToListingEvent, pushedValues, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
+import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
 const ListingRules = globalThis.ListingRules;
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
@@ -96,6 +101,7 @@ async function swrBust(env, key) {
   try { await kv.delete(key); } catch (_) {}
 }
 const ROWS_KV_KEY = 'rows-v1';
+const VENUES_KV_KEY = 'ref-venues-v2';   // /ref/venues projection (venueRefItem); bump on a shape change
 // R19: Eventbrite ids the Worker created but Coda hasn't applied to the row yet
 // (resolveEbIds in publish.js). A KV failure here only loses the backstop.
 async function readEbPending(env, rowId) {
@@ -275,8 +281,9 @@ export default {
             // Venues are projected (venueRefItem) before caching: the Address column
             // holds private home addresses and /ref is unauthenticated (R12).
             const isVenues = name === 'venues';
-            items = await swrGet(env, ctx, isVenues ? 'ref-venues-v2' : `ref-${name}-v1`, 5 * 60_000, 24 * 3600_000, async () => {   // soft 5min / hard 24h
-              const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
+            items = await swrGet(env, ctx, isVenues ? VENUES_KV_KEY : `ref-${name}-v1`, 5 * 60_000, 24 * 3600_000, async () => {   // soft 5min / hard 24h
+              // Venues are read by column id (venueRefItem keys by VENUE_COLS).
+              const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth, { byId: isVenues });
               if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
               return isVenues ? out.items.map(venueRefItem) : out.items;
             });
@@ -284,6 +291,68 @@ export default {
         }
         REF_CACHE.set(name, { items, exp: Date.now() + 5 * 60 * 1000 });
         return json({ items }, 200, cors);
+      }
+      if (parts[0] === 'venues' && parts.length <= 2) {
+        // Venues: the edit form's address read + add a venue + change its address.
+        // Role-gated (canWrite) because the address of a private home is never in the
+        // shared, unauthenticated /ref/venues list. Read and written by column id.
+        // Every write busts the /ref/venues snapshot (VENUES_KV_KEY).
+        const vRowId = parts[1] ? decodeURIComponent(parts[1]) : null;
+        const isGet = request.method === 'GET' && vRowId;
+        const isPost = request.method === 'POST' && !vRowId;
+        const isPut = request.method === 'PUT' && vRowId;
+        if (!isGet && !isPost && !isPut) return json({ error: 'bad venues request' }, 400, cors);
+        if (!isGet && env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        let id;
+        try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const venuesUrl = `${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`;
+        // -> {venue} | {venue:null} (no such row) | {failed: Response} (Coda error: not a 404).
+        const readVenue = async () => {
+          const r = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}?useColumnNames=false&valueFormat=simpleWithArrays`, { headers: auth });
+          if (r.ok) return { venue: venueFromRow(await r.json()) };
+          return r.status === 404 ? { venue: null } : { failed: r };
+        };
+        const bustVenues = async () => { await swrBust(env, VENUES_KV_KEY); REF_CACHE.delete('venues'); };
+
+        if (isGet) {
+          const got = await readVenue();
+          if (got.failed) return pass(got.failed, cors);
+          if (!got.venue) return json({ error: 'venue not found' }, 404, cors);
+          return json(venueForEditor(got.venue), 200, cors);
+        }
+        let body;
+        try { body = JSON.parse((await request.text()) || '{}'); }
+        catch (e) { return json({ error: 'bad body' }, 400, cors); }
+
+        if (isPost) {
+          // The duplicate check reads every venue (one read); the type must be a Venue Types row.
+          const [vr, tr] = await Promise.all([
+            readAllRows(venuesUrl, auth, { byId: true }),
+            readAllRows(`${base}/docs/${docId}/tables/${VENUE_TYPES_TABLE}/rows`, auth),
+          ]);
+          if (!vr.ok || !tr.ok) return json({ error: `could not read ${!vr.ok ? 'Venues' : 'Venue Types'} (Coda ${(!vr.ok ? vr : tr).resp.status})` }, 502, cors);
+          const out = venueCreateCells(body, { venues: vr.items.map(venueFromRow), types: tr.items.map(r => ({ id: r.id, name: r.name || '' })) });
+          if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
+          const w = await fetch(venuesUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: out.cells }] }) });
+          if (!w.ok) return pass(w, cors);
+          let j = {}; try { j = await w.json(); } catch (_) {}
+          const newId = (j.addedRowIds || [])[0];
+          if (!newId) return json({ error: 'Coda did not return the new venue id' }, 502, cors);
+          await bustVenues();
+          return json({ id: newId, requestId: j.requestId || null }, 200, cors);
+        }
+
+        // isPut: change the address (and clear both cached Eventbrite venue ids).
+        const got = await readVenue();
+        if (got.failed) return pass(got.failed, cors);
+        const out = venueUpdateCells(body, got.venue);
+        if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
+        const w = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: out.cells } }) });
+        if (!w.ok) return pass(w, cors);
+        await bustVenues();
+        return json({ requestId: await codaRequestId(w) }, 200, cors);
       }
       if (parts[0] === 'references' && request.method === 'GET') {
         // Public reference calendars: read the config table, fetch + parse each
@@ -412,7 +481,7 @@ export default {
         let venueRow = null, venue = null;
         if (ev.venueName) {
           let vr;
-          try { vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth); }
+          try { vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth, { byId: true }); }
           catch (err) {
             // A thrown fetch/json must still leave a Publish Log row, not a bare 502.
             const msg = `Could not read Venues (${String((err && err.message) || err)})`;
@@ -422,11 +491,11 @@ export default {
             const msg = `Could not read Venues (Coda ${vr.resp && vr.resp.status})`;
             return reject('venue', 502, msg, { error: msg });
           }
-          venueRow = vr.items.find(r => String((r.values || {})['Venue Name'] || '') === String(ev.venueName)) || null;
-          const vv = (venueRow && venueRow.values) || {};
-          const vt = Array.isArray(vv['Venue Type']) ? vv['Venue Type'][0] : vv['Venue Type'];
-          venue = venueRow ? { name: ev.venueName, type: vt || '', hasAddress: !!vv['Address'] }
-                           : { name: ev.venueName, type: '', hasAddress: false };
+          // By column id; venueRow is a venueFromRow venue (structured + legacy address, EB ids).
+          const hit = vr.items.map(venueFromRow).find(v => v.name === String(ev.venueName)) || null;
+          venueRow = hit;
+          venue = hit ? { name: ev.venueName, type: hit.type, hasAddress: globalThis.VenueAddress.hasAddress(hit) }
+                      : { name: ev.venueName, type: '', hasAddress: false };
         }
         // R14: a blank Address visibility at a private home is Registrants only for
         // everything below (readiness, the EB venue, the pushed snapshot).
@@ -1463,6 +1532,7 @@ async function logPublish(env, base, docId, auth, rec) {
 //     venue_id on the event.
 // Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
 const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
+const VENUE_TYPES_TABLE = 'grid-idEVRQX7SL';  // Venue Types (the Venue Type lookup's table)
 async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibility, ebId, isCreate) {
   if (!name) {
     // No staged venue: only a brand-new event gets marked online (it must have
@@ -1478,22 +1548,24 @@ async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibil
   // venue with a generic name + coarse area (Eventbrite requires *an* address and
   // has no hide-address feature), cached separately so the two never mix.
   const registrantsOnly = addressVisibility === 'Registrants only';
-  const cacheCol = registrantsOnly ? 'Eventbrite Private Venue ID' : 'Eventbrite Venue ID';
-  const realAddress = (found && found.values['Address']) || '';
+  const cacheKey = registrantsOnly ? 'ebPrivateVenueId' : 'ebVenueId';
+  const cacheCol = VENUE_COLS[cacheKey];
+  // `found` is a venueFromRow venue: structured Street/Unit/City/State/ZIP, else the legacy Address.
   // A public venue with no street address on file can't be created (Eventbrite
   // requires one). Fail with a message the user can act on — never quietly turn
   // the event into an online one (D7/F13). Registrants-only always has a coarse
   // area, so it's fine without one.
-  if (!registrantsOnly && !realAddress)
+  if (!registrantsOnly && !(found && globalThis.VenueAddress.hasAddress(found)))
     return { error: { status: 409, body: { error_description: 'This venue has no street address' } } };
-  let venueId = found && (found.values || {})[cacheCol];
+  let venueId = found && found[cacheKey];
   if (!venueId) {
     // Structured coarse area (Eventbrite requires city + country). EST is Nashville
     // metro; the real street is only ever sent for PUBLIC events via address_1.
     const area = { city: env.EVENTBRITE_AREA_CITY || 'Nashville', region: env.EVENTBRITE_AREA_REGION || 'TN', country: env.EVENTBRITE_COUNTRY || 'US' };
-    // venuePayload enforces the safety split: registrants-only ignores realAddress
+    // venuePayload enforces the safety split: registrants-only ignores the address
     // and emits the generic name + coarse area; public uses the real address.
-    const r = await ebCreateVenue(env, venuePayload({ name, address: realAddress }, addressVisibility, area));
+    const a = found || {};
+    const r = await ebCreateVenue(env, venuePayload({ name, street: a.street, unit: a.unit, city: a.city, state: a.state, zip: a.zip, address: a.address }, addressVisibility, area));
     if (!r.ok) return { error: r };
     venueId = r.body.id;
     if (found) {
