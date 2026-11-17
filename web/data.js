@@ -317,6 +317,13 @@ const CodaSource = {
   async createSlot(body){ const r=await fetch(`${this.base}/slots`,{method:'POST',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return (await r.json().catch(()=>({}))); },
   async updateSlot(id, body){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return true; },
   async removeSlot(id){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); return true; },
+  // Venues (canWrite): one venue's structured address (never in the shared /ref/venues list),
+  // add one ({name,typeId,street,unit,city,state,zip} → {id, requestId}) and change its address
+  // (→ {requestId}). A refusal keeps the Worker's message, status and per-field `errors`.
+  async getVenue(id){ const r=await fetch(`${this.base}/venues/${encodeURIComponent(id)}`,{headers:this._wh()}); return this._venueJson(r, 'venue read'); },
+  async createVenue(body){ const r=await fetch(`${this.base}/venues`,{method:'POST',headers:this._wh(),body:JSON.stringify(body)}); return this._venueJson(r, 'add venue'); },
+  async updateVenue(id, body){ const r=await fetch(`${this.base}/venues/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify(body)}); return this._venueJson(r, 'address save'); },
+  async _venueJson(r, what){ const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`${what} failed (${r.status})`); e.status=r.status; e.errors=(j.errors && typeof j.errors==='object') ? j.errors : null; throw e; } return j; },
   // lead-facing attendee roster (Eventbrite orders ∪ gather claimants); fresh=true bypasses the Worker's KV snapshot
   async roster(rowId, fresh){ const r=await fetch(`${this.base}/roster/${encodeURIComponent(rowId)}${fresh?'?fresh=1':''}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`roster failed (${r.status})`); e.status=r.status; throw e; } return j; },
 };

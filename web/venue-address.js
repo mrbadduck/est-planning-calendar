@@ -7,7 +7,9 @@
    - compose(a): "Street, Unit, City, ST ZIP", empty parts omitted
    - validate(a, {allowBlank}): {ok, errors}
    - hasAddress(v): structured Street+City, else a non-blank legacy `address`
-   - sameName(a, b): case-insensitive, whitespace-collapsed equality */
+   - sameName(a, b): case-insensitive, whitespace-collapsed equality
+   - offerAdd(typed, venues): the venue picker offers + Add "<typed>" as a venue —
+     something typed, and no venue (closed or not, any type) has that name */
 (function (root) {
   // USPS codes (50 states + DC + PR). The Worker's address parser (proxy/src/eventbrite.js) uses this set too.
   const US_STATES = new Set(('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT ' +
@@ -46,5 +48,7 @@
 
   const sameName = (a, b) => clean(a).toLowerCase() === clean(b).toLowerCase();
 
-  root.VenueAddress = { normalize, compose, validate, hasAddress, sameName, US_STATES };
+  const offerAdd = (typed, venues) => !!clean(typed) && !(venues || []).some(v => v && sameName(v.name, typed));
+
+  root.VenueAddress = { normalize, compose, validate, hasAddress, sameName, offerAdd, US_STATES };
 })(globalThis);

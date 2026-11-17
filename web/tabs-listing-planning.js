@@ -1,6 +1,6 @@
 /* tabs-listing-planning.js — the Listing (id 'details') and Planning tab panels and the private-home address-default rules.
    Owns: pubDescHintText, renderDetails, wireDetails, renderPlanningTab, wirePlanningTab, formVenueRecord, paintAddrWarn, applyListingAddressDefault, setAddressVisibility, applyAddressDefault
-   Reads: editing (editor-tabs.js); reference lists (data.js); _form (save.js)
+   Reads: editing (editor-tabs.js); reference lists (data.js); _form (save.js); paintVenueAddr (venue-form.js; call time)
    Writes: nothing
    Loaded after: fields.js (file-map order; no load-time dependency) */
 
@@ -74,6 +74,7 @@ function applyListingAddressDefault(){
 function setAddressVisibility(val){
   const seg=document.getElementById('f_addrvis'); if(!seg) return false;
   [...seg.querySelectorAll('button[data-addrvis]')].forEach(x=>x.setAttribute('aria-pressed', String(x.dataset.addrvis===val)));
+  paintVenueAddr();   // the address line says "Shared with registrants only" when it is
   return true;
 }
 // Picking a private-home venue while the address visibility is still unset sets it

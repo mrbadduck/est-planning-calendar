@@ -8,6 +8,7 @@
    - readiness(ev, {venue, todayISO}): the checks the footer, fields and Worker share
    - addressVisibilityDefault(current, venue): Home venues default to Registrants only
    - footerModel(input).checklist: one readiness row per field group for the checks the primary waits on
+     (a failing row names its first failing check's key as `check`, e.g. venueOther / venueAddress)
    - footerModel(input).steps: six lifecycle steps, the five stages plus Past (approved
      and past; computed here from input.past, never a stage), each done/current/todo/skipped
    - syncStatus / unpushedFields: compare the event with the last pushed snapshot */
@@ -154,7 +155,7 @@
       const mine = list.filter(c => def.checks.indexOf(c.key) >= 0);
       if (!mine.length) continue;   // publicDescription only exists on the publish list
       const bad = mine.find(c => !c.ok);
-      rows.push({ key: def.key, label: def.label, field: bad ? bad.field : def.field, ok: !bad, message: bad ? bad.message : '' });
+      rows.push({ key: def.key, label: def.label, field: bad ? bad.field : def.field, check: bad ? bad.key : '', ok: !bad, message: bad ? bad.message : '' });
     }
     return rows;
   }

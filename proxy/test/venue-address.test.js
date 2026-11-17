@@ -63,3 +63,13 @@ test('sameName is case-insensitive and whitespace-collapsed', () => {
   assert.equal(V.sameName('The Shul', 'The Shull'), false);
   assert.equal(V.sameName('', null), true);
 });
+
+test('offerAdd: something typed and no venue of that name (case/space-insensitive)', () => {
+  const venues = [{ name: 'The Basement' }, { name: 'Shoresh Hall' }];
+  assert.equal(V.offerAdd('Rec Center', venues), true);
+  assert.equal(V.offerAdd('the  basement ', venues), false);
+  assert.equal(V.offerAdd('The Base', venues), true);   // a partial match is still a new name
+  assert.equal(V.offerAdd('   ', venues), false);
+  assert.equal(V.offerAdd('', venues), false);
+  assert.equal(V.offerAdd('Anything', null), true);
+});
