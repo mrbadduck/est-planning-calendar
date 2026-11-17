@@ -107,6 +107,8 @@ export function venuePayload(venue, addressVisibility, area) {
     v.address = { address_1: n.street };
     if (n.unit) v.address.address_2 = n.unit;
     v.address.city = n.city;
+    // A row hand-edited in Coda with Street + City but no State falls back to the
+    // area state (EVENTBRITE_AREA_REGION, TN): EST is a Nashville-only org.
     v.address.region = n.state || region;
     if (n.zip) v.address.postal_code = n.zip;
     v.address.country = country;
