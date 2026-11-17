@@ -19,11 +19,11 @@ and `Publish status`.
 | On Eventbrite | Approved + `Eventbrite Event ID` set, `Publish status` ≠ Published | `onEventbrite` | A private Eventbrite draft exists. Nobody sees it. |
 | Published | Approved + `Publish status` = Published | `published` | The public listing is live. |
 | Cancelled | `Status` = Cancelled | `cancelled` | Off the calendar's active set; Eventbrite listing torn down. |
-| Wrap-up | derived: approved (any Eventbrite stage) + date passed | not a stage: `footerModel` step 6, from `input.past` (`isHistory`) | The event has happened. The sixth step of the checklist; On Eventbrite / Published show as skipped if it never got there. Next (coming soon): expenses and what you learned. The header badge and the List view say just Past; the listing row says Not on Eventbrite (no "yet"). |
+| Past | derived: approved (any Eventbrite stage) + date passed | not a stage: `footerModel` step 6, from `input.past` (`isHistory`) | The event has happened. The sixth step of the checklist, and the header badge and List view say the same word; On Eventbrite / Published show as skipped if it never got there. Next (coming soon): expenses and what you learned. The listing row says Not on Eventbrite (no "yet"). |
 
-*Past* (the date has gone by) and *history* (`isHistory`: approved or published and
+*Past* (the date has gone by, and the sixth step) and *history* (`isHistory`: approved or published and
 past) are derived too. They lock fields; they are not stages. *Past* is also what makes
-Wrap-up the current step.
+the sixth step the current one.
 
 ## Editor tabs
 
@@ -41,7 +41,7 @@ Wrap-up the current step.
 |---|---|---|
 | event page | `#eventPage`, `openEventPage`, `leaveEventPage` | An open planning event: a full page in place of the calendar (not a modal). **← Calendar** or Back returns to the calendar where you left it. |
 | **Status & next step** panel | `#epPanel`, `statusPanelHTML`, `renderStatusPanel` (`web/status-panel.js`) | The panel on every tab: the checklist, the readiness rows, the one primary action and ⋮, one sentence of help, the listing card, and the failed-save pill. Painted from `footerModel` (D6). On phones: a status card at the top plus the bottom bar `#epPhoneBar`. |
-| checklist (the steps) | `footerModel(...).steps` → `#edStatus`; who/when from `PageRules.stepNotes` | The six lifecycle steps (the five stages, then Wrap-up), top to bottom: done ✓, current, to do, or skipped (–, a past event's Eventbrite steps it never reached), with who/when where the row records it (Wrap-up: the event date). |
+| checklist (the steps) | `footerModel(...).steps` → `#edStatus`; who/when from `PageRules.stepNotes` | The six lifecycle steps (the five stages, then Past), top to bottom: done ✓, current, to do, or skipped (–, a past event's Eventbrite steps it never reached), with who/when where the row records it (Past: the event date). |
 | checklist rows (what's left) | `footerModel(...).checklist` → `#edChecks` | The readiness items for the next push, one per field group: ✓ label, or ✗ a link that focuses the field (`focusField`). |
 | **Needs approval** | `#listBar`, `listBarHTML`, `prefs.needsApproval`, `PageRules.needsApproval` | The List view's toggle: shows only Proposed planning events, with a count. Visible to everyone. |
 

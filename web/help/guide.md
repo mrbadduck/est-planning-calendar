@@ -153,7 +153,7 @@ The icons and tags update once the field has saved.
 - **Approved**: you can still edit it, with no need to approve it again. Next: [[Add to Eventbrite]].
 - **On Eventbrite**: a private draft listing. Nobody can see it or register yet. Next: [[Publish]].
 - **Published**: public on Eventbrite. The label at the top of the event says **Live** (just **Past** once the date has passed), and the box says **Public**. The box's Published line follows Eventbrite: **registration open**, **happening now** on the day, **registration closed** afterwards, or **canceled on Eventbrite**, plus how many have registered.
-- **[[Wrap-up]]**: the date has gone by, so [[This event has happened]]. It comes after any approved event, even one that never went on Eventbrite; then **On Eventbrite** and **Published** show a dash, as skipped. What's next is logging expenses and capturing what you learned. Both are coming soon: the links take you to the [[Budget & expenses]] and [[Feedback]] tabs, where you can vote on ideas.
+- **[[Past]]**: the date has gone by, so [[This event has happened]]. It comes after any approved event, even one that never went on Eventbrite; then **On Eventbrite** and **Published** show a dash, as skipped. What's next is logging expenses and capturing what you learned. Both are coming soon: the links take you to the [[Budget & expenses]] and [[Feedback]] tabs, where you can vote on ideas.
 
 The app doesn't tell Tribal Council when something is proposed, so let them know it's ready.
 
@@ -163,7 +163,7 @@ The app doesn't tell Tribal Council when something is proposed, so let them know
 - **Once it's published**, Delete is gone. Use [[Cancel event…]], which takes the listing down. If people have registered, see [Change or take down a listing](#publish-changes).
 - **A cancelled event** can be brought back to planning by Tribal Council with [[Reopen]], which doesn't put it back on Eventbrite. Tribal Council can also delete it.
 
-**After the date,** an approved event is history: the fields on [[Listing]] and [[Planning]] lock and there's no next step. Its notes doc, sign-ups and [[Attendees]] still work. The current step is **Wrap-up**.
+**After the date,** an approved event is history: the fields on [[Listing]] and [[Planning]] lock and there's no next step. Its notes doc, sign-ups and [[Attendees]] still work. The current step is **Past**.
 
 > **Tip:** Click the status label at the top of an open event to come back to this guide. On a phone, tap **⋮** at the top right, then [[Help for this tab]], for the guide to the tab you're on.
 

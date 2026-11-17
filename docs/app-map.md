@@ -234,7 +234,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   (`ListingRules.footerModel` in `web/listing-readiness.js`, painted by
   `renderStatusPanel` into `#edStatus`, `#edChecks`, `#edActs`, `#edMenu`, `#edSub`,
   `#edBars`) shows on every tab: the six steps as a vertical checklist (Draft →
-  Proposed → Approved → On Eventbrite → Published → Wrap-up; Wrap-up is current once
+  Proposed → Approved → On Eventbrite → Published → Past; Past is current once
   `past`, with Eventbrite steps never reached shown skipped) with who/when notes
   (`PageRules.stepNotes`), the title and the readiness rows (`checklist`: ✓ label, or
   ✗ a link that focuses the field, switching tabs), the one primary action and **⋮**

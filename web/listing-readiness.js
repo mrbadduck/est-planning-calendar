@@ -8,7 +8,7 @@
    - readiness(ev, {venue, todayISO}): the checks the footer, fields and Worker share
    - addressVisibilityDefault(current, venue): Home venues default to Registrants only
    - footerModel(input).checklist: one readiness row per field group for the checks the primary waits on
-   - footerModel(input).steps: six lifecycle steps, the five stages plus Wrap-up (approved
+   - footerModel(input).steps: six lifecycle steps, the five stages plus Past (approved
      and past; computed here from input.past, never a stage), each done/current/todo/skipped
    - syncStatus / unpushedFields: compare the event with the last pushed snapshot */
 // Dates are YYYY-MM-DD and times zero-padded HH:MM: string comparison relies on it.
@@ -115,11 +115,11 @@
   }
 
   // ---- footer wizard model (spec 5.5) ----
-  // Wrap-up (index 5) isn't a stage: it is the current step once an approved event's
+  // Past (index 5) isn't a stage: it is the current step once an approved event's
   // date has passed (input.past), whether or not it ever reached Eventbrite.
-  const STEP_LABELS = ['Draft', 'Proposed', 'Approved', 'On Eventbrite', 'Published', 'Wrap-up'];
+  const STEP_LABELS = ['Draft', 'Proposed', 'Approved', 'On Eventbrite', 'Published', 'Past'];
   const STAGE_INDEX = { draft: 0, proposed: 1, approved: 2, onEventbrite: 3, published: 4 };
-  const WRAP_UP = 5;
+  const PAST_STEP = 5;
   // The published line's middle part, from Eventbrite's live status (refreshEbStatus);
   // unknown or not loaded yet: closed once the date (or end) has passed, else open.
   const LIVE_STATUS_TEXT = { live: 'registration open', started: 'happening now', ended: 'registration closed',
@@ -165,11 +165,11 @@
     const unpushed = input.unpushed || [];
     const canEdit = !!role.canEdit, canApprove = !!role.canApprove;
     const cur = STAGE_INDEX[stage];
-    // Wrap-up: an approved event (approved, On Eventbrite or Published) whose date has
+    // Past: an approved event (approved, On Eventbrite or Published) whose date has
     // passed. The Eventbrite steps it never reached are skipped, not done.
-    const wrapUp = !!past && cur != null && cur >= STAGE_INDEX.approved;
+    const pastStep = !!past && cur != null && cur >= STAGE_INDEX.approved;
     const steps = STEP_LABELS.map((label, i) => ({ label,
-      state: wrapUp ? (i === WRAP_UP ? 'current' : i <= cur ? 'done' : 'skipped')
+      state: pastStep ? (i === PAST_STEP ? 'current' : i <= cur ? 'done' : 'skipped')
         : cur == null ? 'todo' : i < cur ? 'done' : i === cur ? 'current' : 'todo' }));
     const failing = list => (list || []).filter(c => !c.ok);
     const toLinks = list => list.map(c => ({ field: c.field, label: c.message }));
@@ -281,7 +281,7 @@
     if (past) {
       out.primary = null; out.secondary = null; out.menu = []; out.links = []; out.checklist = [];
     }
-    if (wrapUp) {
+    if (pastStep) {
       out.title = 'This event has happened' + (registrants == null ? '' : ' · ' + plural(registrants, 'registered', 'registered'));
       out.sub = 'Next: log expenses and capture what you learned — coming soon.';
       out.subLinks = [{ text: 'expenses', sect: 'budget' }, { text: 'what you learned', sect: 'feedback' }];

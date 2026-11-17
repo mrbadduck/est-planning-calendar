@@ -18,7 +18,7 @@ const STAGE_BADGE = {
 };
 function statusInfo(ev){ return STAGE_BADGE[ListingRules.stageOf(ev)] || STAGE_BADGE.draft; }
 function badgesHTML(ev){
-  // A past approved event (Wrap-up) shows just Past: "Live" or "Approved" beside it reads as still open.
+  // A past approved event (Past) shows just Past: "Live" or "Approved" beside it reads as still open.
   if(isHistory(ev)) return `<button type="button" class="badge b-past badge-btn" data-help="lifecycle" title="What does this mean?">Past</button>`;
   const si=statusInfo(ev);
   let badges = `<button type="button" class="badge b-${si.cls} badge-btn" data-help="lifecycle" title="What does this mean?">${si.label}</button>`;

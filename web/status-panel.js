@@ -97,7 +97,7 @@ function footerMenuHTML(menu, busy){
     + `<div class="kmenu" role="menu" aria-label="More actions" hidden>${menu.map(it=>
       `<button type="button" class="mi${it.tone==='danger'?' danger':''}" role="menuitem" tabindex="-1" data-act="${esc(it.act)}"><b>${esc(it.label)}</b>${it.sub?`<span>${esc(it.sub)}</span>`:''}</button>`).join('')}</div>`;
 }
-// The one sentence (#edSub): escaped, with the model's subLinks (Wrap-up's "expenses",
+// The one sentence (#edSub): escaped, with the model's subLinks (Past's "expenses",
 // "what you learned") as links to their tabs (data-sect; onPanelClick switches tabs).
 function subHTML(m){
   let h=m.sub ? esc(m.sub) : '';

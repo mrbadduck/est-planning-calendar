@@ -8,7 +8,7 @@
      stays 'details' so old links and syncUrl keep working.
    stepNotes(ev, {fmtDate, registrants, capacity}) -> string[6]
      One note per lifecycle step (Draft, Proposed, Approved, On Eventbrite,
-     Published, Wrap-up — the event's date); '' when there is nothing to say.
+     Published, Past — the event's date); '' when there is nothing to say.
    needsApproval(ev) -> boolean
      A planning event that is Proposed. */
 (function (root) {

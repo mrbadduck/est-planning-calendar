@@ -148,7 +148,7 @@ function onPanelClick(e){
   }   // the label reports the outcome
   const ff=e.target.closest('[data-focus-field]');
   if(ff){ e.preventDefault(); focusField(ff.dataset.focusField); return; }
-  const sl=e.target.closest('[data-sect]');   // a link in the sentence (Wrap-up → Budget & expenses, Feedback): the tab list's own switch
+  const sl=e.target.closest('[data-sect]');   // a link in the sentence (Past → Budget & expenses, Feedback): the tab list's own switch
   if(sl){ e.preventDefault(); const b=document.querySelector(`#epTabs [data-sect="${sl.dataset.sect}"]`); if(b) b.click(); return; }
   if(e.target.closest('[data-block="email"]')){ if(editing) emailRegistrants(editing, 'Update: ' + (editing.title || ''), ''); return; }
   if(e.target.closest('#epPanel [data-pv-open]')){ openPreview(); return; }   // the card's listing row
