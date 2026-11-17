@@ -28,3 +28,12 @@ test('cellsFor writes only the five fields; table has a summary line', () => {
   assert.deepEqual(cellsFor(p.fields).map(c => c.column), [C.street, C.unit, C.city, C.state, C.zip]);
   assert.match(renderTable([p, planRow(row(''))]), /1 OK, 1 flagged, 0 skipped/);
 });
+
+test('a trailing Apt/Unit moves into Unit; a letter after the house number does not', () => {
+  const a = planRow(row('221 31st Ave N Apt 222, Nashville, TN 37203'));
+  assert.equal(a.fields.street, '221 31st Ave N');
+  assert.equal(a.fields.unit, 'Apt 222');
+  const b = planRow(row('1709 A 5th Ave North, Nashville, TN 37208'));
+  assert.equal(b.fields.street, '1709 A 5th Ave North');
+  assert.equal(b.fields.unit, '');
+});

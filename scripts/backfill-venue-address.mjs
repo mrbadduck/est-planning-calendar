@@ -28,7 +28,11 @@ export function planRow(row) {
   if (!out.address) return flag('Address is blank');
   if (NON_ADDRESS.test(out.address)) return flag('Address looks like a non-address');
   const p = parseUsAddress(out.address, { city: 'Nashville', region: 'TN' });
-  const fields = VA.normalize({ street: p.address_1, unit: p.address_2 || '', city: p.city, state: p.region, zip: p.postal_code || '' });
+  let street = p.address_1, unit = p.address_2 || '';
+  // A trailing "Apt 222" / "Unit 4" / "#5" belongs in Unit, not Street (parseUsAddress is left alone: the Worker's publish path uses it).
+  const um = !unit && /\s*,?\s*((?:apt|apartment|unit|suite|ste|#)\.?\s*[\w-]+)$/i.exec(street);
+  if (um && um.index > 0) { unit = um[1]; street = street.slice(0, um.index); }
+  const fields = VA.normalize({ street, unit, city: p.city, state: p.region, zip: p.postal_code || '' });
   const whole = out.address.replace(/\s+/g, ' ');
   if (fields.street.toLowerCase() === whole.toLowerCase()) return { ...flag('no city/state found in Address'), fields };
   const val = VA.validate(fields);
