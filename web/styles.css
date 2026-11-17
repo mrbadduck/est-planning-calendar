@@ -1043,7 +1043,7 @@
   .gate .gate-help a{color:var(--accent);font-weight:600}
   @media (min-width:1000px){ body.help-open{padding-right:var(--help-w)} }
   @media (min-width:1000px) and (max-width:1399px){ body.help-open .qgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }   /* the page is under 1000px wide then — three columns get cramped */   /* wide: Help sits beside the page — header and calendar narrow instead of hiding under it */
-  @media (min-width:1000px){ body.help-open .scrim{padding-right:calc(var(--help-w) + 16px)} }       /* an open editor (≥568px) sits beside the drawer; narrower, the drawer overlays it */
+  @media (min-width:1000px){ body.help-open .scrim,body.help-open .vd-scrim{padding-right:calc(var(--help-w) + 16px)} }       /* an open editor (≥568px) sits beside the drawer; narrower, the drawer overlays it */
   @media (min-width:780px){  body.help-open .gate-scrim{padding-right:calc(var(--help-w) + 20px)} }  /* the 340px sign-in card still fits beside it */
   @media (max-width:600px){
     .help-drawer{width:100%;border-left:0;box-shadow:none}

@@ -23,13 +23,13 @@ Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
   Functions only used at call time can live anywhere.
 - The five Escape `keydown` handlers run in this order: `preview.js` (capture; closes only the
   preview) → `venue-form.js` (capture; closes only the venue dialog `#venueDialog`, and
-  while its write waits for Coda swallows Esc without closing anything) → `editor-close.js`
+  while its write waits for Coda swallows Esc without closing anything; with the Help drawer open it steps aside so Help closes first) → `editor-close.js`
   (`requestClose` when the modal is open; on the event page it only hides the leave bar) →
   `editor-close.js` ⋮ menus (capture; the panel's `#edMenu` and the top bar's `#epMenu`, one
   listener) → `help.js` (capture). Capture listeners on `document` run in registration
   (script load) order; four of them call `stopImmediatePropagation`, so reordering changes
   which one wins. The preview and the venue dialog can't be open together (each covers
-  the page with its own scrim), so the venue dialog is in practice the first to act. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
+  the page with its own scrim), so the venue dialog is in practice the first to act unless Help is open. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
   too; neither stops propagation.)
 - Update the file's header and this page when you add, move or rename things.
 

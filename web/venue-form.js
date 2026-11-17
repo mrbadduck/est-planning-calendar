@@ -325,7 +325,7 @@ async function submitAddress(f){
   box.addEventListener('input', e=>{ if(e.target.id==='vf_name'){ const sub=document.getElementById('vdSub'); if(sub) sub.textContent=e.target.value; } });
   scrim.addEventListener('click', e=>{ if(e.target===scrim) closeVenueForm(); });   // a no-op while busy
   scrim.addEventListener('keydown', e=>{
-    if(e.key==='Enter' && e.target.matches('input')){ e.preventDefault(); submitVenueForm(); return; }
+    if(e.key==='Enter' && !e.isComposing && e.target.matches('input')){ e.preventDefault(); submitVenueForm(); return; }
     if(e.key!=='Tab') return;
     const f=vdFocusables(box);   // Tab cycles inside the dialog
     if(!f.length){ e.preventDefault(); box.focus(); return; }
@@ -334,16 +334,18 @@ async function submitAddress(f){
     else if(!e.shiftKey && a===last){ e.preventDefault(); first.focus(); }
   });
   // Focus that lands outside the dialog (a click-through, the browser's own focus moves)
-  // comes back in. The Help drawer, above the dialog, keeps its own focus.
+  // comes back in. The Help drawer and the Preview overlay, above the dialog, keep their own focus.
   document.addEventListener('focusin', e=>{
-    if(!vdOpen() || box.contains(e.target) || (e.target.closest && e.target.closest('#helpDrawer'))) return;
+    if(!vdOpen() || box.contains(e.target) || (e.target.closest && e.target.closest('#helpDrawer, #pvScrim'))) return;
     (vdFocusables(box)[0] || box).focus({ preventScroll:true });
   });
 })();
-// Esc closes the venue dialog (and only the dialog) before the modal's requestClose, the
-// ⋮ menus and Help see it; while a write waits for Coda it's swallowed and nothing closes.
+// Esc closes the venue dialog (and only the dialog) before the modal's requestClose and the
+// ⋮ menus see it; while a write waits for Coda it's swallowed and nothing closes. Topmost
+// first: with the Help drawer open (above the dialog) Esc is left for help.js to close Help.
 document.addEventListener('keydown', e=>{
   if(e.key!=='Escape' || !vdOpen()) return;
+  const help=document.getElementById('helpDrawer'); if(help && !help.hidden) return;
   e.preventDefault(); e.stopImmediatePropagation(); hideTip();
   closeVenueForm();
 }, true);
