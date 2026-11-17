@@ -59,7 +59,7 @@ function initTypeahead(container, opts){
    Venue Type select, closed hidden). With opts.onAdd, the last row is
    + Add "<typed>" as a venue whenever no venue has exactly that name
    (VenueAddress.offerAdd); it hands the text to onAdd (the Where block's add form,
-   venue-form.js). Without onAdd, "＋ New venue" drops the text into other-mode (an
+   venue-form.js), which returns falsy when the form can't open (the typed text stays). Without onAdd, "＋ New venue" drops the text into other-mode (an
    editable field with a clear ✕ that returns to select mode) — other-mode still
    shows an event's stored Venue (other). State lives on container.dataset.venueId /
    the visible other input. container.pickVenue(id) selects a venue from outside
@@ -122,7 +122,7 @@ function initVenuePicker(container, ev, opts){
     else if(e.key==='Escape'){ closeMenu(); }
   });
   menu.addEventListener('mousedown', e=>{ const o=e.target.closest('.ta-opt'); if(!o) return; e.preventDefault();
-    if(o.dataset.add){ const t=input.value.trim(); input.value=''; closeMenu(); opts.onAdd(t); }
+    if(o.dataset.add){ const t=input.value.trim(); closeMenu(); if(opts.onAdd(t)) input.value=''; }   // kept when the form can't open (an add still in flight)
     else if(o.dataset.new){ enterOther(input.value.trim()); } else { const v=VENUES.find(x=>x.id===o.dataset.id); if(v) selectVenue(v); }
   });
 }

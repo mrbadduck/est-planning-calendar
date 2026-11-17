@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planRow, renderTable, cellsFor, buildWrite } from '../../scripts/backfill-venue-address.mjs';
+import { planRow, renderTable, cellsFor, buildWrite, writeAll } from '../../scripts/backfill-venue-address.mjs';
 import { VENUE_COLS as C } from '../src/coda-columns.js';
 
 const row = (address, extra = {}) => ({ id: 'i-1', values: { [C.name]: 'V', [C.address]: address, ...extra } });
@@ -49,4 +49,17 @@ test('buildWrite: PUT to the row, five column ids only', () => {
   const w = buildWrite('i-1', { street: 'a', unit: '', city: 'c', state: 'TN', zip: '' });
   assert.match(w.url, /\/tables\/grid-foC40iAOaX\/rows\/i-1$/);
   assert.deepEqual(w.body.row.cells.map(c => c.column), [C.street, C.unit, C.city, C.state, C.zip]);
+});
+
+test('writeAll re-reads each row before its PUT, skips one whose Street is now filled, and waits for every write to apply', async () => {
+  const stale = [planRow({ ...row('3914 Gallatin Pike Nashville, TN 37216'), id: 'i-a' }), planRow({ ...row('1115 Delmas Ave, Nashville, TN 37216'), id: 'i-b' })];
+  assert.ok(stale.every(p => p.status === 'OK'));   // the lagging list read
+  const fresh = { 'i-a': { ...row('3914 Gallatin Pike Nashville, TN 37216', { [C.street]: '3914 Gallatin Pike' }), id: 'i-a' },
+    'i-b': { ...row('1115 Delmas Ave, Nashville, TN 37216'), id: 'i-b' } };
+  const puts = [], waited = [];
+  const r = await writeAll(stale, { getRow: async id => fresh[id], putRow: async p => { puts.push(p.id); return { requestId: 'req-' + p.id }; },
+    waitApplied: async rid => { waited.push(rid); } });
+  assert.deepEqual(puts, ['i-b']);
+  assert.deepEqual(r.skipped, ['i-a']);
+  assert.deepEqual(waited, ['req-i-b']);
 });

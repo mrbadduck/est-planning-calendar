@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import '../web/venue-address.js';
+import '../web/coda-applied.js';
 import { parseUsAddress } from '../proxy/src/eventbrite.js';
 import { VENUE_COLS as C } from '../proxy/src/coda-columns.js';
 
@@ -101,6 +102,27 @@ async function readRows(token) {
   return rows;
 }
 
+// Write the OK rows, one at a time. Coda's list read lags its writes (a row written
+// moments ago can still read with a blank Street — that is how a full run right after an
+// --only run rewrote Inglewood Lounge), so each row is read again by id just before its
+// PUT and skipped if that read says Street is filled, and the run doesn't end until
+// Coda has applied every write (a follow-up run then sees them).
+// Injected I/O: getRow(id) → row, putRow(plan) → {requestId}, waitApplied(requestId), log(msg).
+export async function writeAll(plans, { getRow, putRow, waitApplied, log = () => {}, pace = async () => {} }) {
+  const written = [], skipped = [];
+  for (const p of plans) {
+    const fresh = planRow(await getRow(p.id));
+    if (fresh.status !== 'OK') { skipped.push(p.id); log(`skipped ${p.id} ${p.name}: ${fresh.reason}`); continue; }
+    const res = await putRow(fresh);
+    written.push({ id: p.id, requestId: res && res.requestId });
+    log(`wrote ${p.id} ${p.name} (requestId ${res && res.requestId})`);
+    await pace();
+  }
+  for (const w of written) await waitApplied(w.requestId);
+  log(`applied ${written.length} write(s); skipped ${skipped.length}`);
+  return { written, skipped };
+}
+
 const USAGE = 'usage: backfill-venue-address.mjs [--write --yes] [--only <rowId>[,<rowId>...]]';
 
 async function main() {
@@ -124,14 +146,17 @@ async function main() {
     if (bad.length) { console.error(`--only: not an OK row: ${bad.join(', ')}`); process.exit(1); }
     ok = ok.filter(p => only.includes(p.id));
   }
-  const reqIds = [];
-  for (const p of ok) {   // sequential, paced
-    const res = await writeRow(token, p);
-    reqIds.push(res.requestId);
-    console.error(`wrote ${p.id} ${p.name} (requestId ${res.requestId})`);
-    await sleep(250);
-  }
-  console.error(`requestIds: ${reqIds.join(' ')}`);
+  const rowUrl = id => `${BASE}/docs/${DOC}/tables/${TABLE}/rows/${encodeURIComponent(id)}?useColumnNames=false&valueFormat=simpleWithArrays`;
+  await writeAll(ok, {
+    getRow: id => codaFetch(token, rowUrl(id)),
+    putRow: p => writeRow(token, p),
+    waitApplied: rid => globalThis.CodaApplied.waitApplied(rid, {
+      fetchStatus: async r => { const x = await fetch(`${BASE}/mutationStatus/${encodeURIComponent(r)}`, { headers: { Authorization: `Bearer ${token}` } });
+        return { status: x.status, completed: x.ok ? !!(await x.json()).completed : false }; },
+      sleep, now: () => Date.now() }),
+    log: m => console.error(m),
+    pace: () => sleep(250),
+  });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

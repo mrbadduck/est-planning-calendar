@@ -21,7 +21,7 @@
 const _vaddr=new Map();   // venue id → { status:'loading'|'ok'|'err', v:{id,name,type,street,unit,city,state,zip,address} }
 let _vctx=null;           // { ev, editable } for the Where block on screen
 let _vf=null;             // the open form: { mode, venueId, ev, busy }
-let _vfPendingAdd=null;   // an add whose row Coda never confirmed: { key, id, requestId } — retried by polling, never re-POSTed
+let _vfPendingAdd=null;   // an add whose row Coda never confirmed: { key, name, id, requestId } — retried by polling, never re-POSTed
 const VF_DEFAULTS={ city:'Nashville', state:'TN' };
 const venueTypeName = id => (VENUE_TYPES.find(t=>t.id===id)||{}).name || '';
 const venueHome = typeName => typeName==='Home';   // only a private home may have no address
@@ -117,15 +117,21 @@ function showVenueForm(mode, venueId, v){
   return first;
 }
 // + Add "<name>" as a venue (the picker) and the venueOther readiness link.
+// A write still waiting for Coda holds the form: say so rather than ignore the click.
+function vfBusyNote(){
+  if(!(_vf && _vf.busy)) return false;
+  toast(_vf.mode==='add' ? 'Still adding the last venue…' : 'Still saving the last address…');
+  return true;
+}
 function openVenueAdd(name){
-  if(!vfEditable() || (_vf && _vf.busy)) return null;
+  if(!vfEditable() || vfBusyNote()) return null;
   const sel=document.getElementById('f_vtype');
   return showVenueForm('add', '', Object.assign({ name:String(name||'').trim(), typeId:(sel && sel.value)||'', street:'', unit:'', zip:'' }, VF_DEFAULTS));
 }
 // Edit address / Add address and the venueAddress readiness link.
 function openVenueAddress(){
   const id=pickedVenueId();
-  if(!vfEditable() || !id || (_vf && _vf.busy)) return null;
+  if(!vfEditable() || !id || vfBusyNote()) return null;
   const ent=_vaddr.get(id);
   if(!ent || ent.status!=='ok'){   // not loaded yet: open once it is (a failed read: the line offers Try again)
     paintVenueAddr();
@@ -193,13 +199,16 @@ async function submitAdd(f){
   const errs=Object.assign({}, VenueAddress.validate(addr, { allowBlank:venueHome(typeName) }).errors);
   if(!name) errs.name='Add the name';
   else if(VENUES.some(v=>VenueAddress.sameName(v.name, name))) errs.name=`A venue called ${name} already exists`;
+  // An add Coda hasn't confirmed may still land: the same name must retry with the same details (it polls), never insert again.
+  else if(_vfPendingAdd && VenueAddress.sameName(_vfPendingAdd.name, name) && _vfPendingAdd.key!==JSON.stringify(Object.assign({ name, typeId }, addr)))
+    errs.name=`${name} is still being added. Add it again with the same details, or wait a minute and reload.`;
   if(!typeId) errs.type='Choose a venue type';
   if(Object.keys(errs).length){ vfErrors(errs); return; }
   vfErrors(null); f.busy=true; vfBusy(true, 'Adding venue…');
   const body=Object.assign({ name, typeId }, addr), key=JSON.stringify(body);
   try{
     let p=_vfPendingAdd && _vfPendingAdd.key===key ? _vfPendingAdd : null;   // the same add again: poll, don't insert twice
-    if(!p){ const r=await DB.createVenue(body); p=_vfPendingAdd={ key, id:r && r.id, requestId:(r && r.requestId)||'' }; }
+    if(!p){ const r=await DB.createVenue(body); p=_vfPendingAdd={ key, name, id:r && r.id, requestId:(r && r.requestId)||'' }; }
     if(!p.id) throw new Error('The Worker didn’t return the new venue');
     try{ await venueApplied(p.requestId); }
     catch(_){ const e=new Error('Coda didn’t confirm the new venue yet. Try Add venue again in a minute.'); e.unconfirmed=true; throw e; }
@@ -210,8 +219,8 @@ async function submitAdd(f){
     f.busy=false;
     if(_vf===f) closeVenueForm();
     const box=document.getElementById('f_venue_box');
-    if(box && box.pickVenue && editing===f.ev) box.pickVenue(v.id);   // the picker's onChange: address default, address line, autosave
-    toast('Venue added');
+    const picked = !!(box && box.pickVenue && editing===f.ev && box.pickVenue(v.id));   // the picker's onChange: address default, address line, autosave
+    toast(picked ? 'Venue added' : 'Venue added. Choose it under Where.');   // the lead moved to another tab or event meanwhile
   }catch(err){
     f.busy=false;
     if(!err.unconfirmed) _vfPendingAdd=null;   // refused: nothing was inserted
