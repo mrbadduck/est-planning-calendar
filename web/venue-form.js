@@ -31,11 +31,17 @@ function venueSlotsHTML(){
 }
 // Called by wireEventFields once the venue picker is set up. A rebuilt panel closes any
 // open form (an add already sent finishes on its own and still selects the venue).
-function wireVenueForm(ev, editable){
-  _vctx={ ev, editable:!!editable };
+// Every lookup is scoped to the Where block wired here (the venue box's .fieldgroup), so a
+// second copy of the same ids elsewhere in the document can never be read or painted.
+// Each container is wired once (_vfWired), and all submits go through submitVenueForm.
+function wireVenueForm(ev, editable, box){
+  const group=box && box.closest('.fieldgroup');
+  const addrEl=group && group.querySelector('#venueAddr'), formEl=group && group.querySelector('#venueForm');
+  _vctx={ ev, editable:!!editable, group, box, addrEl, formEl };
   if(!(_vf && _vf.busy)) _vf=null;
-  const addrEl=document.getElementById('venueAddr'), formEl=document.getElementById('venueForm');
   if(!addrEl || !formEl) return;
+  if(formEl._vfWired){ paintVenueAddr(); return; }
+  formEl._vfWired=true;
   addrEl.addEventListener('click', e=>{
     const b=e.target.closest('[data-vact]'); if(!b) return;
     if(b.dataset.vact==='edit') openVenueAddress();
@@ -52,10 +58,11 @@ function wireVenueForm(ev, editable){
   });
   paintVenueAddr();
 }
-const vfEditable = () => !!(_vctx && _vctx.editable && _vctx.ev===editing && document.getElementById('venueForm'));
-const pickedVenueId = () => { const b=document.getElementById('f_venue_box'); return (b && b.dataset.venueId) || ''; };
+const vfEl = () => (_vctx && _vctx.formEl && _vctx.formEl.isConnected) ? _vctx.formEl : null;
+const vfEditable = () => !!(_vctx && _vctx.editable && _vctx.ev===editing && vfEl());
+const pickedVenueId = () => { const b=_vctx && _vctx.box; return (b && b.dataset.venueId) || ''; };
 function addrVisibility(){
-  const p=document.querySelector('#f_addrvis button[aria-pressed="true"]');
+  const p=_vctx && _vctx.group && _vctx.group.querySelector('#f_addrvis button[aria-pressed="true"]');
   return p ? p.dataset.addrvis : ((_vctx && _vctx.ev.addressVisibility) || '');
 }
 function venueAddrText(v){ return (v.street || v.city) ? VenueAddress.compose(v) : String(v.address||'').trim(); }
@@ -68,7 +75,7 @@ function fetchVenueAddr(id){
 }
 // The address line under the picked venue (editors only).
 function paintVenueAddr(){
-  const el=document.getElementById('venueAddr'); if(!el) return;
+  const el=_vctx && _vctx.addrEl; if(!el || !el.isConnected) return;
   const id=pickedVenueId();
   if(_vf && _vf.mode==='address' && !_vf.busy && _vf.venueId!==id) closeVenueForm();   // a different venue now
   if(!vfEditable() || !id){ paintInner(el, ''); return; }
@@ -108,7 +115,7 @@ function venueFormHTML(mode, v){
     + `</fieldset>`;
 }
 function showVenueForm(mode, venueId, v){
-  const el=document.getElementById('venueForm'); if(!el) return null;
+  const el=vfEl(); if(!el) return null;
   _vf={ mode, venueId, ev:editing, busy:false };
   paintInner(el, venueFormHTML(mode, v));
   el.scrollIntoView({ block:'nearest', behavior:'smooth' });
@@ -125,7 +132,7 @@ function vfBusyNote(){
 }
 function openVenueAdd(name){
   if(!vfEditable() || vfBusyNote()) return null;
-  const sel=document.getElementById('f_vtype');
+  const sel=_vctx.group.querySelector('#f_vtype');
   return showVenueForm('add', '', Object.assign({ name:String(name||'').trim(), typeId:(sel && sel.value)||'', street:'', unit:'', zip:'' }, VF_DEFAULTS));
 }
 // Edit address / Add address and the venueAddress readiness link.
@@ -149,7 +156,7 @@ function openVenueAddress(){
 // element it focused, or null when there's no form to open (read-only, locked).
 function openVenueFormFor(check){
   if(check==='venueOther'){
-    const other=document.querySelector('#f_venue_box .venue-other-wrap:not([hidden]) .venue-other');
+    const other=_vctx && _vctx.box && _vctx.box.querySelector('.venue-other-wrap:not([hidden]) .venue-other');
     return openVenueAdd(other ? other.value : ((editing && editing.venueOther) || ''));
   }
   if(check==='venueAddress') return openVenueAddress();
@@ -158,22 +165,22 @@ function openVenueFormFor(check){
 function closeVenueForm(){
   if(_vf && _vf.busy) return;
   _vf=null;
-  const el=document.getElementById('venueForm'); if(el) paintInner(el, '');
+  const el=vfEl(); if(el) paintInner(el, '');
 }
 function vfRead(){
-  const g=k=>{ const e=document.getElementById('vf_'+k); return e ? e.value : ''; };
+  const el=vfEl(), g=k=>{ const e=el && el.querySelector('#vf_'+k); return e ? e.value : ''; };
   return { name:g('name').replace(/\s+/g,' ').trim(), typeId:g('type'),
     addr:VenueAddress.normalize({ street:g('street'), unit:g('unit'), city:g('city'), state:g('state'), zip:g('zip') }) };
 }
 function vfErrors(errs, formMsg){
-  const el=document.getElementById('venueForm'); if(!el) return;
+  const el=vfEl(); if(!el) return;
   el.querySelectorAll('[data-err]').forEach(s=>{ const k=s.dataset.err; s.textContent = k==='form' ? (formMsg||'') : ((errs && errs[k]) || ''); });
   const bad=el.querySelector('[data-err]:not(:empty)'); const inp=bad && bad.closest('.fld') && bad.closest('.fld').querySelector('input,select');
   if(inp && !inp.disabled) inp.focus();
 }
 // Busy: the whole form is disabled in place (no repaint, so nothing typed is lost).
 function vfBusy(on, label){
-  const el=document.getElementById('venueForm'); if(!el) return;
+  const el=vfEl(); if(!el) return;
   const fs=el.querySelector('fieldset'), btn=el.querySelector('[data-vact="submit"]'), slow=el.querySelector('[data-vf-slow]');
   if(fs) fs.disabled=on;
   if(btn){ if(on){ btn.dataset.label=btn.textContent; btn.textContent=label; } else if(btn.dataset.label) btn.textContent=btn.dataset.label; }
@@ -185,14 +192,20 @@ function venueApplied(requestId){
     fetchStatus: rid => DB.mutationStatus(rid),
     sleep: ms => new Promise(r => setTimeout(r, ms)),
     now: () => Date.now(),
-    onSlow: () => { const s=document.querySelector('#venueForm [data-vf-slow]'); if(s) s.textContent='Coda is slow right now. This can take a minute.'; },
+    onSlow: () => { const el=vfEl(), s=el && el.querySelector('[data-vf-slow]'); if(s) s.textContent='Coda is slow right now. This can take a minute.'; },
   });
 }
 // The form this write came from is still the one showing (the panel wasn't rebuilt meanwhile).
-const vfOnScreen = f => _vf===f && !!document.querySelector('#venueForm fieldset');
-function submitVenueForm(){
-  if(!_vf || _vf.busy || !vfEditable()) return;
-  return _vf.mode==='add' ? submitAdd(_vf) : submitAddress(_vf);
+const vfOnScreen = f => { const el=vfEl(); return _vf===f && !!(el && el.querySelector('fieldset')); };
+// The one way a venue write starts (the button's click and Enter in a field both land
+// here). _vfSubmitting is set before anything else runs and cleared only when that
+// submit has finished, so no second request can start meanwhile.
+let _vfSubmitting=false;
+async function submitVenueForm(){
+  if(_vfSubmitting || !_vf || _vf.busy || !vfEditable()) return;
+  _vfSubmitting=true;
+  try{ await (_vf.mode==='add' ? submitAdd(_vf) : submitAddress(_vf)); }
+  finally{ _vfSubmitting=false; }
 }
 async function submitAdd(f){
   const { name, typeId, addr }=vfRead(), typeName=venueTypeName(typeId);
@@ -218,8 +231,8 @@ async function submitAdd(f){
     _vaddr.set(v.id, { status:'ok', v:Object.assign({ id:v.id, name, type:typeName, address:VenueAddress.compose(addr) }, addr) });
     f.busy=false;
     if(_vf===f) closeVenueForm();
-    const box=document.getElementById('f_venue_box');
-    const picked = !!(box && box.pickVenue && editing===f.ev && box.pickVenue(v.id));   // the picker's onChange: address default, address line, autosave
+    const box=_vctx && _vctx.box;
+    const picked = !!(box && box.isConnected && box.pickVenue && editing===f.ev && box.pickVenue(v.id));   // the picker's onChange: address default, address line, autosave
     toast(picked ? 'Venue added' : 'Venue added. Choose it under Where.');   // the lead moved to another tab or event meanwhile
   }catch(err){
     f.busy=false;

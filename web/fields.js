@@ -106,7 +106,7 @@ function wireEventFields(panel, ev, canEdit, locked){
   if(venBox){
     const venEdit=canEdit && !locked;   // add a venue / fix its address: editors of an unlocked event only
     initVenuePicker(venBox, ev, { onChange:()=>{ applyAddressDefault(venBox); paintVenueAddr(); scheduleAutosave(); }, onAdd: venEdit ? openVenueAdd : null });
-    wireVenueForm(ev, venEdit);
+    wireVenueForm(ev, venEdit, venBox);
   }
 
   // program(s): dropdown multiselect — checking a program appends its Current Leads
