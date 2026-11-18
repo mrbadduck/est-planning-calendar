@@ -21,11 +21,15 @@ Terms: `docs/GLOSSARY.md`. Why things are the way they are: `docs/decisions/`.
   relative order, and a file must not run anything at load that a later file declares
   (`const`/`let` are not yet defined there). `init();` (main.js) is the last statement.
   Functions only used at call time can live anywhere.
-- The four Escape `keydown` handlers run in this order: `preview.js` (closes only the
-  preview) → `editor-close.js` (`requestClose` when the modal is open; on the event page
-  it only hides the leave bar) → `editor-close.js` ⋮ menus (the panel's `#edMenu` and the top bar's `#epMenu`, one listener) → `help.js`.
-  Three of them call `stopImmediatePropagation`, so reordering changes which one
-  wins. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
+- The five Escape `keydown` handlers run in this order: `preview.js` (capture; closes only the
+  preview) → `venue-form.js` (capture; closes only the venue dialog `#venueDialog`, and
+  while its write waits for Coda swallows Esc without closing anything; with the Help drawer open it steps aside so Help closes first) → `editor-close.js`
+  (`requestClose` when the modal is open; on the event page it only hides the leave bar) →
+  `editor-close.js` ⋮ menus (capture; the panel's `#edMenu` and the top bar's `#epMenu`, one
+  listener) → `help.js` (capture). Capture listeners on `document` run in registration
+  (script load) order; four of them call `stopImmediatePropagation`, so reordering changes
+  which one wins. The preview and the venue dialog can't be open together (each covers
+  the page with its own scrim), so the venue dialog is in practice the first to act unless Help is open. (`ui.js` hides the tooltip and `shell.js` closes the ⚙/account menus on Escape
   too; neither stops propagation.)
 - Update the file's header and this page when you add, move or rename things.
 
@@ -81,7 +85,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 `roster-lib.js` **[node-tested]** (attendee segments + mailto helpers),
 `help/help-lib.js` **[node-tested]** (guide parser/renderer), `listing-readiness.js`
 **[node-tested]** (shared publish rules; also imported by the Worker, so no DOM),
-`listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
+`venue-address.js` **[node-tested]** (`VenueAddress`: pure structured-address rules for venues, also imported by the Worker, so no DOM), `listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
 **[node-tested]** (preview model before Eventbrite), `coda-applied.js` **[node-tested]**
 (honest-save poller), `save-queue.js` **[node-tested]** (per-event save queue),
 `editor-head.js` **[node-tested]** (header meta), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval).
@@ -93,7 +97,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   holiday/partner overlays, still awaiting Hebcal), `planningRowToEvent` /
   `eventToCodaCells`, and **`CodaSource`** — the single live data source hitting
   the proxy. `const DB = CodaSource;` (the in-memory mock was removed).
-3. **`pickers.js`** — `initTypeahead` (Leads/Volunteers) and `initVenuePicker`.
+3. **`pickers.js`** — `initTypeahead` (Leads/Volunteers) and `initVenuePicker` (its last row is **+ Add "<name>" as a venue** when no venue has that name, `VenueAddress.offerAdd`; `pickVenue(id)` selects a just-added venue).
 4. **`state.js`** — prefs, the `state` object, program-year dates, `loadEvents`, the `_recent`/`_unsaved` local-copy guards, refs settling, date bucketing.
 - **State**: `state` object (program year, current view, layers, role, events).
   Program year runs **Sep→Aug**.
@@ -162,19 +166,20 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   link** header button shares the current view.
 11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
 12. **`tabs-listing-planning.js`** — the Listing and Planning panels and the private-home address-default rules.
-13. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).
-14. **`tab-potluck.js`** — the Potluck & Volunteers tab: the gather slot builder and its claims.
-15. **`feedback.js`** — the votable Feedback / Ideas board and its modal.
+13. **`venue-form.js`** — the Where block's venue address line (`#venueAddr`: the picked venue's address from `GET /venues/:id`, fetched once per venue per session, editors only; **Edit address** / **No street address yet** + **Add address**; "Shared with registrants only" on a Registrants-only event) and the venue dialog (`#venueDialog` > `#vdBox` in `index.html`, one stable element painted with `paintInner`, D1; z-index 66: above the event page and the create form's `#modal`, below Help and Preview): **Add a venue** → **Add venue** (from the picker's **+ Add "<name>" as a venue** row or the `venueOther` readiness link) and **Edit address** → **Save address** (from the line or the `venueAddress` readiness link). `role="dialog"`, `aria-modal`; focus goes to the first empty field, Tab is trapped (keydown wrap + a `focusin` guard that lets the Help drawer keep focus), Enter in a text field submits, Esc / Cancel / a scrim click close it and return focus to the opener — all disabled while the write waits for Coda (busy: fields, Cancel and the primary disabled, spinner + **Adding venue…** / **Saving address…**). Leaving the page or the create form (`leaveEventPage`, `closeModal` → `dismissVenueDialog`) takes it down even mid-write; that write finishes and reports by toast. Both wait until Coda applies the write (`CodaApplied`, D3) before the app selects the new venue or repaints readiness, and update the local `VENUES` list themselves at once, then `refreshVenues` (data.js) re-reads `/ref/venues?fresh=1` in the background and merges it (`VenueAddress.mergeVenues`: fresh wins, this session's adds are kept until the fresh list has them). A Save address with the address already saved comes back `{unchanged:true}` and doesn't wait. A failed readiness row carries its check key (`checklist[].check`) so `focusField` can open the right form.
+14. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).
+15. **`tab-potluck.js`** — the Potluck & Volunteers tab: the gather slot builder and its claims.
+16. **`feedback.js`** — the votable Feedback / Ideas board and its modal.
 - **Feedback/Ideas board** (`feedbackBoardHTML`/`wireFeedback`): a votable roadmap
   board — a global header CTA (`#feedbackBtn`) + a context-tagged board in each
   coming-soon section. Backed by the Coda `Roadmap Feedback` table
   (`grid-pP5rwauO2j`) via Worker `GET/POST /feedback` + `POST /feedback/:id/vote`
   (new var `CODA_FEEDBACK_TABLE`). Design/plan:
   `docs/superpowers/specs|plans/2026-08-22-event-workspace*`.
-16. **`ui.js`** — toasts and the shared tooltip bubble.
+17. **`ui.js`** — toasts and the shared tooltip bubble.
 - **Tooltips**: any element with `data-tip` gets the shared bubble (`showTip`/
   `hideTip`) on hover and keyboard focus — use it, not `title=`, for icon buttons.
-17. **`save.js`** — the save model, the save pill, `leaveForm`, the unload guard.
+18. **`save.js`** — the save model, the save pill, `leaveForm`, the unload guard.
 - **Save model (create-then-page + on-blur autosave):** a NEW event opens a
   one-shot compact create modal (`openNewEventForm`, Cancel/Create) — not the
   event page, so no premature empty rows; on Create it persists once, closes the
@@ -226,8 +231,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   Design/plan:
   `docs/superpowers/specs|plans/2026-08-23-workspace-save-pattern*` (the queue and
   partial writes replaced its snapshot-and-rewrite save in #24).
-18. **`status-panel.js`** — the event page's **Status & next step** panel (`ListingRules.footerModel` painted into stable containers by `renderStatusPanel`), the ⋮ menu, `epLayout`/`layoutEventPage`, `focusField`.
-19. **`transitions.js`** — `transitionTo`, `cancelEvent`, delete, the Eventbrite-cancel bar. The status state machine (this file and `status-panel.js`):
+19. **`status-panel.js`** — the event page's **Status & next step** panel (`ListingRules.footerModel` painted into stable containers by `renderStatusPanel`), the ⋮ menu, `epLayout`/`layoutEventPage`, `focusField`.
+20. **`transitions.js`** — `transitionTo`, `cancelEvent`, delete, the Eventbrite-cancel bar. The status state machine (this file and `status-panel.js`):
 - **Status state machine** (`Status` ∈ Draft/Proposed/Approved/Cancelled; *Live*
   = approved+EB-published and *Past* = date passed are DERIVED, not stored).
   Action-driven, not a dropdown: the right panel's **Status & next step** card
@@ -255,10 +260,10 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   past-dated proposal asks first) and is enforced only in the UI — the Worker doesn't
   check it (#32), and `todayStr` is fixed at page load. Design:
   `docs/superpowers/specs/2026-08-23-status-machine-and-editor-refinements.md`.
-20. **`eventbrite.js`** — the Eventbrite push (`pushToEventbrite`), registrants/edited status, publish checks.
-21. **`editor-close.js`** — the leave guard, `requestClose`/`closeModal` (the modal), `leaveEventPage`/← Calendar (the
+21. **`eventbrite.js`** — the Eventbrite push (`pushToEventbrite`), registrants/edited status, publish checks.
+22. **`editor-close.js`** — the leave guard, `requestClose`/`closeModal` (the modal), `leaveEventPage`/← Calendar (the
     event page: shows the calendar again at its scroll position), the modal footer's and the panel's action dispatch, ⋮ menu keys, header actions.
-22. **`shell.js`** — the app shell: layer toggles, `#months`/`#quarter` click delegation, day picker, `layoutSticky`, view switch (`curView`, `applyView`, `PHONE_MQ`), year nav, `addEvent`, and the ⚙ (`ovfMenu`) and ☰ (`phoneMenu`) menus.
+23. **`shell.js`** — the app shell: layer toggles, `#months`/`#quarter` click delegation, day picker, `layoutSticky`, view switch (`curView`, `applyView`, `PHONE_MQ`), year nav, `addEvent`, and the ⚙ (`ovfMenu`) and ☰ (`phoneMenu`) menus.
 - **Header + calendar settings (⚙)**: row 2 is view switch + year picker, then ↻,
   ⚙ (`#ovfBtn`) and **+ New event** at the far right. ⚙ opens `#ovfPanel`, which
   holds the layer toggles (`#layers`, `renderLayers`).
@@ -275,8 +280,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 - **`layoutSticky()`**: measures header heights into `--bar-h`/`--wh-h` so the
   sticky weekday row + month headers stack correctly; self-corrects on load,
   resize, view switch, and Help opening/closing.
-23. **`auth.js`** — Firebase sign-in: token lifecycle, `/me` identity and roles (`fetchMe`), the sign-in gate, the account menu, `refreshEditorRole`, `initAuth`.
-24. **`help.js`** — the Help drawer.
+24. **`auth.js`** — Firebase sign-in: token lifecycle, `/me` identity and roles (`fetchMe`), the sign-in gate, the account menu, `refreshEditorRole`, `initAuth`.
+25. **`help.js`** — the Help drawer.
 - **Help drawer** (`openHelp(id)` / `closeHelp` / `renderHelp` — `web/help.js`): a right-side drawer that renders `web/help/guide.md` +
   `whats-new.md` through `HelpLib` (`web/help/help-lib.js`). Entry points: the header
   **?** (`#helpBtn`), the event page's **?** icon (`#epActions`, wide and mid layouts)
@@ -289,11 +294,11 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   `help:'<id>'` or `data-help="<id>"` — the forms the guard checks. On wide screens
   (≥1000px) the open drawer pushes the page aside (`body.help-open` padding) rather
   than covering it.
-25. **`main.js`** — `refresh`, `init`, and the final `init();`.
+26. **`main.js`** — `refresh`, `init`, and the final `init();`.
 
 ## Gotchas (things that already bit us)
 
-- `web/listing-readiness.js` is imported by the Worker: keep it free of DOM/browser globals; editing it redeploys the Worker.
+- `web/listing-readiness.js` and `web/venue-address.js` are imported by the Worker: keep them free of DOM/browser globals; editing either redeploys the Worker.
 - All calendar grid columns use `minmax(0,1fr)`, **not** bare `1fr` — that's what
   keeps columns equal and clips long chips instead of stretching. Don't revert.
 - **Class-name collision watch:** the month grid is `.mgrid`; the modal body is
@@ -336,7 +341,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   with live verification):** (a) the planning read/write seam
   (`planningRowToEvent`/`eventToCodaCells` + the Worker `/rows`) — ideally moved
   server-side so the UI stops learning the Coda row shape (decision #4); (b) the
-  generic `/ref` reads (programs/people/venues), the Eventbrite payload builders,
+  generic `/ref` reads (programs/people; `/ref/venues` and the publish route's
+  venue read went by-id with the venues work), the Eventbrite payload builders,
   and the feedback `Voters` write.
 
 
@@ -349,7 +355,14 @@ from a session). **Doc-scoped read+write** token, `ALLOW_WRITES="true"`,
 (verifies the Firebase ID token → matches email to `EST People SRC` → role),
 `GET /roster/:rowId` (lead-only attendee roster: live Eventbrite orders + gather claims,
 resolved to People by `All Emails`, Active Member? badge from `c-yJfWc0GMsQ`),
-`GET /mutation/:id` (has Coda applied a write), the Eventbrite routes
+`GET /mutation/:id` (has Coda applied a write), the venue routes (all `canWrite`, read
+and written by column id via `VENUE_COLS`, pure parts in `proxy/src/venues.js`, writes
+bust `ref-venues-v2`): `GET /venues/:rowId` (one venue's structured address for the edit
+form — addresses never go in the shared `/ref/venues` list), `POST /venues` (add a venue:
+name required and unique case/space-insensitively → else 409, type must be a Venue Types
+row, address via `web/venue-address.js` — blank only for a Home; returns `{id, requestId}`)
+and `PUT /venues/:rowId` (change the address; also clears both cached Eventbrite venue ids;
+returns `{requestId}`, or `{requestId:null, unchanged:true}` without writing when the address is the one already saved); `GET /ref/venues?fresh=1` skips the KV/isolate caches and refills them; every venue write also sets the composed `Address`. `scripts/backfill-venue-address.mjs` is the one-off that split the old `Address` text into the structured columns (ran 2026-11-16, 17 rows). The Eventbrite routes
 (`/publish/eventbrite`, `/cancel/eventbrite`, unpublish, `/eventbrite/preview`), and
 role-gated writes that inject person attribution. Points at `EST Planning Events SRC`
 (`grid--gYIvdD-cE`).

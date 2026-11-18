@@ -6,6 +6,7 @@
 -->
 
 ## 2026-11-16
+- **Add a venue and fix its address without leaving the event.** Under **Where**, in the new-event form or on an event at any stage, type a new name and choose **+ Add … as a venue**, or use **Edit address** on a picked venue; either opens a small window to fill in. The two venue steps in **Status & next step** open the same windows. Fixing an address changes it for every event at that venue.
 - **A Past step.** Once an approved event's date has passed, **Status & next step** shows a sixth step, **Past**: "This event has happened", with how many registered. Logging expenses and capturing what you learned are coming soon. Steps an event skipped, like going on Eventbrite, show a dash. The label at the top of the event and in the List view says the same.
 - **The Published line follows Eventbrite.** It says **registration open**, **happening now**, **registration closed** or **canceled on Eventbrite**, instead of always "registration open".
 - **A taller notes preview.** On **Planning**, the notes doc preview fills the rest of the screen.

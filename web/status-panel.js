@@ -2,7 +2,7 @@
    Owns: _menuOpen, editorFooterModel, paintInner, statusPanelHTML, renderStatusPanel, kebabMenu, toggleSteps, epLayout, placePhoneBar, layoutEventPage, focusField
    Reads: editing, activeSection (editor-tabs.js); _ctx, pageOpen (editor.js); PageRules (page-rules.js); layoutSticky (shell.js; at call time);
           _busy, _busyLabel, _slow (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged, _conflictShown, ebConflict, EB_CONFLICT_NOTICE (eventbrite.js);
-          paintFieldMarks (field-markers.js; call time); headMenu (editor-close.js; call time); badgesHTML (editor.js; call time)
+          paintFieldMarks (field-markers.js; call time); openVenueFormFor (venue-form.js; call time); headMenu (editor-close.js; call time); badgesHTML (editor.js; call time)
    Writes: _conflictShown (eventbrite.js; add/delete)
    Loaded after: save.js (file-map order; no load-time dependency) */
 
@@ -70,7 +70,7 @@ function checklistStepsHTML(m, notes){
 function nextStepHTML(m){
   const rows = (m.checklist||[]).map(r=> r.ok
     ? `<li class="ok"><span class="sp-ic" aria-hidden="true">✓</span><span>${esc(r.label)}</span></li>`
-    : `<li class="bad"><span class="sp-ic" aria-hidden="true">✗</span><a href="#" data-focus-field="${esc(r.field)}">${esc(r.message)}</a></li>`).join('');
+    : `<li class="bad"><span class="sp-ic" aria-hidden="true">✗</span><a href="#" data-focus-field="${esc(r.field)}"${r.check?` data-focus-check="${esc(r.check)}"`:''}>${esc(r.message)}</a></li>`).join('');
   return `${m.title?`<b class="sp-title">${esc(m.title)}</b>`:''}${rows?`<ul class="sp-rows" aria-label="Ready for the next step">${rows}</ul>`:''}`;
 }
 function footerActsHTML(m){
@@ -207,16 +207,20 @@ function kebabMenu(open, focusFirst){
   if(open){ hideTip(); if(focusFirst){ const f=menu.querySelector('[role="menuitem"]'); if(f) f.focus(); } }
 }
 // Readiness links name a field that blocks the next step: bring it into view and focus it.
+// `check` is the failing check's key: the two venue checks open the venue dialog
+// instead (venueOther → Add a venue prefilled with Venue (other); venueAddress → the
+// address form; openVenueFormFor, venue-form.js), when the event can be edited.
 const FOCUS_FIELD_EL = { title:'f_title', description:'f_desc', programs:'f_progs', leads:'f_leads', date:'f_date', start:'f_start', end:'f_end',
   venue:'f_venue_box', capacity:'f_capacity', publicSummary:'f_pubsummary', publicDescription:'f_pubdesc', addressVisibility:'f_addrvis' };
 // The tab each field lives on (anything not listed is on Listing, id 'details').
 const FIELD_SECTION = { description:'planning', programs:'planning', leads:'planning' };
-function focusField(field){
+function focusField(field, check){
   const sec=FIELD_SECTION[field] || 'details';
   if(sec!==activeSection){ const b=document.querySelector(`#epTabs [data-sect="${sec}"]`); if(b) b.click(); }   // the tab list's own switch: autosave, render, panel, URL
   let el=document.getElementById(FOCUS_FIELD_EL[field]||'');
   if(!el && (field==='date' || field==='start' || field==='end')) el=document.getElementById('f_when');   // not an exact date yet
   if(!el) return;
+  if(field==='venue' && check && openVenueFormFor(check)) return;   // the dialog opened and focused its first empty field
   el.scrollIntoView({ block:'center', behavior:'smooth' });
   const target = el.matches('input,select,textarea,button') ? el : el.querySelector('input:not([disabled]),select,textarea,button:not([disabled])');
   if(target) target.focus({ preventScroll:true });

@@ -493,3 +493,17 @@ test('footerModel Past: the registrant-email offer still wins the title', () => 
   assert.equal(j.primary.act, 'email-registrants');
   assert.deepEqual(j.subLinks, []);
 });
+
+test('footerModel checklist names the failing venue check, so its link can open the right form', () => {
+  const ckl = (ev, venue) => R.footerModel({ stage: 'approved', past: false, role: LEAD, unpushed: [],
+    checks: R.readiness(ev, { venue, todayISO: TODAY }) }).checklist.find(r => r.key === 'venue');
+  const other = ckl({ ...ready(), venueOther: 'Rec Center' }, null);
+  assert.equal(other.ok, false);
+  assert.equal(other.check, 'venueOther');
+  assert.equal(other.field, 'venue');
+  const noAddr = ckl({ ...ready(), venueName: 'Shoresh Hall' }, { name: 'Shoresh Hall', type: 'Synagogue', hasAddress: false });
+  assert.equal(noAddr.check, 'venueAddress');
+  const fine = ckl({ ...ready(), venueName: 'Shoresh Hall' }, { name: 'Shoresh Hall', type: 'Synagogue', hasAddress: true });
+  assert.equal(fine.ok, true);
+  assert.equal(fine.check, '');
+});

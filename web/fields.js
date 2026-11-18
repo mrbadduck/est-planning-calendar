@@ -1,6 +1,6 @@
 /* fields.js — one HTML builder per event field, the Planning/create-form panels, wireEventFields and readForm.
    Owns: titleFieldHTML, internalNotesFieldHTML, programsFieldHTML, leadsFieldHTML, whenGroupHTML, whereGroupHTML, ticketingGroupHTML, REL_NOTE, lockNotesHTML, fieldLab, renderPlanning, wirePlanning, wireEventFields, readForm
-   Reads: editing (editor-tabs.js); reference lists (data.js)
+   Reads: editing (editor-tabs.js); reference lists (data.js); venueSlotsHTML, wireVenueForm, openVenueAdd, paintVenueAddr (venue-form.js; call time)
    Writes: whenType (editor-tabs.js)
    Loaded after: editor.js (file-map order; no load-time dependency) */
 
@@ -44,8 +44,9 @@ function whenGroupHTML(ev, dis){
       <div class="fld full" id="whenFields"></div>
     </div>`;
 }
-// Where: venue type + venue, the street-address note and — on an approved event's
-// Listing tab — the Address on listing toggle with its hints, all in one block.
+// Where: venue type + venue, the venue's address line (#venueAddr; its Add a venue /
+// Edit address dialog is #venueDialog, venue-form.js), the street-address note and — on the Listing tab —
+// the Address on listing toggle with its hints, all in one block.
 function whereGroupHTML(ev, dis, lab, relOK, listing){
   const av = ev.addressVisibility || '';
   const addr = listing ? `<div class="fld full addrvis"><label>${lab('addressVisibility','Address on listing')}</label><div class="whenseg" id="f_addrvis"><button type="button" data-addrvis="Public" aria-pressed="${av==='Public'}" ${dis}>Public</button><button type="button" data-addrvis="Registrants only" aria-pressed="${av==='Registrants only'}" ${dis}>Registrants only</button></div>${fieldHintSlot('addressVisibility')}<span class="hint" id="f_addrhint" hidden>${esc(ADDR_DEFAULT_HINT)}</span><span class="hint warn" id="f_addrwarn" hidden>${esc(ADDR_HOME_PUBLIC_WARN)}</span></div>` : '';
@@ -55,7 +56,8 @@ function whereGroupHTML(ev, dis, lab, relOK, listing){
         <option value="" ${!ev.venueType?'selected':''}>Any</option>
         ${VENUE_TYPES.map(t=>`<option value="${esc(t.id)}" ${t.id===ev.venueType?'selected':''}>${esc(t.name)}</option>`).join('')}
       </select></div>
-      <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>`
+      <div class="fld full"><div class="typeahead venuepick${dis?' dis':''}" id="f_venue_box"><input class="ta-input" type="text" placeholder="Search venues…" autocomplete="off" ${dis}><div class="ta-menu" hidden></div><div class="venue-other-wrap" hidden><input class="venue-other" type="text" placeholder="New venue name" ${dis}><button type="button" class="venue-clear" aria-label="Clear venue">×</button></div></div></div>
+      ${venueSlotsHTML()}`
       : `<div class="fld full">${roFieldHTML([ev.venueTypeName, ev.venueName||ev.venueOther].filter(Boolean).join(' · '))}</div>`}
       <div class="fld full"><span class="hint">The street address is saved on the venue.</span>${fieldHintSlot('venue')}</div>
       ${addr}
@@ -100,7 +102,12 @@ function wireEventFields(panel, ev, canEdit, locked){
   // leads (leadership cohort) + venue typeaheads
   const resolveIds = (ids, names) => (ids && ids.length) ? ids : (names||[]).map(n=>peopleIdByName[n]).filter(Boolean);
   const leadsBox=document.getElementById('f_leads'); if(leadsBox) initTypeahead(leadsBox, { selected:resolveIds(ev.leads, ev.leadNames), pool:()=>LEADS_LIST, onChange:scheduleAutosave });
-  const venBox=document.getElementById('f_venue_box'); if(venBox) initVenuePicker(venBox, ev, { onChange:()=>{ applyAddressDefault(venBox); scheduleAutosave(); } });
+  const venBox=document.getElementById('f_venue_box');
+  if(venBox){
+    const venEdit=canEdit && !locked;   // add a venue / fix its address: editors of an unlocked event only
+    initVenuePicker(venBox, ev, { onChange:()=>{ applyAddressDefault(venBox); paintVenueAddr(); scheduleAutosave(); }, onAdd: venEdit ? openVenueAdd : null });
+    wireVenueForm(ev, venEdit, venBox);
+  }
 
   // program(s): dropdown multiselect — checking a program appends its Current Leads
   const prog=document.getElementById('f_progs');
