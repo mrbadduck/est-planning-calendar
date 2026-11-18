@@ -5,6 +5,40 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-11-16
+- **Add a venue and fix its address without leaving the event.** Under **Where**, in the new-event form or on an event at any stage, type a new name and choose **+ Add … as a venue**, or use **Edit address** on a picked venue; either opens a small window to fill in. The two venue steps in **Status & next step** open the same windows. Fixing an address changes it for every event at that venue.
+- **A Past step.** Once an approved event's date has passed, **Status & next step** shows a sixth step, **Past**: "This event has happened", with how many registered. Logging expenses and capturing what you learned are coming soon. Steps an event skipped, like going on Eventbrite, show a dash. The label at the top of the event and in the List view says the same.
+- **The Published line follows Eventbrite.** It says **registration open**, **happening now**, **registration closed** or **canceled on Eventbrite**, instead of always "registration open".
+- **A taller notes preview.** On **Planning**, the notes doc preview fills the rest of the screen.
+- **One status box.** The listing box is now the last line of **Status & next step**: whether the event is on Eventbrite, **Preview listing**, **View on Eventbrite ↗** and the tickets, without saying anything twice. On a phone it's in the same box at the top.
+- **A simpler top of the event on a phone.** It shows just **← Calendar**, the title and **⋮**, which holds **Help for this tab**, **View in gather** and **Copy link**. On every screen, the tabs stay in view as you scroll.
+- **Fits mid-size screens.** When the event has less room (a narrower window, or Help open beside it), the tabs run across the top and **Status & next step** sits beside the event. With even less room, you get the phone layout.
+- **Long lists scroll on their own.** In **Attendees** and **Potluck & Volunteers**, only the list scrolls; the filters and headings stay at the top, and **Email** and **Copy emails** at the bottom.
+- **Smaller controls.** Toggles like **Exact date / Date range / Whole month** and **Copy internal description** are smaller, on phones too.
+- **Events open as a page.** Clicking an event opens it as its own page instead of a pop-up. **← Calendar** or your browser's Back button takes you back to the calendar just as you left it. A copied link opens the event's page directly.
+- **Status & next step.** On a computer, a panel on every tab shows the five steps as a checklist, with who and when where the app knows; what's left before the next step, each linked to its field; the one next-step button and **⋮**, ending with whether it's on Eventbrite and **Preview listing**. On a phone, it's a box at the top of the event, and the next-step button sits at the bottom of the screen.
+- **Details is now Listing.** The first tab of an event is called **Listing**. A dot on it means something there is holding up the next step.
+- **Needs approval.** In the List view, **Needs approval** shows only the events waiting for Tribal Council, with a count. Anyone can use it.
+- **Preview any time.** **Preview listing** is now in **Status & next step**, and it works at every stage. Before the event is on Eventbrite, it shows how the listing will look from your own fields.
+- **Write the listing early.** Summary, Description, Free tickets and Address on listing are open from the draft on. You still need approval before **Add to Eventbrite**.
+- **Capacity is now Free tickets.** It sits in a new **Ticketing** section: how many free General Admission tickets Eventbrite offers. Paid tickets and discount codes are coming later.
+- **Every tab explains itself.** Under each tab's name, one line says what the tab is for.
+- **Listing holds just the listing.** The **Listing** tab now holds just what goes on Eventbrite, in the order people see it: Title, Summary, Description, When, Where and Ticketing. **Public summary** and **Public description** are now **Summary** and **Description**.
+- **New Planning tab.** **Planning Notes** is now **Planning**. It holds what only the planning team sees: Program(s), Leads, **Internal description** and the planning notes doc.
+- **A more compact editor.** Smaller spacing, fields and buttons, so more of an event fits on screen. Phones keep big buttons.
+- **Cleaner Listing tab.** The little key and the **Event** heading at the top of the form are gone. Point at the icon next to a field to see where it goes.
+- **One icon per field.** Each field name now has a single icon: a crossed-out eye for private fields, a gray clock for fields that go on Eventbrite once the event is added, then a green check when it matches Eventbrite or amber arrows when your change isn't on Eventbrite yet.
+- **Quieter saving.** The **Saved** label is gone. While something saves, the next-step button says **Saving…** (or **Still saving…** when it's slow); otherwise it's saved. Only a failed save shows a message. Proposing, approving, cancelling and deleting show in that button too.
+- **Fixes.** An event opened from a link before your sign-in finished no longer stays read-only. The listing preview keeps the summary and description as separate paragraphs. Venues added to Eventbrite from now on no longer repeat the city in their address.
+
+## 2026-11-15
+- **One next step at a time.** The bottom of an open event shows its five stages, from Draft to Published, with one button for what's next. Everything else is under **⋮**.
+- **Leads take it to Eventbrite.** After approval, Program Leads can keep editing and put the event on Eventbrite themselves: **Add to Eventbrite** makes a private draft, **Preview listing** shows what Eventbrite has, and **Publish** opens registration. If anything is missing, the app says what.
+- **Honest saving.** **Saved** now means the change has really landed. It can take up to half a minute, and the next-step button waits for it.
+- **Field icons.** Each field shows whether it's private or public, matches Eventbrite, is needed for Eventbrite, or isn't on Eventbrite yet. Private homes start with the address for registrants only.
+- **Delete before publishing, cancel after.** Leads can now delete an unpublished event (its Eventbrite draft goes too). After an update changes the date, time or venue, you're offered to email the registrants.
+- **No lock on approved events.** Approved events no longer show 🔒 on the calendar: leads can keep editing them.
+
 ## 2026-10-01
 - **Built for phones.** On a phone, the calendar is now a simple list of what's coming up, and the top of the page is a single line. Tap **☰** for your account, Help, Feedback / Ideas, the program year and which calendars to show, and the round **+** to add an event.
 - **New: List view.** On a computer, **List** sits beside Overview and Calendar: the whole year as an agenda, day by day.

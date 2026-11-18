@@ -4,6 +4,7 @@ import {
   zonedToUtcISO, eventToEventbritePayload, ticketClassPayload,
   structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
+  parseUsAddress,
 } from '../src/eventbrite.js';
 
 const TZ = 'America/Chicago';
@@ -15,7 +16,7 @@ test('zonedToUtcISO converts Central wall-time to UTC (CST, winter, crosses midn
   assert.equal(zonedToUtcISO('2026-01-15', '18:00', TZ), '2026-01-16T00:00:00Z');
 });
 
-test('eventToEventbritePayload builds create body with utc+tz, currency, capacity; create falls back to description snippet for summary', () => {
+test('eventToEventbritePayload builds create body with utc+tz, currency, capacity; create never borrows the internal description for summary', () => {
   const ev = { title: 'Kabbalat Shabbat', date: '2026-09-01', start: '18:00', end: '20:00',
     capacity: 40, description: 'Come sing with us. '.repeat(20) };
   const p = eventToEventbritePayload(ev, TZ, { isCreate: true });
@@ -25,7 +26,7 @@ test('eventToEventbritePayload builds create body with utc+tz, currency, capacit
   assert.equal(p.event.currency, 'USD');
   assert.equal(p.event.capacity, 40);
   assert.equal(p.event.listed, true);
-  assert.ok(p.event.summary.length <= 140);
+  assert.equal('summary' in p.event, false);
 });
 
 test('eventToEventbritePayload prefers publicSummary for summary (<=140)', () => {
@@ -41,7 +42,7 @@ test('eventToEventbritePayload OMITS summary on update when none staged (never w
   const upd = eventToEventbritePayload(ev, TZ);                 // no isCreate, no publicSummary
   assert.equal('summary' in upd.event, false);                 // omitted -> Eventbrite keeps its summary
   const crt = eventToEventbritePayload(ev, TZ, { isCreate: true });
-  assert.equal(crt.event.summary, 'internal copy');            // create still seeds one
+  assert.equal('summary' in crt.event, false);                 // create sends none either (decision 7)
   // a staged summary is always sent (update included)
   assert.equal(eventToEventbritePayload({ ...ev, publicSummary: 'Blurb' }, TZ).event.summary, 'Blurb');
 });
@@ -80,12 +81,117 @@ test('nextScVersion — brand-new event (no structured content yet) → 0', () =
 });
 
 const AREA = { city: 'Nashville', region: 'TN', country: 'US' };
-test('venuePayload — public sends the full street address + structured city/region/country', () => {
+test('venuePayload — public sends the street only as address_1 + structured city/region/country', () => {
   const v = venuePayload({ name: 'JCC', address: '801 Percy Warner Blvd, Nashville, TN' }, 'Public', AREA);
   assert.equal(v.venue.name, 'JCC');
-  assert.equal(v.venue.address.address_1, '801 Percy Warner Blvd, Nashville, TN');
+  assert.equal(v.venue.address.address_1, '801 Percy Warner Blvd');
   assert.equal(v.venue.address.city, 'Nashville');
+  assert.equal(v.venue.address.region, 'TN');
   assert.equal(v.venue.address.country, 'US');
+  assert.equal(v.venue.address.postal_code, undefined);
+});
+test('venuePayload — public: a Coda address that repeats the city is sent once, with its ZIP (R22)', () => {
+  const v = venuePayload({ name: 'Inglewood Lounge', address: '3914 Gallatin Pike, Nashville, TN, Nashville, TN 37216' }, 'Public', AREA);
+  assert.deepEqual(v.venue.address,
+    { address_1: '3914 Gallatin Pike', city: 'Nashville', region: 'TN', postal_code: '37216', country: 'US' });
+});
+test('venuePayload — public: a non-Nashville city is kept, not overwritten by the default area', () => {
+  const v = venuePayload({ name: 'X', address: '100 Main St, Franklin, TN 37064' }, 'Public', AREA);
+  assert.equal(v.venue.address.city, 'Franklin');
+  assert.equal(v.venue.address.address_1, '100 Main St');
+});
+
+test('parseUsAddress — the Inglewood double-city string', () => {
+  assert.deepEqual(parseUsAddress('3914 Gallatin Pike, Nashville, TN, Nashville, TN 37216'),
+    { address_1: '3914 Gallatin Pike', city: 'Nashville', region: 'TN', postal_code: '37216' });
+});
+test('parseUsAddress — a street only falls back to the default city/state, no ZIP', () => {
+  assert.deepEqual(parseUsAddress('123 Main St'),
+    { address_1: '123 Main St', city: 'Nashville', region: 'TN', postal_code: '' });
+});
+test('parseUsAddress — the plain street, city, state ZIP shape', () => {
+  assert.deepEqual(parseUsAddress('500 Church St, Nashville, TN 37219'),
+    { address_1: '500 Church St', city: 'Nashville', region: 'TN', postal_code: '37219' });
+});
+test('parseUsAddress — a suite segment stays with the street', () => {
+  assert.deepEqual(parseUsAddress('500 Church St, Suite 2, Nashville, TN 37219'),
+    { address_1: '500 Church St, Suite 2', city: 'Nashville', region: 'TN', postal_code: '37219' });
+});
+test('parseUsAddress — another city and state, ZIP+4, city and state in one segment', () => {
+  assert.deepEqual(parseUsAddress('22 Peachtree Rd, Atlanta GA 30303-1234'),
+    { address_1: '22 Peachtree Rd', city: 'Atlanta', region: 'GA', postal_code: '30303-1234' });
+  assert.deepEqual(parseUsAddress('9 Elm St, Bowling Green, KY'),
+    { address_1: '9 Elm St', city: 'Bowling Green', region: 'KY', postal_code: '' });
+});
+test('parseUsAddress — no comma before the state: the city is peeled off the street', () => {
+  assert.deepEqual(parseUsAddress('1115 Delmas Ave Nashville, TN 37216'),
+    { address_1: '1115 Delmas Ave', city: 'Nashville', region: 'TN', postal_code: '37216' });
+});
+test('parseUsAddress — street words that look like states (Ct, St) are not states; empty input', () => {
+  assert.deepEqual(parseUsAddress('7 Oak Ct'),
+    { address_1: '7 Oak Ct', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress(''), { address_1: '', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('  1 A St ,  Memphis ,  TN  '),
+    { address_1: '1 A St', city: 'Memphis', region: 'TN', postal_code: '' });
+});
+test('parseUsAddress — no state: a trailing city is kept, never replaced by the default', () => {
+  assert.deepEqual(parseUsAddress('123 Main St, Franklin'),
+    { address_1: '123 Main St', city: 'Franklin', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('123 Main St, Building B, Franklin'),
+    { address_1: '123 Main St, Building B', city: 'Franklin', region: 'TN', postal_code: '' });
+  // a trailing unit/suite segment isn't a city: everything stays in the street
+  assert.deepEqual(parseUsAddress('123 Main St, Building B'),
+    { address_1: '123 Main St, Building B', city: 'Nashville', region: 'TN', postal_code: '' });
+});
+test('parseUsAddress — a place name with the city glued on, a bare city, a bare state, a PO Box', () => {
+  assert.deepEqual(parseUsAddress('Shelby Bottoms Greenway Nashville, TN'),
+    { address_1: 'Shelby Bottoms Greenway', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('Nashville, TN'),
+    { address_1: '', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('TN 37216'),
+    { address_1: '', city: 'Nashville', region: 'TN', postal_code: '37216' });
+  assert.deepEqual(parseUsAddress('PO Box 123, Nashville, TN 37203'),
+    { address_1: 'PO Box 123', city: 'Nashville', region: 'TN', postal_code: '37203' });
+});
+test('venuePayload — never sends an empty address_1 for a non-empty Coda address', () => {
+  const a1 = addr => venuePayload({ name: 'V', address: addr }, 'Public', AREA).venue.address.address_1;
+  assert.equal(a1('Nashville, TN'), 'Nashville');
+  assert.equal(a1('TN 37216'), 'TN 37216');
+  assert.equal(a1('Shelby Bottoms Greenway Nashville, TN'), 'Shelby Bottoms Greenway');
+  assert.equal(a1('PO Box 123, Nashville, TN 37203'), 'PO Box 123');
+  for (const addr of ['Nashville, TN', 'TN 37216', ' , TN', 'x']) assert.ok(a1(addr), addr);
+});
+test('parseUsAddress — spelled-out state names are the state, never the city', () => {
+  assert.deepEqual(parseUsAddress('100 Main St, Nashville, Tennessee'),
+    { address_1: '100 Main St', city: 'Nashville', region: 'TN', postal_code: '' });
+  assert.deepEqual(parseUsAddress('500 Church St, Nashville, Tennessee 37219'),
+    { address_1: '500 Church St', city: 'Nashville', region: 'TN', postal_code: '37219' });
+  assert.deepEqual(parseUsAddress('500 Church St, Nashville Tennessee 37219'),
+    { address_1: '500 Church St', city: 'Nashville', region: 'TN', postal_code: '37219' });
+  assert.deepEqual(parseUsAddress('9 Elm St, Bowling Green, kentucky'),
+    { address_1: '9 Elm St', city: 'Bowling Green', region: 'KY', postal_code: '' });
+  assert.deepEqual(parseUsAddress('1 Pennsylvania Ave, Washington, District of Columbia 20500'),
+    { address_1: '1 Pennsylvania Ave', city: 'Washington', region: 'DC', postal_code: '20500' });
+  // a city named like a state stays the city when a state follows
+  assert.deepEqual(parseUsAddress('1 Broadway, New York, NY 10004'),
+    { address_1: '1 Broadway', city: 'New York', region: 'NY', postal_code: '10004' });
+});
+test('parseUsAddress — no commas: a trailing "<default city> <ST> <ZIP>" is split off', () => {
+  assert.deepEqual(parseUsAddress('100 Main St Nashville TN 37216'),
+    { address_1: '100 Main St', city: 'Nashville', region: 'TN', postal_code: '37216' });
+  assert.deepEqual(parseUsAddress('100 Main St Nashville Tennessee'),
+    { address_1: '100 Main St', city: 'Nashville', region: 'TN', postal_code: '' });
+  // another city with no commas: left as is
+  assert.deepEqual(parseUsAddress('100 Main St Franklin TN 37064'),
+    { address_1: '100 Main St Franklin TN 37064', city: 'Nashville', region: 'TN', postal_code: '' });
+});
+test('venuePayload — a whitespace-only address sends no street line', () => {
+  const v = venuePayload({ name: 'V', address: '   ' }, 'Public', AREA);
+  assert.equal(v.venue.address, undefined);
+});
+test('parseUsAddress — caller defaults are used when the string has no city/state', () => {
+  assert.deepEqual(parseUsAddress('1 A St', { city: 'Chattanooga', region: 'TN' }),
+    { address_1: '1 A St', city: 'Chattanooga', region: 'TN', postal_code: '' });
 });
 test('venuePayload — registrants-only sends only a coarse area + generic name, never the real street/name (safety invariant)', () => {
   const v = venuePayload({ name: "Eric & Hilary's House", address: '1115 Delmas Ave Nashville, TN 37216' }, 'Registrants only', AREA);
@@ -168,4 +274,32 @@ test('normText: the did-the-user-change-it signal for the description skip', () 
   assert.equal(normText(structuredContentText(liveSc)), normText('Come eat.\nBring a dish.'));
   assert.equal(normText(''), '');
   assert.equal(normText(null), '');
+});
+
+test('ebEventSnapshot.sold sums ticket_classes quantity_sold (registrant count for cancel/unpublish)', () => {
+  assert.equal(ebEventSnapshot({ ticket_classes: [{ quantity_sold: 3 }, { quantity_sold: 9 }] }).sold, 12);
+  assert.equal(ebEventSnapshot({ status: 'live' }).sold, 0);
+});
+
+// --- structured venue addresses (venues plan, Task 2) ---
+const STRUCT = { name: 'Inglewood Lounge', street: '3914 Gallatin Pike', unit: 'Suite 2', city: 'Nashville', state: 'TN', zip: '37216',
+  address: '3914 Gallatin Pike, Nashville, TN, Nashville, TN 37216' };
+test('venuePayload — public + structured fields: sent as they are, no parsing', () => {
+  const v = venuePayload(STRUCT, 'Public', AREA);
+  assert.deepEqual(v.venue, { name: 'Inglewood Lounge', address: {
+    address_1: '3914 Gallatin Pike', address_2: 'Suite 2', city: 'Nashville', region: 'TN', postal_code: '37216', country: 'US' } });
+});
+test('venuePayload — public + structured, no unit or ZIP: those keys are left out', () => {
+  const v = venuePayload({ name: 'X', street: '100 Main St', unit: '', city: 'Franklin', state: 'TN', zip: '' }, 'Public', AREA);
+  assert.deepEqual(v.venue.address, { address_1: '100 Main St', city: 'Franklin', region: 'TN', country: 'US' });
+});
+test('venuePayload — registrants-only + structured fields: no street, unit, ZIP or name leaks', () => {
+  const v = venuePayload({ ...STRUCT, name: "Eric's House", street: '1115 Delmas Ave' }, 'Registrants only', AREA);
+  assert.deepEqual(v, { venue: { name: 'Address shared upon registration', address: { city: 'Nashville', region: 'TN', country: 'US' } } });
+  const s = JSON.stringify(v);
+  for (const leak of ['Delmas', 'Suite 2', '37216', 'Eric']) assert.ok(!s.includes(leak), leak);
+});
+test('venuePayload — street without city falls back to parsing the legacy Address', () => {
+  const v = venuePayload({ name: 'V', street: '9 Elm St', city: '', address: '100 Main St, Franklin, TN 37064' }, 'Public', AREA);
+  assert.deepEqual(v.venue.address, { address_1: '100 Main St', city: 'Franklin', region: 'TN', postal_code: '37064', country: 'US' });
 });

@@ -7,8 +7,8 @@ magic-link) before writes go live. See `docs/architecture.md` for the *why*.
 
 ## Local development (hot reload, no build step)
 
-The app is buildless — three static files in `web/` (`index.html`, `styles.css`,
-`app.js`). To edit with live reload:
+The app is buildless — static files in `web/` (`index.html`, `styles.css`, and the
+plain scripts listed in `docs/app-map.md`). To edit with live reload:
 
     npx -y live-server web --port=8080 --no-browser
 
@@ -17,7 +17,7 @@ Then open `http://localhost:8080`. Saving any file in `web/` auto-reloads the pa
 `package.json`, no build. (A `.claude/launch.json` config is checked in so the
 in-editor preview can start the same server.)
 
-**Local runs on live data.** There is no mock — `web/app.js` always uses
+**Local runs on live data.** There is no mock — the app always uses
 `CodaSource`, hitting the deployed Worker proxy. The Worker's `ALLOWED_ORIGIN`
 allowlist includes `http://localhost:8080` (and `http://127.0.0.1:8080`) alongside
 the deploy origin, so **reads work from localhost** — the proxy's read endpoints

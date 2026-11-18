@@ -43,3 +43,13 @@ test('mailtoHref: bcc list + subject, null when the link would exceed the safe l
   assert.equal(L.mailtoHref(many, 'x'), null);
   assert.ok(L.MAILTO_MAX >= 1800 && L.MAILTO_MAX <= 2000);
 });
+
+test('mailtoHref: optional body, and a caller-set length limit', () => {
+  assert.equal(L.mailtoHref(['a@x.com'], 'Update: Shabbat', 'Date: a → b\n\nSee you'),
+    'mailto:?bcc=a%40x.com&subject=Update%3A%20Shabbat&body=Date%3A%20a%20%E2%86%92%20b%0D%0A%0D%0ASee%20you');   // CRLF line breaks (RFC 6068)
+  assert.equal(L.mailtoHref([], 'Update: x', 'a\nb'), 'mailto:?subject=Update%3A%20x&body=a%0D%0Ab');   // no emails: no bcc (the over-limit fallback)
+  assert.equal(L.mailtoHref(['a@x.com'], 'x', ''), 'mailto:?bcc=a%40x.com&subject=x');   // empty body: no body param
+  const href = L.mailtoHref(['a@x.com'], 'x', 'y');
+  assert.equal(L.mailtoHref(['a@x.com'], 'x', 'y', href.length), href);       // at the limit: kept
+  assert.equal(L.mailtoHref(['a@x.com'], 'x', 'y', href.length - 1), null);   // past it: null
+});

@@ -3,6 +3,7 @@
  * The rich description goes through Structured Content (event.description was
  * deprecated 2021); publish requires a ticket class + venue/online.
  */
+import '../../web/venue-address.js';   // attaches globalThis.VenueAddress (US state list, address rules)
 
 // Offset (ms) of `tz` at a given instant: format that instant AS the tz, read it
 // back as if UTC, subtract. Intl with timeZone is available in Workers and Node.
@@ -34,10 +35,10 @@ const stripHtml = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g,
 // summary is Eventbrite's short listing blurb. Critically it is OMITTED when we
 // have no staged summary — Eventbrite's read returns summary as null (it's
 // effectively write-only), so sending an empty string would silently WIPE a
-// blurb the organizer set. On create we fall back to a description snippet.
+// blurb the organizer set. No fallback to the internal description, on create
+// either (decision 7): a create with no staged summary simply sends none.
 export function eventToEventbritePayload(ev, tz, opts = {}) {
-  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140))
-    || (opts.isCreate ? stripHtml(ev.description).slice(0, 140) : '');
+  const summary = (ev.publicSummary && String(ev.publicSummary).slice(0, 140)) || '';
   const event = {
     'name': { html: ev.title || '' },
     'start': { timezone: tz, utc: zonedToUtcISO(ev.date, ev.start, tz) },
@@ -86,7 +87,8 @@ export function structuredContentBody(html, versionToWrite) {
   };
 }
 
-// Venue body. Public → the real name + street address. Registrants-only → a
+// Venue body. Public → the real name + street address (the structured Street/Unit/
+// City/State/ZIP when Street and City are set, else parsed from the legacy Address). Registrants-only → a
 // generic name + a COARSE area (`privateArea`, e.g. "Nashville, TN") — NEVER the
 // real street address and NEVER the (possibly host-identifying) venue name.
 // Eventbrite rejects an addressless venue, and has no hide-address feature, so a
@@ -99,8 +101,140 @@ export function venuePayload(venue, addressVisibility, area) {
     return { venue: { name: 'Address shared upon registration', address: { city, region, country } } };
   }
   const v = { name: venue.name || 'Venue' };
-  if (venue.address) v.address = { address_1: venue.address, city, region, country };
+  const n = globalThis.VenueAddress.normalize(venue);
+  if (n.street && n.city) {
+    // Structured fields (Street + City present): sent as they are, no parsing.
+    v.address = { address_1: n.street };
+    if (n.unit) v.address.address_2 = n.unit;
+    v.address.city = n.city;
+    // A row hand-edited in Coda with Street + City but no State falls back to the
+    // area state (EVENTBRITE_AREA_REGION, TN): EST is a Nashville-only org.
+    v.address.region = n.state || region;
+    if (n.zip) v.address.postal_code = n.zip;
+    v.address.country = country;
+  } else if (venue.address && String(venue.address).trim()) {
+    // Old rows not yet backfilled: parse the one-line Address.
+    // Coda's Address strings already carry city/state (sometimes twice). Send
+    // the street alone as address_1, or Eventbrite shows the city repeated (R22).
+    const p = parseUsAddress(venue.address, { city, region });
+    // Never an empty street line for a non-empty address ("Nashville, TN", "TN 37216"):
+    // fall back to its first non-empty segment.
+    const raw = String(venue.address);
+    const street = p.address_1 || raw.split(',').map(x => x.trim()).find(Boolean) || raw.trim();
+    v.address = { address_1: street, city: p.city, region: p.region, country };
+    if (p.postal_code) v.address.postal_code = p.postal_code;
+  }
   return { venue: v };
+}
+
+const US_STATES = globalThis.VenueAddress.US_STATES;   // one list, shared with the app
+const ZIP = '(\\d{5}(?:-\\d{4})?)';
+const STATE_SEG = new RegExp('^([A-Z]{2})(?:\\s+' + ZIP + ')?$');            // "TN" | "TN 37216"
+const CITY_STATE_SEG = new RegExp('^(.*?\\S)\\s+([A-Z]{2})(?:\\s+' + ZIP + ')?$'); // "Nashville TN 37216"
+const ZIP_SEG = new RegExp('^' + ZIP + '$');
+// A trailing segment that names a unit, not a city ("Building B", "Suite 2").
+const UNIT_SEG = /^(suite|ste|unit|apt|apartment|building|bldg|floor|fl|room|rm|dept|po box|p\.?o\.? box|box|#)(\b|\s|\d|$)/i;
+const CITY_WORDS = /^[A-Za-z][A-Za-z .'-]*$/;
+const STATE_NAMES = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO', connecticut: 'CT',
+  delaware: 'DE', 'district of columbia': 'DC', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID', illinois: 'IL',
+  indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY', louisiana: 'LA', maine: 'ME', maryland: 'MD',
+  massachusetts: 'MA', michigan: 'MI', minnesota: 'MN', mississippi: 'MS', missouri: 'MO', montana: 'MT',
+  nebraska: 'NE', nevada: 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+  'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH', oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA',
+  'puerto rico': 'PR', 'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD', tennessee: 'TN', texas: 'TX',
+  utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', 'west virginia': 'WV', wisconsin: 'WI', wyoming: 'WY',
+};
+// Longest names first, so "West Virginia" wins over "Virginia".
+const STATE_NAME_RE = Object.keys(STATE_NAMES).sort((a, b) => b.length - a.length).map(n => n.replace(/ /g, '\\s+')).join('|');
+const WHOLE_NAME = new RegExp('^(' + STATE_NAME_RE + ')(?:\\s+' + ZIP + ')?$', 'i');            // "Tennessee 37219"
+const TRAILING_NAME = new RegExp('^(.*?\\S)\\s+(' + STATE_NAME_RE + ')(?:\\s+' + ZIP + ')?$', 'i'); // "Nashville Tennessee 37219"
+const stateCode = name => STATE_NAMES[name.toLowerCase().replace(/\s+/g, ' ')];
+const isStateSeg = seg => { const m = STATE_SEG.exec(seg); return !!(m && US_STATES.has(m[1])); };
+// Spelled-out state names → USPS codes, so the parser below only sees codes.
+// A whole segment that names a state ("Tennessee") is the state unless a later
+// segment is one too ("New York, NY": then it's the city). A trailing name after
+// a city ("Nashville Tennessee 37219") becomes "Nashville TN 37219"; in the first
+// segment only after the default city (no-comma "100 Main St Nashville Tennessee").
+function normalizeStateNames(segs, dCity) {
+  const out = segs.slice();
+  for (let i = out.length - 1; i >= 0; i--) {
+    const laterState = out.slice(i + 1).some(isStateSeg);
+    let m = WHOLE_NAME.exec(out[i]);
+    if (m) { if (!laterState) out[i] = stateCode(m[1]) + (m[2] ? ' ' + m[2] : ''); continue; }
+    m = TRAILING_NAME.exec(out[i]);
+    if (m && !laterState && (i >= 1 || m[1].toLowerCase().endsWith(' ' + dCity.toLowerCase())))
+      out[i] = m[1] + ' ' + stateCode(m[2]) + (m[3] ? ' ' + m[3] : '');
+  }
+  return out;
+}
+
+// Split a free-text US address ("3914 Gallatin Pike, Nashville, TN, Nashville, TN
+// 37216") into Eventbrite's structured parts. Pure. address_1 is the street only:
+// the comma segments before the first "City, ST" pair (with no state: all but a
+// trailing city). The state must be an uppercase USPS code, so street words
+// like "Ct"/"St" aren't mistaken for one. A repeated "City, ST" tail is ignored.
+// `defaults` ({city, region}, default Nashville, TN) fill in only what the string
+// doesn't say, and never replace a city the string does name: with no state, a
+// trailing letters-only segment that isn't a unit ("Building B") is the city.
+// A place name with the default city glued on ("Shelby Bottoms Greenway
+// Nashville, TN") is split. address_1 can be '' ("Nashville, TN"); venuePayload
+// then falls back to the raw text. postal_code is '' when no ZIP follows a state.
+export function parseUsAddress(str, defaults) {
+  const d = defaults || {};
+  const dCity = d.city || 'Nashville', dRegion = d.region || 'TN';
+  // "Shelby Bottoms Greenway Nashville" → ["Shelby Bottoms Greenway", "Nashville"]; null if it doesn't end in the city
+  const peel = seg => {
+    const tail = ' ' + dCity.toLowerCase();
+    return seg.toLowerCase().endsWith(tail) && seg.length > tail.length ? [seg.slice(0, -tail.length).trim(), dCity] : null;
+  };
+  let segs = String(str == null ? '' : str).split(',').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  segs = normalizeStateNames(segs, dCity);
+  // No commas at all: "100 Main St Nashville TN 37216" — split off a trailing
+  // "<default city> <ST> [ZIP]" (another city is left as is).
+  if (segs.length === 1) {
+    const m = new RegExp('^(.*?\\S)\\s+' + dCity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+([A-Z]{2})(?:\\s+' + ZIP + ')?$', 'i').exec(segs[0]);
+    if (m && US_STATES.has(m[2].toUpperCase())) segs = [m[1], dCity, m[2].toUpperCase() + (m[3] ? ' ' + m[3] : '')];
+  }
+  let street = segs.slice(0, 1), city = '', region = '', zip = '';
+  for (let i = 0; i < segs.length; i++) {
+    let m = STATE_SEG.exec(segs[i]);
+    if (m && US_STATES.has(m[1])) {
+      region = m[1]; zip = m[2] || '';
+      if (i >= 2) { city = segs[i - 1]; street = segs.slice(0, i - 1); }
+      else if (i === 1) {
+        // "Nashville, TN" (no street) vs "1115 Delmas Ave Nashville, TN" (no comma
+        // before the city): a leading digit means it's a street. A place name may
+        // carry the city on its end ("Shelby Bottoms Greenway Nashville").
+        const pl = peel(segs[0]);
+        if (pl) { street = [pl[0]]; city = pl[1]; }
+        else if (/^\d/.test(segs[0])) street = segs.slice(0, 1);
+        else { city = segs[0]; street = []; }
+      } else street = [];
+    } else if (i >= 1 && (m = CITY_STATE_SEG.exec(segs[i])) && US_STATES.has(m[2])) {
+      city = m[1]; region = m[2]; zip = m[3] || ''; street = segs.slice(0, i);
+    } else continue;
+    // A ZIP may still follow in a later segment (a repeated tail or a bare ZIP).
+    for (let j = i + 1; j < segs.length && !zip; j++) {
+      const z = /(?:^|\s)(\d{5}(?:-\d{4})?)$/.exec(segs[j]);
+      if (z && (ZIP_SEG.test(segs[j]) || STATE_SEG.test(segs[j]) || CITY_STATE_SEG.test(segs[j]))) zip = z[1];
+    }
+    break;
+  }
+  if (!region && segs.length >= 2) {
+    // No state: a trailing city-looking segment is the city, the rest the street.
+    const last = segs[segs.length - 1];
+    if (CITY_WORDS.test(last) && !UNIT_SEG.test(last)) { city = last; street = segs.slice(0, -1); }
+    else street = segs;
+  }
+  let address_1 = street.join(', ');
+  if (!city) {
+    city = dCity;
+    // "1115 Delmas Ave Nashville" — drop the default city glued onto the street.
+    const tail = ' ' + dCity.toLowerCase();
+    if (address_1.toLowerCase().endsWith(tail) && address_1.length > tail.length) address_1 = address_1.slice(0, -tail.length).trim();
+  }
+  return { address_1, city, region: region || dRegion, postal_code: zip };
 }
 
 export function eventbriteWebUrl(eventId) {

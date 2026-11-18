@@ -2,7 +2,7 @@ name: Deploy proxy to Cloudflare Workers
 on:
   push:
     branches: [main]
-    paths: ['proxy/**', '!proxy/test/**', '.github/workflows/deploy-proxy.yml']
+    paths: ['proxy/**', '!proxy/test/**', '.github/workflows/deploy-proxy.yml', 'web/listing-readiness.js', 'web/venue-address.js']
   workflow_dispatch:
 jobs:
   deploy:

@@ -9,11 +9,16 @@
  *   GET    /rows        list planning rows (values keyed by column name)
  *   POST   /rows        create a row  (body: { rows: [{ cells: [...] }] })
  *   PUT    /rows/:id    update a row  (body: { row:  { cells: [...] } })
- *   DELETE /rows/:id    delete a row
- *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types)
+ *   DELETE /rows/:id    delete a row (refused while Published?; deletes its Eventbrite draft first)
+ *   GET    /ref/:name   read a reference table (name ∈ programs|people|venues|venue-types); /ref/venues?fresh=1 bypasses + refills the caches
  *   GET    /me          verify Firebase token -> { signedIn, name, canWrite, canApprove }
  *   POST   /notes-doc   push the row's notes-doc button by id (body: { rowId }) — role-gated
+ *   POST   /unpublish/eventbrite  take a listing back to a private draft (body: { rowId }) — refused with registrants
+ *   POST   /cancel/eventbrite     cancel a planning event + tear down its listing (body: { rowId }) — refused with registrants
  *   GET    /roster/:rowId  lead-facing attendee roster (Eventbrite orders ∪ gather claimants) — role-gated; ?fresh=1 bypasses KV
+ *   GET    /venues/:rowId  one venue's structured address for the edit form — role-gated (canWrite)
+ *   POST   /venues         add a venue (body: {name, typeId, street, unit, city, state, zip}) -> {id, requestId} — role-gated
+ *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} | {requestId:null, unchanged:true} (same address: no write) — role-gated
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -30,14 +35,19 @@ import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
 } from './eventbrite.js';
-import { verifyFirebaseIdToken, verifyFirebaseToken } from './auth.js';
-import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS } from './coda-columns.js';   // stable column ids
+import { verifyFirebaseIdToken, verifyFirebaseToken, authErrorStatus } from './auth.js';
+import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from './coda-columns.js';   // stable column ids
+import { venueFromRow, venueForEditor, createCells as venueCreateCells, updateCells as venueUpdateCells } from './venues.js';
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
+import { mutationResult, rowToListingEvent, pushedValues, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
+import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
+import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
+const ListingRules = globalThis.ListingRules;
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
@@ -91,6 +101,22 @@ async function swrBust(env, key) {
   try { await kv.delete(key); } catch (_) {}
 }
 const ROWS_KV_KEY = 'rows-v1';
+const VENUES_KV_KEY = 'ref-venues-v2';   // /ref/venues projection (venueRefItem); bump on a shape change
+// R19: Eventbrite ids the Worker created but Coda hasn't applied to the row yet
+// (resolveEbIds in publish.js). A KV failure here only loses the backstop.
+async function readEbPending(env, rowId) {
+  const kv = env.CACHE; if (!kv || !rowId) return null;
+  try { return await kv.get(ebPendingKey(rowId), 'json'); } catch (_) { return null; }
+}
+async function writeEbPending(env, rowId, marker) {
+  const kv = env.CACHE; if (!kv || !rowId) return;
+  try { await kv.put(ebPendingKey(rowId), JSON.stringify(marker), { expirationTtl: EB_PENDING_TTL }); } catch (_) {}
+}
+// A Coda row PUT returns 202 {requestId}: the write applies 13–30 s later (F1).
+async function codaRequestId(r) {
+  if (!r || !r.ok) return null;
+  try { const j = await r.clone().json(); return (j && j.requestId) || null; } catch (_) { return null; }
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -110,6 +136,25 @@ export default {
     const parts = url.pathname.split('/').filter(Boolean); // ['rows'] | ['rows', id]
 
     try {
+      // Has Coda applied a queued mutation? The app polls this so a save shows
+      // "Saved" only once the write is really visible. One Coda subrequest.
+      if (parts[0] === 'mutation' && parts[1] && request.method === 'GET') {
+        let id;
+        try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) {
+          // Only a bad/expired token is a 401 (the app signs in again); a People /
+          // Coda / KV failure is a 503 so the app keeps polling instead.
+          const st = authErrorStatus(e);
+          return json({ error: st === 401 ? 'invalid token' : `could not check who you are (${String((e && e.message) || e)})` }, st, cors);
+        }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const r = await fetch(`${base}/mutationStatus/${encodeURIComponent(decodeURIComponent(parts[1]))}`, { headers: auth });
+        let body = null;
+        try { body = await r.json(); } catch (_) {}
+        const out = mutationResult(r.status, body);
+        return json(out.json, out.httpStatus, cors);
+      }
+
       if (parts[0] === 'rows') {
         const rowId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
@@ -126,9 +171,38 @@ export default {
           if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
 
           if (request.method === 'DELETE' && rowId) {
-            if (!id.canApprove) return json({ error: 'delete requires Tribal Council' }, 403, cors);   // hard removal is council-only; leads Cancel instead
+            // Q1 (a): a lead may delete a never-published, non-cancelled event; a
+            // Cancelled row needs council; a Published row must be cancelled first.
+            // With an Eventbrite id, its listing goes first (F7: allowed with no
+            // orders) — on an Eventbrite refusal the row stays.
+            // Worst case: auth + row read + EB GET + EB DELETE + row DELETE + log (~8).
+            const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+            if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+            const V = (await one.json()).values || {};
+            const gate = deleteGate({ published: isPublishedCell(V['Published?']), status: V['Status'] || '' }, id);
+            if (gate) return json({ error: gate.error }, gate.status, cors);
+            const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19: a just-created id may not be on the row yet
+            let ebOutcome = 'none';
+            if (ebId) {
+              if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+              const g = await ebFetch(env, `/events/${ebId}/`);
+              if (ebGone(g)) ebOutcome = 'already gone';
+              else {
+                // Published? can be stale-false: a live listing on Eventbrite blocks too.
+                const live = g.ok && deleteGate({ published: false, status: V['Status'] || '', ebStatus: g.body && g.body.status }, id);
+                if (live) return json({ error: live.error }, live.status, cors);
+                const d = g.ok ? await ebDelete(env, ebId) : g;
+                if (d.ok || d.status === 404) ebOutcome = 'deleted';
+                else {
+                  const msg = (d.body && (d.body.error_description || d.body.error)) || `HTTP ${d.status}`;
+                  await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'delete', ok: false, status: d.status, ebId, message: String(msg) });
+                  return json({ error: `could not delete the Eventbrite listing: ${msg}`, step: 'eventbrite' }, 502, cors);
+                }
+              }
+            }
             const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
-            if (w.ok) await swrBust(env, ROWS_KV_KEY);
+            if (w.ok) { await swrBust(env, ROWS_KV_KEY); if (env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} } }
+            await logPublish(env, base, docId, auth, { rowId: w.ok ? '' : rowId, actorId: id.personId, action: 'delete', ok: w.ok, status: w.status, ebId, message: w.ok ? `event deleted (eb: ${ebOutcome}; row ${rowId})` : `row delete failed (eb: ${ebOutcome})` });
             return pass(w, cors);
           }
 
@@ -187,13 +261,16 @@ export default {
         const refTable = REF[name];
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
         // L1 per-isolate cache over the KV SWR snapshot — ref data changes rarely.
+        // /ref/venues?fresh=1 (the app, once a venue write has applied) skips both
+        // caches, reads Coda and refills them — like /rows?fresh=1.
+        const fresh = name === 'venues' && url.searchParams.get('fresh') === '1';
         const hit = REF_CACHE.get(name);
-        if (hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
+        if (!fresh && hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
         // People is ~1128 rows x ~50 cols — serve the pickers' {id, name, lead}
         // projection straight from the shared slim People snapshot (id-keyed, so
         // this read is rename-proof too). `lead` = write-authorized leadership:
         // one snapshot powers auth, the Leads chip list, and the Volunteers
-        // typeahead. Other ref tables (small) pass through whole via KV SWR.
+        // typeahead. Venues pass through as a projection without addresses; the other ref tables (small) pass through whole via KV SWR.
         let items;
         if (name === 'people') {
           const rows = await peopleRows(base, docId, auth, env, ctx);
@@ -204,15 +281,89 @@ export default {
           }).filter(p => p.name);
         } else {
           try {
-            items = await swrGet(env, ctx, `ref-${name}-v1`, 5 * 60_000, 24 * 3600_000, async () => {   // soft 5min / hard 24h
-              const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth);
+            // Venues are projected (venueRefItem) before caching: the Address column
+            // holds private home addresses and /ref is unauthenticated (R12).
+            const isVenues = name === 'venues';
+            const kvKey = isVenues ? VENUES_KV_KEY : `ref-${name}-v1`;
+            const fetchRef = async () => {
+              // Venues are read by column id (venueRefItem keys by VENUE_COLS).
+              const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth, { byId: isVenues });
               if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
-              return out.items;
-            });
+              return isVenues ? out.items.map(venueRefItem) : out.items;
+            };
+            if (fresh) {
+              items = await fetchRef();
+              if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at: Date.now(), data: items })); } catch (_) {} }
+            } else {
+              items = await swrGet(env, ctx, kvKey, 5 * 60_000, 24 * 3600_000, fetchRef);   // soft 5min / hard 24h
+            }
           } catch (e) { return json({ error: String((e && e.message) || e) }, 502, cors); }
         }
         REF_CACHE.set(name, { items, exp: Date.now() + 5 * 60 * 1000 });
         return json({ items }, 200, cors);
+      }
+      if (parts[0] === 'venues' && parts.length <= 2) {
+        // Venues: the edit form's address read + add a venue + change its address.
+        // Role-gated (canWrite) because the address of a private home is never in the
+        // shared, unauthenticated /ref/venues list. Read and written by column id.
+        // Every write busts the /ref/venues snapshot (VENUES_KV_KEY).
+        const vRowId = parts[1] ? decodeURIComponent(parts[1]) : null;
+        const isGet = request.method === 'GET' && vRowId;
+        const isPost = request.method === 'POST' && !vRowId;
+        const isPut = request.method === 'PUT' && vRowId;
+        if (!isGet && !isPost && !isPut) return json({ error: 'bad venues request' }, 400, cors);
+        if (!isGet && env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
+        let id;
+        try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const venuesUrl = `${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`;
+        // -> {venue} | {venue:null} (no such row) | {failed: Response} (Coda error: not a 404).
+        const readVenue = async () => {
+          const r = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}?useColumnNames=false&valueFormat=simpleWithArrays`, { headers: auth });
+          if (r.ok) return { venue: venueFromRow(await r.json()) };
+          return r.status === 404 ? { venue: null } : { failed: r };
+        };
+        const bustVenues = async () => { await swrBust(env, VENUES_KV_KEY); REF_CACHE.delete('venues'); };
+
+        if (isGet) {
+          const got = await readVenue();
+          if (got.failed) return pass(got.failed, cors);
+          if (!got.venue) return json({ error: 'venue not found' }, 404, cors);
+          return json(venueForEditor(got.venue), 200, cors);
+        }
+        let body;
+        try { body = JSON.parse((await request.text()) || '{}'); }
+        catch (e) { return json({ error: 'bad body' }, 400, cors); }
+
+        if (isPost) {
+          // The duplicate check reads every venue (one read); the type must be a Venue Types row.
+          const [vr, tr] = await Promise.all([
+            readAllRows(venuesUrl, auth, { byId: true }),
+            readAllRows(`${base}/docs/${docId}/tables/${VENUE_TYPES_TABLE}/rows`, auth),
+          ]);
+          if (!vr.ok || !tr.ok) return json({ error: `could not read ${!vr.ok ? 'Venues' : 'Venue Types'} (Coda ${(!vr.ok ? vr : tr).resp.status})` }, 502, cors);
+          const out = venueCreateCells(body, { venues: vr.items.map(venueFromRow), types: tr.items.map(r => ({ id: r.id, name: r.name || '' })) });
+          if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
+          const w = await fetch(venuesUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: out.cells }] }) });
+          if (!w.ok) return pass(w, cors);
+          let j = {}; try { j = await w.json(); } catch (_) {}
+          const newId = (j.addedRowIds || [])[0];
+          if (!newId) return json({ error: 'Coda did not return the new venue id' }, 502, cors);
+          await bustVenues();
+          return json({ id: newId, requestId: j.requestId || null }, 200, cors);
+        }
+
+        // isPut: change the address (and clear both cached Eventbrite venue ids).
+        const got = await readVenue();
+        if (got.failed) return pass(got.failed, cors);
+        const out = venueUpdateCells(body, got.venue);
+        if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
+        if (out.unchanged) return json({ requestId: null, unchanged: true }, 200, cors);   // same address: no write, Eventbrite ids kept
+        const w = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: out.cells } }) });
+        if (!w.ok) return pass(w, cors);
+        await bustVenues();
+        return json({ requestId: await codaRequestId(w) }, 200, cors);
       }
       if (parts[0] === 'references' && request.method === 'GET') {
         // Public reference calendars: read the config table, fetch + parse each
@@ -322,16 +473,63 @@ export default {
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
         const row = await one.json();
         const V = row.values || {};
-        if (String(V['Status'] || '').toLowerCase() !== 'approved') return json({ error: 'event must be Approved before publishing' }, 409, cors);
-        if (String(V['Scheduling'] || 'Exact').toLowerCase() !== 'exact' || !V['Date'] || !V['Start'])
-          return json({ error: 'publish needs an exact date and start time' }, 409, cors);
+        const ev = rowToListingEvent(V);
+        // R19: our own earlier writes (event id, ticket class, push time) may not be
+        // applied to the row yet: use the KV marker where the row is still blank, so
+        // a second push inside Coda's apply window updates instead of duplicating.
+        let pend = await readEbPending(env, rowId);
+        const ids = resolveEbIds(V, pend);
+        ev.eventbriteId = ids.ebId; ev.ticketClassId = ids.tcId;
+        const notePending = async (patch) => { pend = mergeEbPending(pend, patch); await writeEbPending(env, rowId, pend); };
+        const tz = env.EVENTBRITE_TZ || 'America/Chicago';
+        const reject = async (action, status, logMessage, body) => {
+          // Every early rejection lands in the Publish Log (they used to leave no trace).
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ok: false, status, ebId: ev.eventbriteId, message: logMessage });
+          return json(body, status, cors);
+        };
 
+        // Venue record (one EST Venues SRC read, shared with ensureEbVenue below).
+        let venueRow = null, venue = null;
+        if (ev.venueName) {
+          let vr;
+          try { vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth, { byId: true }); }
+          catch (err) {
+            // A thrown fetch/json must still leave a Publish Log row, not a bare 502.
+            const msg = `Could not read Venues (${String((err && err.message) || err)})`;
+            return reject('venue', 502, msg, { error: msg });
+          }
+          if (!vr.ok) {
+            const msg = `Could not read Venues (Coda ${vr.resp && vr.resp.status})`;
+            return reject('venue', 502, msg, { error: msg });
+          }
+          // By column id; venueRow is a venueFromRow venue (structured + legacy address, EB ids).
+          const hit = vr.items.map(venueFromRow).find(v => v.name === String(ev.venueName)) || null;
+          venueRow = hit;
+          venue = hit ? { name: ev.venueName, type: hit.type, hasAddress: globalThis.VenueAddress.hasAddress(hit) }
+                      : { name: ev.venueName, type: '', hasAddress: false };
+        }
+        // R14: a blank Address visibility at a private home is Registrants only for
+        // everything below (readiness, the EB venue, the pushed snapshot).
+        ev.addressVisibility = effectiveAddressVisibility(ev.addressVisibility, venue);
+
+        // Readiness: the same rules the app shows (web/listing-readiness.js).
+        const todayISO = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+        const checks = ListingRules.readiness(ev, { venue, todayISO });
+        const failed = (draftOnly ? checks.add : checks.publish).filter(c => !c.ok);
+        if (failed.length)
+          return reject('readiness', 409, failed.map(c => c.message).join(' · '), { error: failed[0].message, checks: failed });
+
+        // Every row write records Coda's requestId: the response carries the last one
+        // so the app shows Saved only once Coda has applied it (D3).
+        let lastRequestId = null;
+        let ebIdNow = ev.eventbriteId || '';   // set once the event exists on Eventbrite
         const setRow = async (cells) => {
           const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) await swrBust(env, ROWS_KV_KEY);   // publish write-backs must be visible to the next /rows read
+          if (r.ok) { await swrBust(env, ROWS_KV_KEY); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // publish write-backs must be visible to the next /rows read
           return r;
         };
-        const fail = async (action, r) => {
+        const failBody = (extra) => ({ ...extra, requestId: lastRequestId, ...(ebIdNow ? { eventbriteId: ebIdNow } : {}) });
+        const fail = async (action, r, httpStatus = 502) => {
           // Build the most specific message Eventbrite gives us. error_detail carries
           // the per-argument reasons that error_description flattens to an unhelpful
           // "UNKNOWN — Something went wrong"; append it so the log is diagnosable.
@@ -342,33 +540,21 @@ export default {
           msg = String(msg).slice(0, 900);
           await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]);
           await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ok: false, status: r.status, message: msg });
-          return json({ error: msg, step: action }, 502, cors);
+          return json(failBody({ error: msg, step: action }), httpStatus, cors);
         };
-
-        const ev = {
-          title: V['Title'] || '', date: String(V['Date']).slice(0, 10),
-          start: (String(V['Start']).match(/(?:T|^)(\d{2}:\d{2})/) || [])[1] || '',
-          end:   (String(V['End']  || '').match(/(?:T|^)(\d{2}:\d{2})/) || [])[1] || '',
-          capacity: Number(V['Capacity']) || undefined,
-          description: V['Event Description'] || '',
-          publicSummary: V['Public summary'] || '',
-          publicDescription: V['Public description'] || '',
-          addressVisibility: V['Address visibility'] || 'Public',
-          ebId: V['Eventbrite Event ID'] || '', tcId: V['Eventbrite Ticket Class ID'] || '',
-        };
-        const tz = env.EVENTBRITE_TZ || 'America/Chicago';
 
         // Conflict guard: pushing is a blind overwrite of the Eventbrite copy, so
         // if it was edited directly in Eventbrite after our last push (its
-        // `changed` stamp vs our Last EB push at), stop with a 409 the client
-        // turns into an explicit confirm; a `force:true` retry proceeds.
-        if (ev.ebId && !force) {
-          const cur = await ebFetch(env, `/events/${ev.ebId}/`);
-          if (cur.ok && editedSincePush(cur.body && cur.body.changed, V['Last EB push at'])) {
-            return json({
-              error: 'This event was edited directly in Eventbrite after the last push — publishing would overwrite those changes.',
-              conflict: true, ebChanged: cur.body.changed, lastPushAt: V['Last EB push at'] || null,
-            }, 409, cors);
+        // `changed` stamp vs our Last EB push at), stop with a 409 {conflict}; the
+        // app shows a notice on the listing card (D8) and its next push sends
+        // `force:true`, which proceeds.
+        if (ev.eventbriteId && !force) {
+          const cur = await ebFetch(env, `/events/${ev.eventbriteId}/`);
+          if (cur.ok && editedSincePush(cur.body && cur.body.changed, ids.lastPushAt)) {
+            const msg = 'This event was edited directly in Eventbrite after the last push — publishing would overwrite those changes.';
+            return reject('conflict', 409, msg, {
+              error: msg, conflict: true, ebChanged: cur.body.changed, lastPushAt: ids.lastPushAt || null,
+            });
           }
         }
         await setRow([{ column: 'Publish status', value: 'Publishing' }]);
@@ -378,11 +564,14 @@ export default {
         // Publishing with no Error write-back and no log. Wrap the whole path.
         try {
           // 1. create-once (store id immediately so a retry never duplicates)
-          let ebId = ev.ebId;
-          if (!ebId) {
+          const isCreate = !ev.eventbriteId;
+          let ebId = ev.eventbriteId;
+          if (isCreate) {
             const r = await ebCreateEvent(env, eventToEventbritePayload(ev, tz, { isCreate: true }));
             if (!r.ok) return fail('create', r);
             ebId = r.body.id;
+            ebIdNow = ebId;
+            await notePending({ ebId });   // R19: before the (lagging) row write, so a retry finds it
             // Verify the id write-back: if Coda fails to persist the id, a retry
             // would create a SECOND Eventbrite event. Surface + stop instead.
             const w = await setRow([{ column: 'Eventbrite Event ID', value: ebId }, { column: 'Eventbrite URL', value: eventbriteWebUrl(ebId) }]);
@@ -390,7 +579,7 @@ export default {
             if (!w.ok) {
               const msg = `Created Eventbrite event ${ebId} but could not save its id to the planning row — do NOT retry (would duplicate). Set "Eventbrite Event ID" = ${ebId} manually, then retry.`;
               try { await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]); } catch (_) {}
-              return json({ error: msg, eventbriteId: ebId }, 502, cors);
+              return json(failBody({ error: msg }), 502, cors);
             }
           } else {
             const r = await ebUpdateEvent(env, ebId, eventToEventbritePayload(ev, tz));
@@ -398,44 +587,63 @@ export default {
           }
 
           // 2. venue (named -> resolve/create + attach; empty -> online on CREATE
-          // only, untouched on update — see ensureEbVenue)
-          const venueRes = await ensureEbVenue(env, base, docId, auth, V, ev.addressVisibility, ebId, !ev.ebId);
-          if (venueRes && venueRes.error) return fail('venue', venueRes.error);
+          // only, untouched on update; never a silent online fallback — see ensureEbVenue)
+          const venueRes = await ensureEbVenue(env, base, docId, auth, ev.venueName, venueRow, ev.addressVisibility, ebId, isCreate);
+          if (venueRes && venueRes.error) return fail('venue', venueRes.error, venueRes.error.status === 409 ? 409 : 502);
 
-          // 3. ticket class. Only ever CREATE one for a brand-new event (it can't
-          // publish without one). On an UPDATE we touch ticketing only if we own
-          // the class (stored tcId) AND have a staged capacity to change —
-          // otherwise leave Eventbrite's ticket classes alone. This avoids both
-          // duplicating tickets on an event whose classes we don't track and the
-          // "require a quantity_total" error when updating with no capacity.
-          if (!ev.ebId) {
+          // 3. ticket class (ticketPlan, F12). A new event gets a General Admission
+          // class. On an UPDATE with a stored class id we update its quantity from
+          // Capacity. With NO stored id (an earlier push failed after creating the
+          // event), list the event's classes: 0 -> create one, exactly 1 -> adopt
+          // it (store its id, then set its quantity), more than 1 -> leave them
+          // alone (managed in Eventbrite) and say so in the response + log.
+          let ticketClassId = ev.ticketClassId;
+          let ticketNote = '';
+          let classes = null;
+          if (!isCreate && !ev.ticketClassId) {
+            const lr = await ebListTickets(env, ebId);
+            if (!lr.ok) return fail('ticket', lr);
+            classes = ((lr.body && lr.body.ticket_classes) || []).map(c => ({ id: c.id }));
+          }
+          const tp = ticketPlan({ isCreate, storedTcId: ev.ticketClassId, classes, capacity: ev.capacity });
+          if (tp.action === 'create') {
             const r = await ebCreateTicket(env, ebId, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
-            await setRow([{ column: 'Eventbrite Ticket Class ID', value: r.body.id }]);
-          } else if (ev.tcId && ev.capacity) {
-            const r = await ebUpdateTicket(env, ebId, ev.tcId, ticketClassPayload(ev));
+            ticketClassId = r.body.id;
+            await notePending({ ebId, tcId: ticketClassId });
+            await setRow([{ column: 'Eventbrite Ticket Class ID', value: ticketClassId }]);
+          } else if (tp.action === 'adopt') {
+            ticketClassId = tp.id;
+            await notePending({ ebId, tcId: ticketClassId });
+            await setRow([{ column: 'Eventbrite Ticket Class ID', value: ticketClassId }]);
+            if (Number(ev.capacity) > 0) {
+              // Quantity only: an adopted class may have been made by hand in Eventbrite
+              // (name, price), so don't rename it or reset it to free.
+              const r = await ebUpdateTicket(env, ebId, ticketClassId, { ticket_class: { quantity_total: Number(ev.capacity) } });
+              if (!r.ok) return fail('ticket', r);
+            }
+          } else if (tp.action === 'update') {
+            const r = await ebUpdateTicket(env, ebId, tp.id, ticketClassPayload(ev));
             if (!r.ok) return fail('ticket', r);
+          } else if (tp.action === 'leave') {
+            ticketNote = `This listing has ${classes.length} ticket types, managed in Eventbrite; tickets were left unchanged.`;
           }
 
           // 4. structured content (description body) — read current version, write current+1.
           // SC write shape ({publish:true}+modules, version in path) verified against the live API in Task 6.
           // page_version_number comes back as a STRING; nextScVersion coerces it (see helper).
-          // On UPDATE, the description is ONLY the staged Public description — no
-          // fallback to the internal Event Description, which would clobber the
-          // live public listing. (Create still falls back so a new event gets a
-          // body.) Combined with the skip below, an empty staged description on
-          // an update leaves the live description — and its rich formatting —
-          // untouched.
-          const scText = ev.publicDescription || (ev.ebId ? '' : (V['Event Description'] || ''));
+          // The description is ONLY the Public description, never the internal
+          // Event Description (decision 7). descriptionToWrite returns null when it
+          // is blank or unchanged since the last push (the pushed snapshot), so the
+          // live description — and rich formatting added in Eventbrite — stays put.
+          const scText = descriptionToWrite(ev, ev.pushed);
           const writeSc = async () => {
+            if (scText == null) return { ver: null, res: { ok: true, skipped: true } };
             const sc = await ebGetStructuredContent(env, ebId);
-            // Our writes are PLAIN text (a single text module), but the listing may
-            // carry rich formatting (bold, links, lists) added in Eventbrite. Never
-            // flatten it as a side effect: skip the rewrite when nothing is staged,
-            // or when the staged text matches the live text content (the publish tab
-            // seeds the field from that same stripped copy, so text-equality means
-            // "the user didn't touch the description").
-            if (!normText(scText) || normText(structuredContentText(sc.body)) === normText(scText))
+            // Our writes are PLAIN text (a single text module). Events pushed before
+            // the snapshot existed have no pushed value to compare with, so also skip
+            // when the text matches the live text content (don't flatten formatting).
+            if (normText(structuredContentText(sc.body)) === normText(scText))
               return { ver: null, res: { ok: true, skipped: true } };
             const ver = nextScVersion(sc.body);
             const { _version, ...scBody } = structuredContentBody(scText, ver);
@@ -457,20 +665,25 @@ export default {
           }
 
           // 6. success write-back + log
+          const pushedJson = pushedValues(ev, { ticketClassId });
+          const lastPushAt = new Date().toISOString();
           const okCells = [
             { column: 'Publish status', value: draftOnly ? 'Draft' : 'Published' },
             { column: 'Last publish error', value: '' },
-            { column: PLANNING_COLS.lastEbPushAt, value: new Date().toISOString() },   // conflict-guard baseline (drafts too)
+            { column: PLANNING_COLS.lastEbPushAt, value: lastPushAt },   // conflict-guard baseline (drafts too)
+            { column: PLANNING_COLS.lastEbPushedValues, value: pushedJson },   // what we just sent (sync status)
           ];
           if (!draftOnly) okCells.push({ column: 'Published?', value: true }, { column: 'Last published at', value: new Date().toISOString() });
           await setRow(okCells);
-          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: draftOnly ? 'update' : 'publish', ok: true, status: pubStatus, ebId, ebUrl: eventbriteWebUrl(ebId), message: draftOnly ? 'draft synced (not published)' : '' });
-          return json({ ok: true, eventbriteId: ebId, url: eventbriteWebUrl(ebId), draft: draftOnly }, 200, cors);
+          await notePending({ ebId, tcId: ticketClassId, lastPushAt });   // the conflict guard's baseline until the row applies
+          const okMsg = [draftOnly ? 'draft synced (not published)' : '', ticketNote].filter(Boolean).join(' · ');
+          await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: draftOnly ? 'update' : 'publish', ok: true, status: pubStatus, ebId, ebUrl: eventbriteWebUrl(ebId), message: okMsg });
+          return json(publishSuccessBody({ ebId, url: eventbriteWebUrl(ebId), draftOnly, ticketNote, pushedJson, lastPushAt, requestId: lastRequestId }), 200, cors);
         } catch (err) {
           const msg = String((err && err.message) || err);
           try { await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]); } catch (_) {}
           await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'exception', ok: false, status: 0, message: msg });
-          return json({ error: msg, step: 'exception' }, 502, cors);
+          return json(failBody({ error: msg, step: 'exception' }), 502, cors);
         }
       }
       if (parts[0] === 'eventbrite' && parts[1] === 'status' && request.method === 'GET') {
@@ -486,7 +699,8 @@ export default {
         const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
         const V = (await one.json()).values || {};
-        const ebId = V['Eventbrite Event ID'] || '';
+        const ids = resolveEbIds(V, await readEbPending(env, rowId));   // R19
+        const ebId = ids.ebId;
         if (!ebId) return json({ linked: false }, 200, cors);
         const [evr, scr] = await Promise.all([
           ebFetch(env, `/events/${ebId}/?expand=venue,ticket_classes`),
@@ -495,13 +709,43 @@ export default {
         if (!evr.ok) return json({ error: `eventbrite read failed (${evr.status})`, linked: true }, 502, cors);
         const live = ebEventSnapshot(evr.body);
         live.descriptionText = scr.ok ? structuredContentText(scr.body) : '';
-        const lastPushAt = V['Last EB push at'] || null;
+        const lastPushAt = ids.lastPushAt || null;
         return json({ linked: true, live, lastPushAt, editedSincePush: editedSincePush(live.changed, lastPushAt) }, 200, cors);
       }
-      if (parts[0] === 'cancel' && parts[1] === 'eventbrite' && request.method === 'POST') {
-        // Cancel a planning event: tear down its Eventbrite listing (unpublish, or
-        // cancel if it has registrants) then set Status=Cancelled. Same write gate
-        // + Publish Log posture as /publish/eventbrite. Works with or without an EB id.
+      if (parts[0] === 'eventbrite' && parts[1] === 'preview' && request.method === 'GET') {
+        // Draft preview: Eventbrite 404s draft pages to non-organizers, so the
+        // app renders the draft's own data, fetched here with the EST token.
+        if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+        let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
+        catch (e) { return json({ error: 'invalid token' }, 401, cors); }
+        if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
+        const rowId = url.searchParams.get('rowId');
+        if (!rowId) return json({ error: 'rowId required' }, 400, cors);
+        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+        const V = (await one.json()).values || {};
+        const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19
+        if (!ebId) return json({ linked: false }, 404, cors);
+        const [evr, dr] = await Promise.all([
+          ebFetch(env, `/events/${ebId}/?expand=venue,ticket_classes,logo`),
+          ebFetch(env, `/events/${ebId}/description/`),
+        ]);
+        if (!evr.ok || !dr.ok) return json({ error: `eventbrite read failed (${!evr.ok ? evr.status : dr.status})` }, 502, cors);
+        return json(previewModel(evr.body, dr.body, V['Address visibility']), 200, cors);
+      }
+      if ((parts[0] === 'cancel' || parts[0] === 'unpublish') && parts[1] === 'eventbrite' && request.method === 'POST') {
+        // Cancel / Unpublish against Eventbrite's order rules (F7): Eventbrite
+        // refuses unpublish, cancel and delete for any event with orders, so both
+        // read the registrant count (ebEventSnapshot(...).sold) first and, when
+        // anyone registered, change nothing and return 409 needsEventbriteCancel.
+        //   cancel:    no orders -> live/started: unpublish; draft: DELETE the draft;
+        //              then Status=Cancelled, Published?=false, Publish status=Cancelled.
+        //              Already canceled/deleted on Eventbrite counts as done (council
+        //              cancelled it there). Works with or without an EB id.
+        //   unpublish: no orders -> unpublish; Publish status=Draft, Published?=false.
+        // Same write gate (canWrite) + Publish Log posture as /publish/eventbrite.
+        // Worst case: auth + row read + EB GET + EB action + row PUT + log (~8).
+        const isCancel = parts[0] === 'cancel';
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
         catch (e) { return json({ error: 'invalid token' }, 401, cors); }
@@ -515,33 +759,83 @@ export default {
         const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
         const V = (await one.json()).values || {};
+        let lastRequestId = null;   // Coda's id for the row write: the app waits on it (D3)
         const setRow = async (cells) => {
           const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) await swrBust(env, ROWS_KV_KEY);   // cancel write-backs must be visible to the next /rows read
+          if (r.ok) { await swrBust(env, ROWS_KV_KEY); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // write-backs must be visible to the next /rows read
           return r;
         };
-        const ebId = V['Eventbrite Event ID'] || '';
+        const action = isCancel ? 'cancel' : 'unpublish';
+        const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19: a just-created id may not be on the row yet
+        const log = (rec) => logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ebId, ...rec });
+        const ebMsg = (r) => String((r.body && (r.body.error_description || r.body.error)) || `HTTP ${r.status}`);
+        const ebFail = async (r, what) => {
+          const msg = ebMsg(r);
+          await log({ ok: false, status: r.status, message: `${what}: ${msg}` });
+          return json({ error: `${what}: ${msg}`, step: 'eventbrite' }, 502, cors);
+        };
+        const blocked = async (n) => {
+          const error = isCancel
+            ? 'Eventbrite only lets someone with East Side Tribe\'s Eventbrite login cancel an event people have registered for (it refunds and emails them). Ask council to cancel it on Eventbrite, then click Cancel event here again.'
+            : 'People have registered, so Eventbrite won\'t let this listing be unpublished. Cancel the event instead.';
+          await log({ ok: false, status: 409, message: `refused: ${n} registrant(s) on Eventbrite` });
+          return json({ needsEventbriteCancel: true, registrants: n, error }, 409, cors);
+        };
 
-        let ebOutcome = 'none', pubStatus = V['Publish status'] || '';
-        if (ebId && env.EVENTBRITE_TOKEN) {
-          let r = await ebUnpublish(env, ebId);              // clean/silent path
-          if (r.ok) { ebOutcome = 'unpublished'; pubStatus = 'Unpublished'; }
+        if (!isCancel) {
+          if (!ebId) return json({ error: 'This event is not on Eventbrite' }, 409, cors);
+          if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+          const g = await ebFetch(env, `/events/${ebId}/?expand=ticket_classes`);
+          if (ebGone(g)) return json({ error: 'This listing was cancelled on Eventbrite.' }, 409, cors);
+          if (!g.ok) return ebFail(g, 'could not read the Eventbrite listing');
+          const snap = ebEventSnapshot(g.body);
+          if (snap.sold > 0) return blocked(snap.sold);
+          if (snap.status !== 'draft') {   // already a private draft: just sync the row
+            const u = await ebUnpublish(env, ebId);
+            if (!u.ok) return ebFail(u, 'could not unpublish the Eventbrite listing');
+          }
+          const w = await setRow([
+            { column: 'Publish status', value: 'Draft' },
+            { column: PLANNING_COLS.published, value: false },   // gather hides it (F17)
+            { column: 'Last publish error', value: '' },
+            { column: 'Edited by', value: [id.personId] },
+          ]);
+          if (!w.ok) return pass(w, cors);
+          await log({ ok: true, status: 200, ebUrl: eventbriteWebUrl(ebId), message: 'listing unpublished (back to private draft)' });
+          return json({ ok: true, publishStatus: 'Draft', requestId: lastRequestId }, 200, cors);
+        }
+
+        let ebOutcome = 'none';
+        if (ebId) {
+          if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
+          const g = await ebFetch(env, `/events/${ebId}/?expand=ticket_classes`);
+          if (ebGone(g)) ebOutcome = 'already gone';
+          else if (!g.ok) return ebFail(g, 'could not read the Eventbrite listing');
           else {
-            const c = await ebCancel(env, ebId);            // has registrants → cancel + notify
-            if (c.ok) { ebOutcome = 'cancelled'; pubStatus = 'Cancelled'; }
-            else {
-              const msg = (c.body && (c.body.error_description || c.body.error)) || `HTTP ${c.status}`;
-              await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'cancel', ok: false, status: c.status, ebId, message: String(msg) });
-              return json({ error: `could not take down the Eventbrite listing: ${msg}`, step: 'eventbrite' }, 502, cors);
-            }
+            const snap = ebEventSnapshot(g.body);
+            const plan = cancelPlan({ status: snap.status, sold: snap.sold });
+            if (plan.action === 'blocked') return blocked(plan.registrants);
+            if (plan.action === 'unpublish') {
+              const u = await ebUnpublish(env, ebId);
+              if (!u.ok) return ebFail(u, 'could not take down the Eventbrite listing');
+              ebOutcome = 'unpublished';
+            } else if (plan.action === 'delete') {
+              const d = await ebDelete(env, ebId);
+              if (!d.ok && d.status !== 404) return ebFail(d, 'could not delete the Eventbrite draft');
+              ebOutcome = 'draft deleted';
+            } else ebOutcome = `left as ${snap.status || 'is'}`;
           }
         }
-        const cells = [{ column: 'Status', value: 'Cancelled' }, { column: 'Edited by', value: [id.personId] }];
-        if (ebId) cells.push({ column: 'Publish status', value: pubStatus });
+        const cells = [
+          { column: PLANNING_COLS.status, value: 'Cancelled' },
+          { column: PLANNING_COLS.published, value: false },
+          { column: 'Edited by', value: [id.personId] },
+        ];
+        if (ebId) cells.push({ column: 'Publish status', value: 'Cancelled' });
         const w = await setRow(cells);
         if (!w.ok) return pass(w, cors);
-        await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: 'cancel', ok: true, status: 200, ebId, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
-        return json({ ok: true, publishStatus: ebId ? pubStatus : '', eventbrite: ebOutcome }, 200, cors);
+        await log({ ok: true, status: 200, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
+        return json({ ok: true, publishStatus: ebId ? 'Cancelled' : '', eventbrite: ebOutcome, requestId: lastRequestId }, 200, cors);
       }
       if (parts[0] === 'notes-doc' && request.method === 'POST') {
         // Provision a Planning-Notes Google Doc by pushing the row's notes-doc
@@ -982,7 +1276,9 @@ async function resolvePerson(email, base, docId, auth, env, ctx) {
 async function authIdentity(request, env, base, docId, auth, ctx) {
   const m = (request.headers.get('Authorization') || '').match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
-  const email = await verifyFirebaseIdToken(m[1], env.FIREBASE_PROJECT_ID);
+  let email;
+  try { email = await verifyFirebaseIdToken(m[1], env.FIREBASE_PROJECT_ID); }
+  catch (e) { if (!(e && e.transient)) { try { e.authError = true; } catch (_) {} } throw e; }   // a bad/expired token (authErrorStatus -> 401)
   const person = await resolvePerson(email, base, docId, auth, env, ctx);
   if (!person) return { matched: false, email, canWrite: false, canApprove: false };
   return { matched: true, ...person };
@@ -1204,12 +1500,13 @@ const ebCreateEvent = (env, payload) => ebFetch(env, `/organizations/${env.EVENT
 const ebUpdateEvent = (env, id, payload) => ebFetch(env, `/events/${id}/`, 'POST', payload);
 const ebCreateVenue = (env, payload) => ebFetch(env, `/organizations/${env.EVENTBRITE_ORG_ID}/venues/`, 'POST', payload);
 const ebCreateTicket = (env, id, payload) => ebFetch(env, `/events/${id}/ticket_classes/`, 'POST', payload);
+const ebListTickets = (env, id) => ebFetch(env, `/events/${id}/ticket_classes/`, 'GET');
 const ebUpdateTicket = (env, id, tcId, payload) => ebFetch(env, `/events/${id}/ticket_classes/${tcId}/`, 'POST', payload);
 const ebGetStructuredContent = (env, id) => ebFetch(env, `/events/${id}/structured_content/`, 'GET');
 const ebSetStructuredContent = (env, id, version, body) => ebFetch(env, `/events/${id}/structured_content/${version}/`, 'POST', body);
 const ebPublish = (env, id) => ebFetch(env, `/events/${id}/publish/`, 'POST');
 const ebUnpublish = (env, id) => ebFetch(env, `/events/${id}/unpublish/`, 'POST');   // revert to draft (free events, no orders)
-const ebCancel = (env, id) => ebFetch(env, `/events/${id}/cancel/`, 'POST');          // cancel a live event + notify registrants
+const ebDelete = (env, id) => ebFetch(env, `/events/${id}/`, 'DELETE');               // delete an event (no orders only, F7)
 
 // Append one row to the Publish Log table. Logging must NEVER throw — a failed
 // log write can't be allowed to break (or falsely fail) the publish path.
@@ -1234,18 +1531,20 @@ async function logPublish(env, base, docId, auth, rec) {
 }
 
 // Resolve the planning row's venue to an Eventbrite venue and attach it to the
-// event. `V['Venue']` is an array of venue display-name strings (or empty).
+// event. `name` is the venue display name ('' when none); `found` is its EST
+// Venues SRC row (or null), read once by the publish route for readiness.
 //   - empty -> mark the event online, return null (or {error:r} if that update fails)
-//   - named -> look the venue up in EST Venues SRC; reuse its cached Eventbrite
+//   - public with no street address -> {error} 409 'This venue has no street
+//     address' (readiness blocks this first; never a silent online fallback)
+//   - named -> reuse the venue's cached Eventbrite
 //     Venue ID if present, else create the venue on Eventbrite (passing
 //     addressVisibility through so registrants-only never leaks an address) and
 //     cache the id back into the row (non-fatal if that write fails). Then set
 //     venue_id on the event.
 // Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
 const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
-async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId, isCreate) {
-  const names = Array.isArray(V['Venue']) ? V['Venue'] : (V['Venue'] ? [V['Venue']] : []);
-  const name = names[0];
+const VENUE_TYPES_TABLE = 'grid-idEVRQX7SL';  // Venue Types (the Venue Type lookup's table)
+async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibility, ebId, isCreate) {
   if (!name) {
     // No staged venue: only a brand-new event gets marked online (it must have
     // SOME location posture to publish). On an update, leave the Eventbrite
@@ -1260,27 +1559,24 @@ async function ensureEbVenue(env, base, docId, auth, V, addressVisibility, ebId,
   // venue with a generic name + coarse area (Eventbrite requires *an* address and
   // has no hide-address feature), cached separately so the two never mix.
   const registrantsOnly = addressVisibility === 'Registrants only';
-  const cacheCol = registrantsOnly ? 'Eventbrite Private Venue ID' : 'Eventbrite Venue ID';
-  const out = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth);
-  const found = out.ok ? out.items.find(row => String((row.values || {})['Venue Name'] || '') === String(name)) : null;
-  const realAddress = (found && found.values['Address']) || '';
+  const cacheKey = registrantsOnly ? 'ebPrivateVenueId' : 'ebVenueId';
+  const cacheCol = VENUE_COLS[cacheKey];
+  // `found` is a venueFromRow venue: structured Street/Unit/City/State/ZIP, else the legacy Address.
   // A public venue with no street address on file can't be created (Eventbrite
-  // requires one) → on CREATE fall back to online rather than 400; on update,
-  // leave the Eventbrite-side venue alone. Registrants-only always has a coarse
-  // area, so it's fine.
-  if (!registrantsOnly && !realAddress) {
-    if (!isCreate) return null;
-    const r = await ebUpdateEvent(env, ebId, { event: { online_event: true } });
-    return r.ok ? null : { error: r };
-  }
-  let venueId = found && (found.values || {})[cacheCol];
+  // requires one). Fail with a message the user can act on — never quietly turn
+  // the event into an online one (D7/F13). Registrants-only always has a coarse
+  // area, so it's fine without one.
+  if (!registrantsOnly && !(found && globalThis.VenueAddress.hasAddress(found)))
+    return { error: { status: 409, body: { error_description: 'This venue has no street address' } } };
+  let venueId = found && found[cacheKey];
   if (!venueId) {
     // Structured coarse area (Eventbrite requires city + country). EST is Nashville
     // metro; the real street is only ever sent for PUBLIC events via address_1.
     const area = { city: env.EVENTBRITE_AREA_CITY || 'Nashville', region: env.EVENTBRITE_AREA_REGION || 'TN', country: env.EVENTBRITE_COUNTRY || 'US' };
-    // venuePayload enforces the safety split: registrants-only ignores realAddress
+    // venuePayload enforces the safety split: registrants-only ignores the address
     // and emits the generic name + coarse area; public uses the real address.
-    const r = await ebCreateVenue(env, venuePayload({ name, address: realAddress }, addressVisibility, area));
+    const a = found || {};
+    const r = await ebCreateVenue(env, venuePayload({ name, street: a.street, unit: a.unit, city: a.city, state: a.state, zip: a.zip, address: a.address }, addressVisibility, area));
     if (!r.ok) return { error: r };
     venueId = r.body.id;
     if (found) {
