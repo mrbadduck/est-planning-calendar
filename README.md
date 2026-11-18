@@ -16,7 +16,7 @@ non-negotiable decisions, current status, and gotchas.
 
 | Path | What it is | Deploys to |
 |------|-----------|-----------|
-| `web/` | The planning calendar app — buildless static files (`index.html`, `styles.css`, `app.js`) | Netlify → `plan.eastsidetribe.org` |
+| `web/` | The planning calendar app — buildless static files (`index.html`, `styles.css`, and plain `<script>` files; see `docs/app-map.md` for the file map) | Netlify → `plan.eastsidetribe.org` |
 | `gather/` | Member sign-up app (potluck / volunteer slots) — buildless, mobile-first | Netlify → `gather.eastsidetribe.org` |
 | `shared/` | Browser code both apps use (`auth-firebase.js`); committed copies live in `web/` and `gather/` | (mirrored into each site) |
 | `proxy/` | Cloudflare Worker: holds the Superhuman Docs + Eventbrite tokens; reads, role-gated writes, Eventbrite publish | Cloudflare Workers |
