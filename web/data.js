@@ -1,6 +1,6 @@
 /* data.js — reference lists (programs, people, venues, refs), the local cache, the
    Coda row <-> event seam (planningRowToEvent / eventToCodaCells) and CodaSource (DB).
-   Owns: PROGRAMS, PROG, REF_LAYERS, REF, rebuildRefs, _live, progColor, cacheGet, loadPrograms, loadPeople, loadVenues, PEOPLE_LIST, LEADS_LIST, peopleById, peopleIdByName, VENUES, VENUE_TYPES, PROXY_BASE, mapRelations, planningRowToEvent, eventToCodaCells, venueTypeIdByName, DB
+   Owns: PROGRAMS, PROG, REF_LAYERS, REF, rebuildRefs, _live, progColor, cacheGet, loadPrograms, loadPeople, loadVenues, refreshVenues, PEOPLE_LIST, LEADS_LIST, peopleById, peopleIdByName, VENUES, VENUE_TYPES, PROXY_BASE, mapRelations, planningRowToEvent, eventToCodaCells, venueTypeIdByName, DB
    Reads: state.layers, state.idToken (state.js; only when called, not at load)
    Writes: state.layers (rebuildRefs)
    Loaded after: editor-head.js (nothing needed at load) */
@@ -10,7 +10,7 @@
    Everything below `DataSource` treats events in one normalized shape:
      { id, source, program, title, leads:[], date:'YYYY-MM-DD',
        start, end, allDay, location, status, description,
-       createdBy, editedBy, readOnly, eventbriteUrl, gcalId }
+       createdBy, editedBy, approvedBy, approvedAt, lastPublishedAt, lastEbPushAt, readOnly, eventbriteUrl, gcalId }
    The single data source is CodaSource: it fetches Coda list-rows through the
    Worker proxy and maps them with planningRowToEvent / eventToCodaCells.
    ========================================================================= */
@@ -102,6 +102,26 @@ let VENUE_TYPES = [];     // {id,name}
 let venueIdByName = {}, venueTypeIdByName = {};
 function setVenues(list){ VENUES=list; venueIdByName=Object.fromEntries(VENUES.map(v=>[v.name,v.id])); _live.venues=true; }
 function setVenueTypes(list){ VENUE_TYPES=list; venueTypeIdByName=Object.fromEntries(VENUE_TYPES.map(t=>[t.name,t.id])); _live.venueTypes=true; }
+// /ref/venues items → the app's {id,name,type,closed,hasAddress} list.
+const venueRefList = items => (items || []).filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
+  type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true),
+  hasAddress: x.hasAddress != null ? !!x.hasAddress : !!(x.values && x.values['Address']) }));   // the Worker sends whether a venue has an address, never the address (R12); an older /ref/venues (or cache) still sends Address
+// Venues added or changed in this session (venue-form.js): kept through a fresh read that doesn't show them yet.
+const _venuesLocal = new Set();
+// After a venue write has applied: re-read /ref/venues past the Worker's caches and
+// replace VENUES (VenueAddress.mergeVenues keeps this session's entries the fresh list
+// lacks). Fire and forget; a failed read keeps the local list.
+async function refreshVenues(id){
+  if(id) _venuesLocal.add(id);
+  if(!PROXY_BASE) return;
+  try{
+    const r=await fetch(`${PROXY_BASE}/ref/venues?fresh=1`);
+    if(!r.ok) return;
+    const fresh=venueRefList((await r.json()).items);
+    if(!fresh.length) return;
+    setVenues(VenueAddress.mergeVenues(fresh, VENUES, _venuesLocal)); cacheSet('venues', VENUES);
+  }catch(err){ console.warn('venues refresh failed:', err); }
+}
 async function loadVenues(){
   const cv=cacheGet('venues'), ct=cacheGet('venue-types');               // instant from cache
   if(cv && cv.length) setVenues(cv);
@@ -110,10 +130,7 @@ async function loadVenues(){
   try{
     const [rv, rt] = await Promise.all([ fetch(`${PROXY_BASE}/ref/venues`), fetch(`${PROXY_BASE}/ref/venue-types`) ]);
     if(rv && rv.ok){
-      const items = (await rv.json()).items || [];
-      const list = items.filter(x=>x && x.name).map(x=>({ id:x.id, name:x.name,
-        type:(x.values && x.values['Venue Type']) || '', closed:!!(x.values && x.values['Closed/Unavailable?']===true),
-        hasAddress: x.hasAddress != null ? !!x.hasAddress : !!(x.values && x.values['Address']) }));   // the Worker sends whether a venue has an address, never the address (R12); an older /ref/venues (or cache) still sends Address
+      const list = venueRefList((await rv.json()).items);
       if(list.length){ setVenues(list); cacheSet('venues', list); }
     }
     if(rt && rt.ok){
@@ -240,6 +257,8 @@ function planningRowToEvent(r){
     // proxy injects notesDocUrl resolved by the stable column id (rename-proof);
     // Notes Doc is a Coda link column, so the value may be a string or {url,name}.
     notesDocUrl: (typeof r.notesDocUrl === 'string' ? r.notesDocUrl : (r.notesDocUrl && (r.notesDocUrl.url || r.notesDocUrl.name))) || '',
+    approvedBy: _asList(v['Approved by'])[0] || '', approvedAt: String(v['Approved at'] || '').slice(0,10),
+    lastPublishedAt: String(v['Last published at'] || ''), lastEbPushAt: String(v['Last EB push at'] || ''),   // read-only; eventToCodaCells never writes them
     createdBy: _asList(v['Created by'])[0] || '', editedBy: _asList(v['Edited by'])[0] || '',
     eventbriteUrl: (typeof v['Eventbrite URL'] === 'string' ? v['Eventbrite URL'] : '') || '', gcalId:'', readOnly:true,          // writes come in Plan 2b
     scheduling: sched,
@@ -315,6 +334,13 @@ const CodaSource = {
   async createSlot(body){ const r=await fetch(`${this.base}/slots`,{method:'POST',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return (await r.json().catch(()=>({}))); },
   async updateSlot(id, body){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify(body)}); if(!r.ok) await this._fail(r); return true; },
   async removeSlot(id){ const r=await fetch(`${this.base}/slots/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok) await this._fail(r); return true; },
+  // Venues (canWrite): one venue's structured address (never in the shared /ref/venues list),
+  // add one ({name,typeId,street,unit,city,state,zip} → {id, requestId}) and change its address
+  // (→ {requestId}). A refusal keeps the Worker's message, status and per-field `errors`.
+  async getVenue(id){ const r=await fetch(`${this.base}/venues/${encodeURIComponent(id)}`,{headers:this._wh()}); return this._venueJson(r, 'venue read'); },
+  async createVenue(body){ const r=await fetch(`${this.base}/venues`,{method:'POST',headers:this._wh(),body:JSON.stringify(body)}); return this._venueJson(r, 'add venue'); },
+  async updateVenue(id, body){ const r=await fetch(`${this.base}/venues/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify(body)}); return this._venueJson(r, 'address save'); },
+  async _venueJson(r, what){ const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`${what} failed (${r.status})`); e.status=r.status; e.errors=(j.errors && typeof j.errors==='object') ? j.errors : null; throw e; } return j; },
   // lead-facing attendee roster (Eventbrite orders ∪ gather claimants); fresh=true bypasses the Worker's KV snapshot
   async roster(rowId, fresh){ const r=await fetch(`${this.base}/roster/${encodeURIComponent(rowId)}${fresh?'?fresh=1':''}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`roster failed (${r.status})`); e.status=r.status; throw e; } return j; },
 };

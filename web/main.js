@@ -38,13 +38,12 @@ async function init(){
   // Fresh events (renders as soon as /rows returns).
   await refresh();
   openFromUrl();                 // deep-link: ?event=<id>&section=<id> opens that event
-  setTimeout(()=>{
-    const t=new Date();
-    const v=curView();
-    if(v==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
-    else if(v==='list'){ const el=document.querySelector('.lday.lnow'); if(el) el.scrollIntoView({block:'start'}); }   // scroll-margin clears the sticky header + month name
-    else { const el=document.querySelector('.cell.today'); if(el) el.scrollIntoView({block:'center'}); }
-  },60);
+  setTimeout(scrollCalendarToToday, 60);   // (skipped while a deep-linked page is open: leaving it runs it)
 }
+
+// Back/Forward between the calendar and event pages (spec 5.1). The app restores the
+// calendar's scroll itself (leaveEventPage), so the browser's own restoration is off.
+if('scrollRestoration' in history) history.scrollRestoration='manual';
+window.addEventListener('popstate', onPopState);
 
 init();

@@ -1,6 +1,6 @@
-/* editor-tabs.js — the editor's tab model: the open event (`editing`), SECTIONS, the rail and renderSection.
+/* editor-tabs.js — the editor's tab model: the open event (`editing`), SECTIONS, the tab list, the tab heading and renderSection.
    Owns: editing, whenType, SECTIONS, sectionId, activeSection, whenFieldsHTML, collectWhen, railHTML, setActiveRail, renderSection, wireScrollFade
-   Reads: nothing from other files at load (call-time helpers only)
+   Reads: PageRules (page-rules.js, call time); paintInner (status-panel.js, call time)
    Writes: nothing (declares editing, whenType, activeSection; other files assign them)
    Loaded after: calendar.js (first editor file; chipHTML reads editing at call time) */
 
@@ -13,14 +13,21 @@ let whenType='exact';
 // Editor workspace sections (left rail). `live` sections have real panels;
 // the rest render a muted "coming soon" teaser. `help` = the guide (web/help/
 // guide.md) the editor header's ? opens for that tab. No icon webfont — text labels.
-// `foot`: the one line the footer shows on that tab (R28); Details shows the wizard.
+// `foot`: the tab's one-line description, under its name in the main column's
+// heading (#epHead). The first tab's id stays 'details' (old links, syncUrl).
+// `fill`: a list tab that fills the viewport and scrolls inside (its filters, group
+// headings and footer stay put) instead of scrolling the page (renderSection sets
+// #eventPage.ep-fill; styles.css → "list tabs"). `fill:'scroll'` (Planning): the same
+// viewport-tall page, but the tab itself scrolls inside #wpanel, and the notes doc
+// takes the height that's left (#eventPage.ep-fill.ep-scroll; styles.css → "Planning").
 const SECTIONS = [
-  { id:'details',   label:'Details',              live:true,  help:'edit-details' },
-  { id:'planning',  label:'Planning',             live:true,  help:'planning-notes',
+  { id:'details',   label:'Listing',              live:true,  help:'edit-details',
+    foot:'What people see on Eventbrite. Edits save here first; send them to Eventbrite with the next-step button.' },
+  { id:'planning',  label:'Planning',             live:true,  help:'planning-notes', fill:'scroll',
     foot:'Private planning space for leads and council; nothing here goes on Eventbrite.' },
-  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups',
+  { id:'volunteers',label:'Potluck & Volunteers', live:true,  help:'signups', fill:true,
     foot:'Set up potluck dishes and volunteer shifts that members sign up for in gather.' },
-  { id:'attendees', label:'Attendees',            live:true,  help:'attendees',
+  { id:'attendees', label:'Attendees',            live:true,  help:'attendees', fill:true,
     foot:"See who's coming, from Eventbrite registrations and gather sign-ups, and email them." },
   { id:'budget',    label:'Budget & expenses',    live:false, help:'feedback',
     foot:'Budget tracking is coming soon: vote on ideas or suggest your own.' },
@@ -31,7 +38,7 @@ const SECTIONS = [
 ];
 // Back-compat: the Planning tab was 'notes' (Planning Notes, until 2026-11);
 // Attendees was the 'attendance' stub; the Publish tab folded into Details (2026-09).
-const sectionId = id => ({ notes:'planning', attendance:'attendees', publish:'details' }[id] || id);
+const sectionId = id => PageRules.sectionFromParam(id);
 let activeSection = 'details';
 
 // Times only exist for an Exact date that isn't All-day. Range/Month are all-day.
@@ -69,23 +76,31 @@ function collectWhen(){
 }
 
 /* ---- editor workspace: rail + section panels ------------------------------
-   The planning editor is a rail of sections. The live ones are Details, Planning,
+   The planning editor is a rail of sections. The live ones are Listing, Planning,
    Potluck & Volunteers and Attendees;
    the rest render a muted "coming soon" teaser. Each section owns its own render
    (markup) + wire (post-render listeners) pair. Field ids stay globally unique
    within the open editor, so readForm()/collectWhen() still find them by id. */
 function railHTML(){
-  const item = s=>`<button type="button" class="wrail-item${s.id===activeSection?' on':''}${s.live?'':' soon'}" data-sect="${s.id}">${esc(s.label)}</button>`;
+  // A live tab carries a stable slot for its marker (Listing's red dot, painted by renderStatusPanel).
+  const item = s=>`<button type="button" class="wrail-item${s.id===activeSection?' on':''}${s.live?'':' soon'}" data-sect="${s.id}">${esc(s.label)}${s.live?`<span class="tab-dot-slot" data-dot="${s.id}"></span>`:''}</button>`;
   const live=SECTIONS.filter(s=>s.live), soon=SECTIONS.filter(s=>!s.live);
   return live.map(item).join('') + `<div class="wrail-soon">Coming soon…</div>` + soon.map(item).join('');
 }
-function setActiveRail(id){ activeSection=id; document.querySelectorAll('#wrail .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
+function setActiveRail(id){ activeSection=id; document.querySelectorAll('#epTabs .wrail-item').forEach(b=>b.classList.toggle('on', b.dataset.sect===id)); }
 
+// The main column's heading: the tab's name and its one-line description.
+function tabHeadHTML(id){
+  const s=SECTIONS.find(x=>x.id===id); if(!s) return '';
+  return `<h2 class="ep-h">${esc(s.label)}</h2>${s.foot?`<p class="ep-hdesc">${esc(s.foot)}</p>`:''}`;
+}
 // Takes the editor's ctx (D2); the tabs still take positional args, adapted here.
 function renderSection(id, ctx){
   const panel=document.getElementById('wpanel'); if(!panel) return;
+  const head=document.getElementById('epHead'); if(head) paintInner(head, tabHeadHTML(id));
   const { ev, locked, past:pastLocked } = ctx, { canEdit, canApprove } = ctx.role;
   const sec=SECTIONS.find(s=>s.id===id);
+  const page=document.getElementById('eventPage'); if(page){ page.classList.toggle('ep-fill', !!(sec && sec.fill)); page.classList.toggle('ep-scroll', !!(sec && sec.fill==='scroll')); }
   if(sec && !sec.live){ panel.innerHTML=comingSoonHTML(sec); if(typeof wireFeedback==='function') wireFeedback(panel, id); return; }
   if(id==='volunteers'){ panel.innerHTML=renderSlots(ev, canEdit); wireSlots(panel, ev, canEdit); return; }
   if(id==='attendees'){ panel.innerHTML=renderAttendees(ev); wireAttendees(panel, ev); return; }

@@ -16,7 +16,7 @@ publishes approved events to Eventbrite.
 
 | Path | What | Deploys to |
 |------|------|-----------|
-| `web/` | The calendar app: `index.html` + `styles.css` + plain `<script>` files, vanilla JS, **no build step**. `web/listing-readiness.js` is also bundled into the Worker | Netlify (`plan.eastsidetribe.org`) |
+| `web/` | The calendar app: `index.html` + `styles.css` + plain `<script>` files, vanilla JS, **no build step**. `web/listing-readiness.js` and `web/venue-address.js` are also bundled into the Worker | Netlify (`plan.eastsidetribe.org`) |
 | `web/help/` | In-app help: `guide.md`, `whats-new.md`, `help-lib.js` | Netlify (with `web/`) |
 | `gather/` | Member sign-up app (potluck/volunteer slots), buildless, code-complete | Netlify (`gather.eastsidetribe.org`, site not created yet) |
 | `shared/` | Browser code both apps use; committed mirrors in `web/` + `gather/` (`scripts/sync-shared.sh`) | mirrored |
@@ -57,8 +57,8 @@ Each has a page in `docs/decisions/`.
 
 - **Coda applies writes ~28 s after accepting them**, whatever the doc size (0008).
   Never act on a read right after a write without waiting for it to apply.
-- **`web/listing-readiness.js` is bundled into the Worker**: no DOM or browser globals
-  (checked), and editing it redeploys the Worker.
+- **`web/listing-readiness.js` and `web/venue-address.js` are bundled into the Worker**:
+  no DOM or browser globals (checked), and editing either redeploys the Worker.
 - **D1: render into stable containers with `innerHTML`; no `outerHTML` swaps** (checked).
 - **Reference Coda columns by stable id, not name** (`proxy/src/coda-columns.js`) in new
   code; the planning seam is still name-keyed (`docs/app-map.md` → Gotchas).

@@ -68,8 +68,37 @@
     <div id="months"></div>
   </div>
   <div id="quarter"></div>
+  <div id="listBar"></div>
   <div id="listView"></div>
 </div>
+
+<!-- ---- event page: an event's full page, shown in place of the calendar (body.event-open) ---- -->
+<main class="event-page" id="eventPage" aria-labelledby="epTitle" hidden>
+  <div class="mhead ep-top" id="epTop">
+    <button class="btn ghost ep-back" id="epBack" type="button">← Calendar</button>
+    <div class="stripe" id="epStripe"></div>
+    <div class="mhead-title">
+      <div class="mhead-ttlrow"><h1 id="epTitle" tabindex="-1">Event</h1><span class="mhead-tag" id="epTag"></span></div>
+      <div class="mhead-sub" id="epSub" hidden></div>
+    </div>
+    <!-- wide and mid layouts: the status badge and the ? / View in gather / Copy link icons -->
+    <span class="mhead-badges" id="epBadges"></span>
+    <div class="mhead-actions" id="epActions"></div>
+    <!-- phone layout only (CSS swaps them): ⋮ (headMenu, editor-close.js) with the same three actions -->
+    <div class="kbwrap ep-menu" id="epMenu"></div>
+  </div>
+  <div class="ep-grid">
+    <nav class="wrail ep-tabs" id="epTabs" aria-label="Event sections"></nav>
+    <div class="ep-main" id="epMain">
+      <div class="edguard" id="edGuard" role="alertdialog" aria-label="Unsaved Eventbrite changes" hidden></div>
+      <div class="ep-head" id="epHead"></div>
+      <div class="wpanel" id="wpanel"></div>
+    </div>
+    <aside class="ep-panel" id="epPanel" aria-label="Status and next step"></aside>
+  </div>
+  <!-- phones: sticky bottom bar; placePhoneBar moves #edActs and #edMenu in here (one set of ids) -->
+  <div class="ep-phonebar" id="epPhoneBar" role="group" aria-label="Next step"></div>
+</main>
 
 <!-- phones: the floating + (same as + New event) -->
 <button class="fab" id="fabAdd" type="button" aria-label="New event">+</button>
@@ -134,18 +163,20 @@
     <div class="mhead">
       <div class="stripe" id="mStripe"></div>
       <div class="mhead-title">
-        <div class="mhead-ttlrow"><h2 id="mTitle">Event</h2><span class="mhead-tag" id="mTag"></span></div>
-        <div class="mhead-sub" id="mSub" hidden></div>
+        <div class="mhead-ttlrow"><h2 id="mTitle">Event</h2></div>
       </div>
       <span class="mhead-badges" id="mBadges"></span>
       <div class="mhead-actions" id="mActions"></div>
       <button class="mhead-close" id="mClose" type="button" aria-label="Close" data-tip="Close">×</button>
     </div>
     <div class="mbody" id="mBody"></div>
-    <div class="edguard" id="edGuard" role="alertdialog" aria-label="Unsaved Eventbrite changes" hidden></div>
-    <div class="edguard" id="edBlock" role="alert" hidden></div>
     <div class="mfoot" id="mFoot"></div>
   </div>
+</div>
+
+<!-- ---- venue dialog (venue-form.js): Add a venue / Edit address, above the event page and #modal ---- -->
+<div class="vd-scrim" id="venueDialog" hidden>
+  <div class="vd vform" id="vdBox" role="dialog" aria-modal="true" aria-labelledby="vdTitle" tabindex="-1"></div>
 </div>
 
 <!-- ---- help drawer: guides from help/guide.md, rendered by help/help-lib.js ---- -->
@@ -163,11 +194,13 @@
 <script src="roster-lib.js"></script>
 <script src="help/help-lib.js"></script>
 <script src="listing-readiness.js"></script>
+<script src="venue-address.js"></script>
 <script src="listing-html.js"></script>
 <script src="listing-preview.js"></script>
 <script src="coda-applied.js"></script>
 <script src="save-queue.js"></script>
 <script src="editor-head.js"></script>
+<script src="page-rules.js"></script>
 <script src="util.js"></script>
 <script src="data.js"></script>
 <script src="pickers.js"></script>
@@ -180,12 +213,13 @@
 <script src="editor.js"></script>
 <script src="fields.js"></script>
 <script src="tabs-listing-planning.js"></script>
+<script src="venue-form.js"></script>
 <script src="tab-attendees.js"></script>
 <script src="tab-potluck.js"></script>
 <script src="feedback.js"></script>
 <script src="ui.js"></script>
 <script src="save.js"></script>
-<script src="footer.js"></script>
+<script src="status-panel.js"></script>
 <script src="transitions.js"></script>
 <script src="eventbrite.js"></script>
 <script src="editor-close.js"></script>

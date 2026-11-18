@@ -139,8 +139,6 @@
   .seg{display:inline-flex;border:1px solid var(--hair-strong);border-radius:6px;overflow:hidden;background:var(--surface)}
   .seg button{font:inherit;font-size:11.5px;font-weight:500;border:0;background:transparent;padding:6px 10px;cursor:pointer;color:var(--muted)}
   .seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
-  .roleline{display:flex;align-items:center;gap:7px}
-  .roleline .lbl{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.6px}
 
   /* ---- layer toggles (inside the ⚙ pop-over) ---- */
   .layers{display:flex;flex-direction:column;gap:1px}
@@ -264,8 +262,8 @@
     border:1px solid var(--hair-strong);overflow:hidden;
     display:flex;flex-direction:column;max-height:calc(100dvh - 96px);
   }
-  .modal .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:10px;flex-shrink:0}
-  .modal .mhead .stripe{width:5px;height:34px;border-radius:3px;background:var(--c,var(--accent))}
+  :is(.modal,.event-page) .mhead{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:10px;flex-shrink:0}
+  :is(.modal,.event-page) .mhead .stripe{width:5px;height:34px;border-radius:3px;background:var(--c,var(--accent))}
   body.modal-open{overflow:hidden}   /* the background must not scroll behind an open modal */
   .mhead-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
   .mhead-ttlrow{display:flex;align-items:center;gap:8px;min-width:0}
@@ -282,8 +280,8 @@
     color:color-mix(in srgb,var(--c,var(--p-oth)) var(--ptag-text),var(--ink))}
   .ptag-more{font-size:11px;font-weight:600;color:var(--muted);flex:none;cursor:default}
   .mhead-badges{display:flex;align-items:center;gap:6px;flex:0 0 auto}
-  .modal .mhead h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .modal .mhead .badge{font-size:10px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;padding:3px 7px;border-radius:20px}
+  .modal .mhead h2,.event-page .mhead h1{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  :is(.modal,.event-page) .mhead .badge{font-size:10px;text-transform:uppercase;letter-spacing:.6px;font-weight:600;padding:3px 7px;border-radius:20px}
   .mhead-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto}
   .mhead-close{
     flex:0 0 auto;width:28px;height:28px;margin-left:4px;border-radius:6px;
@@ -292,8 +290,6 @@
     display:flex;align-items:center;justify-content:center;
   }
   .mhead-close:hover{background:var(--soft);color:var(--ink);border-color:var(--hair-strong)}
-  .statussel{font:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--ink);background:var(--surface);border:1px solid var(--hair-strong);border-radius:6px;padding:5px 7px;cursor:pointer}
-  .statussel:focus{outline:2px solid var(--accent-tint);border-color:var(--accent)}
   .btn.sm{padding:5px 10px;font-size:11.5px}
   .badge.b-idea{background:#F0F0F3;color:#75747F}
   .badge.b-draft{background:#FBF3E4;color:#9A7B2E}
@@ -317,12 +313,6 @@
   .fld input:focus,.fld select:focus,.fld textarea:focus{outline:2px solid var(--accent-tint);border-color:var(--accent)}
   .fld textarea{resize:vertical;min-height:52px}
   .fld input:disabled,.fld select:disabled,.fld textarea:disabled{background:var(--soft2);color:var(--muted);cursor:not-allowed}
-  .leadchips{display:flex;flex-wrap:wrap;gap:4px}
-  .leadchip{font-size:11px;padding:3px 7px;border-radius:20px;border:1px solid var(--hair-strong);cursor:pointer;background:var(--surface);color:var(--muted)}
-  .leadchip[aria-pressed="true"]{background:var(--accent-tint);border-color:var(--accent);color:var(--accent-dk);font-weight:500}
-  .leadchip:disabled{cursor:not-allowed;opacity:.6}
-  .leadchips.pick{max-height:120px;overflow:auto;padding:5px;border:1px solid var(--hair);border-radius:8px}
-  .leadchips.pick:empty::after,.picknote{content:attr(data-empty);font-size:11px;color:var(--faint)}
   /* typeahead (Volunteers): selected chips + search input + suggestion menu */
   .typeahead{position:relative;display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:var(--surface);border:1px solid var(--hair-strong);border-radius:8px;padding:5px}
   .typeahead.dis{background:var(--soft2);cursor:not-allowed}
@@ -369,41 +359,63 @@
   .venue-other{flex:1;border:0!important;padding:2px 4px!important;font:inherit;font-size:12px;background:transparent!important}
   .venue-other:focus{outline:none!important}
   .venue-clear{border:0;background:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0 2px;flex:0 0 auto}
+  /* the venue's address line (venue-form.js) */
+  .vaddr:empty{display:none}
+  .vaddr{font-size:12px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
+  .vaddr-txt.none{font-style:italic}
+  .vaddr .lnk{margin-left:4px}
+  /* the venue dialog (#venueDialog): above the event page and #modal (z 60), below Help and Preview (z 70) */
+  .vd-scrim{position:fixed;inset:0;z-index:66;background:rgba(28,27,34,.4);display:flex;align-items:flex-start;justify-content:center;padding:72px 16px 16px;overflow:auto}
+  .vd-scrim[hidden]{display:none}
+  body.vd-open{overflow:hidden}
+  .vd{width:100%;max-width:440px;max-height:calc(100dvh - 96px);display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--hair-strong);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .vd:focus{outline:none}
+  .vd-head{padding:15px 18px 12px;border-bottom:1px solid var(--hair);display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+  .vd-head h2{font-family:Fraunces,serif;font-weight:600;font-size:16px;margin:0}
+  .vd-sub{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vd-sub:empty{display:none}
+  .vd-body{flex:1 1 auto;min-height:0;overflow:auto;padding:14px 18px 4px}
+  .vform-fs{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+  .vform-fs:disabled{opacity:.75}
+  .vd-foot{margin-top:0}
+  .vd .btn[disabled]{cursor:default}
+  .vd .btn:not(.primary)[disabled]{color:var(--faint)}
+  .vd .btn:not(.primary)[disabled]:hover{border-color:var(--hair-strong);color:var(--faint)}
+  .vd .btn.primary[disabled],.vd .btn.primary[disabled]:hover{background:var(--accent);border-color:var(--accent);color:#fff;opacity:.85}
+  .vd .btn.primary .ndoc-spin{width:11px;height:11px;border-color:rgba(255,255,255,.45);border-top-color:#fff;vertical-align:-2px;margin-right:7px}
+  .vform-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr) minmax(0,1.4fr);gap:8px}
+  .vform-grid .vf-name,.vform-grid .vf-type,.vform-grid .vf-street,.vform-grid .vf-unit{grid-column:1/-1}
+  .vform .hint{font-size:11px;color:var(--faint)}
+  .vform .hint:empty{display:none}
+  .vform .hint.err{color:#B3261E}
+  /* phones: a bottom sheet the full width of the screen */
+  @media (max-width:600px){
+    .vform-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} .vform-grid .vf-city{grid-column:1/-1}
+    .vd-scrim{padding:0;align-items:flex-end;overflow:hidden}
+    .vd{max-width:none;max-height:92dvh;border-radius:14px 14px 0 0;border-bottom:0}
+    .vd-head{padding:14px 16px 11px}
+    .vd-body{padding:14px 16px 4px}
+    .vd-foot{padding:12px 16px calc(14px + env(safe-area-inset-bottom))}
+  }
+  @media (pointer:coarse), (max-width:600px){
+    .vd-foot .btn{min-height:44px;padding:0 16px}
+    .vd .fld input,.vd .fld select{min-height:44px}
+    .modal.create .vaddr .lnk{padding:12px 4px;margin:-12px 0 -12px 0}
+  }
   .venue-clear:hover{color:var(--accent)}
   .ta-opt.ta-new{color:var(--accent-dk);font-weight:500;border-top:1px solid var(--hair);margin-top:2px;padding-top:8px}
   .meta{grid-column:1/3;font-size:11px;color:var(--faint);border-top:1px dashed var(--hair);padding-top:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
   .mfoot{padding:12px 18px 16px;display:flex;gap:8px;align-items:center;border-top:1px solid var(--hair);margin-top:8px;flex-shrink:0}
   .mfoot .push{flex:1}
-  .mfoot:not(:has(button, .savestat.error, .edmsg :is(b,span))){display:none}   /* nothing to act on or say — no empty band */
-  /* footer wizard (spec 5.5, R21): row 1 #edSteps = the five steps, full width; row 2
-     #edFoot = next step (left), then the failed-save pill, #edActs = primary, ⋮ —
-     bottom-aligned. The message keeps a reserved height so the form doesn't jump. */
-  .mfoot:has(#edFoot){flex-wrap:wrap;align-items:flex-end;row-gap:10px}
-  .edsteps{flex:0 0 100%;min-width:0;container-type:inline-size}
-  .edsteps:empty{display:none}
-  .edmsg{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
-  .edmsg:empty{display:block}
-  .edmsg:not(:empty){min-height:54px}
-  .edmsg .ftitle{font-size:13px;font-weight:600;color:var(--ink)}
-  .edmsg .fsub{font-size:12px;color:var(--muted);line-height:1.4}
-  .edmsg .flinks a{color:#B23B3B;font-weight:600}
-  .fsteps{display:flex;align-items:center;gap:5px;flex-wrap:nowrap;white-space:nowrap;font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  .fsteps .dot{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--faint);display:inline-block;flex:none}
-  .fsteps .dot.done,.fsteps .dot.current{background:var(--accent);border-color:var(--accent)}
-  .fsteps .dot.current{box-shadow:0 0 0 3px var(--accent-tint)}
-  .fsteps .dot.current.g{background:#2F7D3B;border-color:#2F7D3B;box-shadow:0 0 0 3px #E7F4E9}
-  .fsteps .ln{flex:1 1 16px;max-width:56px;min-width:8px;height:1px;background:var(--hair-strong);display:inline-block}
-  .fsteps .ln.d{background:var(--accent)}
-  .fsteps .cur{color:var(--accent)}
-  .fsteps .cur.g{color:#2F7D3B}
-  .fsteps-ph{display:none;font-size:11px;font-weight:600;color:var(--accent)}
-  @container (max-width:470px){ .fsteps{display:none} .fsteps-ph{display:block} }   /* too narrow for five: "Step N of 5 · Label" */
+  .mfoot:not(:has(button)){display:none}   /* nothing to act on — no empty band */
   .edacts{display:flex;align-items:center;gap:8px;flex:none}
   .edacts:empty{display:none}
   .btn.fbtn{font-size:12.5px;font-weight:600;padding:8px 14px;display:inline-flex;align-items:center;gap:7px}
   .btn.fbtn.go{background:#2F7D3B;border-color:#2F7D3B;color:#fff}
   .btn.fbtn.go:hover{background:#25652F;border-color:#25652F;color:#fff}
   .btn.fbtn[disabled]{background:var(--soft);border-color:var(--hair);color:var(--faint);cursor:default}
+  /* a disabled go must look disabled, hover included (the go rules above would win) */
+  .btn.fbtn.go[disabled],.btn.fbtn.go[disabled]:hover{background:var(--soft);border-color:var(--hair);color:var(--faint)}
   .btn.fbtn.wait{cursor:default;background:var(--accent-tint);border-color:var(--accent-tint);color:var(--accent)}
   .btn.fbtn.wait svg{animation:ndoc-spin .9s linear infinite}
   .kbwrap{position:relative;flex:none}
@@ -419,17 +431,11 @@
   .kmenu .mi span{font-size:11.5px;color:var(--muted)}
   .kmenu .mi.danger b{color:#B23B3B}
   @media (max-width:600px){
-    .mfoot:has(.edmsg){flex-wrap:wrap}
-    .mfoot .edmsg{flex-basis:100%}
-    .mfoot:has(.edmsg) .savestat{margin-right:auto}
-    .mfoot:has(.edmsg) .edacts{margin-left:auto}
-    .fsteps{display:none}
-    .fsteps-ph{display:block}
     .kb{width:40px;height:40px}
   }
   .danger{color:#B23B3B;border-color:#E7C9C9}
   .danger:hover{background:#FBEEEE;border-color:#B23B3B;color:#B23B3B}
-  /* autosave status indicator (workspace footer) */
+  /* save-failed pill (#saveStatus, in the event page's status panel) */
   .savestat{font-size:11.5px;font-weight:500;letter-spacing:.2px;padding:5px 4px;white-space:nowrap;user-select:none}
   .savestat:not(.error){display:none}    /* the pill is only for a failed save (R21) */
   .savestat.error{align-self:flex-end;margin:0 10px 5px 0;padding:4px 10px;border-radius:12px;background:#FBEEEE}
@@ -559,6 +565,13 @@
   /* ---- list view (#listView, renderList) ---- */
   #listView{display:none;max-width:720px;margin:0 auto}
   #listView.on{display:block}
+  #listBar{display:none;max-width:720px;margin:0 auto;padding:10px 4px 0}
+  #listBar.on{display:block}
+  .nbtn{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:4px 12px;border:1px solid var(--hair-strong);border-radius:999px;background:var(--paper);color:var(--ink);font:600 12.5px Inter,sans-serif;cursor:pointer}
+  .nbtn:hover{border-color:var(--muted)}
+  .nbtn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .nb-count{font-weight:700;opacity:.75}
+  @media (max-width:600px){ .nbtn{min-height:44px;padding:4px 16px} }
   .lmhead{position:sticky;top:var(--bar-h,56px);z-index:20;margin:0;padding:16px 4px 6px;background:var(--paper);border-bottom:1px solid var(--hair-strong);
     font-family:Fraunces,serif;font-weight:600;font-size:17px;display:flex;justify-content:space-between;align-items:baseline}
   .lmhead .ly{font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:1px;color:var(--faint)}
@@ -598,90 +611,277 @@
     .mfoot .btn{padding:9px 13px}          /* comfier tap targets */
   }
 
-  /* editor workspace: left rail + section panel */
-  /* workspace mode: modal is a fixed-height flex column; mbody is the rail+panel
-     row (not the 2-col field grid); only the panel scrolls, the rail stays put. */
-  .modal.ws{height:min(760px, calc(100dvh - 96px));max-width:740px}
+  /* editor tab list (#epTabs on the event page) */
   /* create modal: sizes to its form (the body scrolls past the cap); phones stay full-screen below */
   .modal.create{height:auto;max-height:min(760px, calc(100dvh - 96px));max-width:740px}
   /* phone: these shells fill the screen (declared AFTER the desktop caps above so
      the equal-specificity mobile rule wins on source order, not just in @media). */
-  @media (max-width:600px){ .modal.ws,.modal.create{height:100dvh;max-height:100dvh;max-width:none} }
-  .mbody.ws{display:flex;flex:1 1 auto;padding:0;gap:0;min-height:0;overflow:hidden}
-  .wsplit{display:flex;flex:1;min-height:0;width:100%}
+  @media (max-width:600px){ .modal.create{height:100dvh;max-height:100dvh;max-width:none} }
   .wrail{flex:0 0 176px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;padding:14px 12px 14px 18px;border-right:.5px solid var(--hair)}
   .wrail-item{text-align:left;background:none;border:0;padding:7px 9px;border-radius:7px;font:inherit;color:inherit;cursor:pointer;flex:0 0 auto}
   .wrail-item:hover{background:var(--soft2)}
   .wrail-item.on{background:var(--accent-tint);color:var(--accent);font-weight:500}
   .wrail-item.soon{color:var(--muted)}
   .wrail-soon{font-size:10px;color:var(--faint);padding:10px 9px 3px;letter-spacing:.04em}
-  /* Compact editor (R23): the workspace and create modals run ~15-20% tighter than
+  /* Compact editor (R23): the event page and the create modal run ~15-20% tighter than
      the base form styles — smaller padding, labels and inputs, 34px footer buttons.
      Calendar views are untouched; phones get their tap targets back below. */
-  :is(.modal.ws,.modal.create){font-size:12.5px}
-  :is(.modal.ws,.modal.create) .mhead{padding:10px 14px 9px;gap:9px}
-  :is(.modal.ws,.modal.create) .mhead .stripe{height:30px}
-  :is(.modal.ws,.modal.create) .mhead-actions{gap:3px}
-  .modal.ws .wrail{flex-basis:146px;padding:10px 8px 10px 12px}
-  .modal.ws .wrail-item{padding:5px 8px;font-size:12.5px}
-  .modal.ws .wpanel{padding:11px 16px 12px;gap:9px}
+  :is(.event-page,.modal.create){font-size:12.5px}
+  :is(.event-page,.modal.create) .mhead{padding:10px 14px 9px;gap:9px}
+  :is(.event-page,.modal.create) .mhead .stripe{height:30px}
+  :is(.event-page,.modal.create) .mhead-actions{gap:3px}
+  .event-page .wrail{flex-basis:146px;padding:10px 8px 10px 12px}
+  .event-page .wrail-item{padding:5px 8px;font-size:12.5px}
+  .event-page .wpanel{padding:11px 16px 12px;gap:9px}
   .modal.create .mbody{padding:11px 16px 4px;gap:9px 10px}
-  :is(.modal.ws,.modal.create) .fld{gap:3px}
-  :is(.modal.ws,.modal.create) .fld label{font-size:10px}
-  :is(.modal.ws,.modal.create) .fld .hint{font-size:11px}
-  :is(.modal.ws,.modal.create) .fld input:not(.ta-input),:is(.modal.ws,.modal.create) .fld select,:is(.modal.ws,.modal.create) .fld textarea{font-size:12.5px;padding:5px 7px}
-  :is(.modal.ws,.modal.create) .fld textarea{min-height:44px}
-  :is(.modal.ws,.modal.create) .msel-btn{font-size:12.5px;padding:5px 8px;border-radius:6px}
-  :is(.modal.ws,.modal.create) .typeahead{padding:3px;border-radius:6px}
-  :is(.modal.ws,.modal.create) .fieldgroup{padding:9px 10px;gap:8px;border-radius:8px}
-  :is(.modal.ws,.modal.create) .fieldgroup-h{font-size:10.5px}
-  :is(.modal.ws,.modal.create) .timerow{gap:8px;margin-top:8px}
-  :is(.modal.ws,.modal.create) .whenseg button{padding:4px 9px}
-  :is(.modal.ws,.modal.create) .locknote{padding:6px 9px}
-  .modal.ws .ebcard{padding:9px 12px;gap:6px}
-  :is(.modal.ws,.modal.create) .mfoot{padding:8px 14px 10px;margin-top:0}
-  .modal.ws .mfoot:has(#edFoot){row-gap:7px}
-  .modal.ws .edmsg:not(:empty){min-height:46px}
-  .modal.ws .btn.fbtn{min-height:34px;padding:0 13px;font-size:12.5px}
-  .modal.ws .ndoc-frame{height:300px}
+  :is(.event-page,.modal.create) .fld{gap:3px}
+  :is(.event-page,.modal.create) .fld label{font-size:10px}
+  :is(.event-page,.modal.create) .fld .hint{font-size:11px}
+  :is(.event-page,.modal.create) .fld input:not(.ta-input),:is(.event-page,.modal.create) .fld select,:is(.event-page,.modal.create) .fld textarea{font-size:12.5px;padding:5px 7px}
+  :is(.event-page,.modal.create) .fld textarea{min-height:44px}
+  :is(.event-page,.modal.create) .msel-btn{font-size:12.5px;padding:5px 8px;border-radius:6px}
+  :is(.event-page,.modal.create) .typeahead{padding:3px;border-radius:6px}
+  :is(.event-page,.modal.create) .fieldgroup{padding:9px 10px;gap:8px;border-radius:8px}
+  :is(.event-page,.modal.create) .fieldgroup-h{font-size:10.5px}
+  :is(.event-page,.modal.create) .timerow{gap:8px;margin-top:8px}
+  /* segmented toggles (When, Address on listing): hug their buttons, 32px tall; phones 40px, still not stretched */
+  :is(.event-page,.modal.create) .whenseg{width:fit-content}
+  :is(.event-page,.modal.create) .whenseg button{flex:none;min-height:32px;padding:0 11px;font-size:12px}
+  :is(.event-page,.modal.create) .locknote{padding:6px 9px}
+  :is(.event-page,.modal.create) .mfoot{padding:8px 14px 10px;margin-top:0}
+  .event-page .btn.fbtn{min-height:34px;padding:0 13px;font-size:12.5px}
+  .event-page .ndoc-frame{height:300px}
   @media (max-width:600px){
     /* phones: ≥44px tap targets for the controls a thumb hits */
-    :is(.modal.ws,.modal.create) .mhead{padding:10px 12px 9px}
-    .modal.ws .wrail{flex-basis:auto;padding:6px 12px 4px}
-    /* 44px icons leave no room beside the title: title block on row 1, then the
-       badge (left) and the icons + close (right) on row 2 */
-    :is(.modal.ws,.modal.create) .mhead{flex-wrap:wrap;row-gap:4px}
-    :is(.modal.ws,.modal.create) .mhead-title{flex:1 1 calc(100% - 20px)}
-    :is(.modal.ws,.modal.create) .mhead-badges{margin-right:auto;margin-left:14px}
-    /* the title gets the whole row; the program tag drops under it */
-    .mhead-ttlrow{flex-wrap:wrap;row-gap:3px}
-    .mhead-ttlrow h2{flex:1 1 100%}
-    .mhead-tag{max-width:100%}
-    :is(.modal.ws,.modal.create) .mhead-actions{gap:0}
-    .modal.ws .wrail-item{min-height:44px;padding:0 10px}
-    .modal.ws .btn.fbtn,.modal.ws .kb{min-height:44px}
-    .modal.ws .kb{width:44px;height:44px}
-    :is(.modal.ws,.modal.create) .mhead-ico,:is(.modal.ws,.modal.create) .mhead-close{width:44px;height:44px}
-    :is(.modal.ws,.modal.create) .fld .btn.xs{min-height:44px;padding:0 10px}
-    :is(.modal.ws,.modal.create) .fld label.msel-opt{min-height:44px}
-    :is(.modal.ws,.modal.create) .whenseg button{min-height:44px}
-    :is(.modal.ws,.modal.create) .fld input:not([type=checkbox]):not(.ta-input),:is(.modal.ws,.modal.create) .fld select,:is(.modal.ws,.modal.create) .msel-btn,:is(.modal.ws,.modal.create) .typeahead{min-height:44px}
+    :is(.event-page,.modal.create) .mhead{padding:10px 12px 9px}
+    .event-page .wrail{flex-basis:auto;padding:6px 12px 4px}
+    /* the create modal: 44px icons leave no room beside the title: title block on row 1,
+       then the badge (left) and the icons + close (right) on row 2 */
+    .modal.create .mhead{flex-wrap:wrap;row-gap:4px}
+    .modal.create .mhead-title{flex:1 1 calc(100% - 20px)}
+    .modal.create .mhead-badges{margin-right:auto;margin-left:14px}
+    /* the modal's title gets the whole row */
+    .modal .mhead-ttlrow{flex-wrap:wrap;row-gap:3px}
+    .modal .mhead-ttlrow :is(h1,h2){flex:1 1 100%}
+    :is(.event-page,.modal.create) .mhead-actions{gap:0}
+    :is(.event-page,.modal.create) .mhead-ico,:is(.event-page,.modal.create) .mhead-close{width:44px;height:44px}
+    :is(.event-page,.modal.create) .fld .btn.xs{min-height:44px;padding:0 10px}
+    :is(.event-page,.modal.create) .fld label.msel-opt{min-height:44px}
+    :is(.event-page,.modal.create) .fld input:not([type=checkbox]):not(.ta-input),:is(.event-page,.modal.create) .fld select,:is(.event-page,.modal.create) .msel-btn,:is(.event-page,.modal.create) .typeahead{min-height:44px}
     .modal.create .mfoot .btn{min-height:44px}
+  }
+  /* touch (any width: a 744px iPad gets the phone layout with a coarse pointer) or a
+     phone-size window: ≥44px tap targets on the event page's top bar, tab strip, bottom
+     bar, ⋮, link-style actions and toggles. A mouse at a narrow width keeps compact sizes. */
+  @media (pointer:coarse), (max-width:600px){
+    .event-page .wrail-item{min-height:44px;padding:0 10px}
+    .event-page .btn.fbtn,.event-page .kb{min-height:44px}
+    .event-page .kb{width:44px;height:44px}
+    .event-page .mhead-ico{width:44px;height:44px}
+    #epTop .ep-back{min-height:44px}
+    /* link-style actions (.lnk) and the readiness ✗ links: a 44px tap target from padding
+       that a matching negative margin cancels, so they read as normal text with no gap */
+    .event-page .lnk{padding:12px 4px;margin:-12px -4px}
+    .sp-rows .bad a{padding:12px 0;margin:-12px 0}
+    :is(.event-page,.modal.create) .whenseg button{min-height:44px;padding:0 12px}
   }
   /* the panel scrolls independently and lays its fields out with real spacing */
   .wpanel{flex:1;min-width:0;overflow-y:auto;padding:14px 18px 16px;display:flex;flex-direction:column;gap:12px}
   .wpanel > .fld.full,.wpanel > .fld{width:100%}
+
+  /* ---- event page (spec 5.2/5.3): a full page in place of the calendar ----
+     body.event-open hides the calendar chrome with display:none, so its DOM, view and
+     year survive (the window scroll is saved and restored by the page code). The page
+     scrolls with the document: a sticky top bar, then tabs | main | panel. */
+  .event-page{display:none;container:ep / inline-size}   /* the layouts below query the page's own width */
+  body.event-open .event-page{display:block}
+  body.event-open .bar,body.event-open .wrap,body.event-open .fab{display:none}
+  /* top bar, one row at every width: ← Calendar, the program stripe, the title, ⋮ */
+  .event-page .mhead.ep-top{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--hair-strong);padding:9px 18px}
+  .ep-back{flex:none;white-space:nowrap}
+  #epTitle:focus{outline:none}   /* focused on open for screen readers; tabindex=-1, never keyboard-reached, so no ring */
+  #epTop .ep-menu{display:none}   /* the phone layout's ⋮; wide and mid show the badge and icons */
+  .ep-menu .kmenu{top:calc(100% + 6px);bottom:auto;right:0;width:220px}   /* the top bar's ⋮ opens downward */
+  .ep-menu .kmenu a.mi{text-decoration:none}
+  .ep-grid{--ep-layout:wide;display:grid;grid-template-columns:150px minmax(0,1fr) 300px;gap:0 22px;align-items:start;max-width:1400px;margin:0 auto;padding:14px 18px 80px}
+  .event-page .wrail.ep-tabs{position:sticky;top:calc(var(--ep-top-h,52px) + 14px);flex-basis:auto;padding:0;border-right:0;overflow:visible}
+  .ep-main{min-width:0;width:100%;max-width:760px;justify-self:center;display:flex;flex-direction:column;gap:10px}
+  .ep-head:empty{display:none}
+  .event-page .wpanel{overflow:visible;padding:0;flex:none}
+  .ep-main .edguard{border:1px solid #EAD9B5;border-radius:9px;padding:9px 12px}
+  /* the main column's heading: the tab's name + its one-line description */
+  .ep-head{display:flex;flex-direction:column;gap:2px}
+  .ep-h{margin:0;font-size:15px;font-weight:600;color:var(--ink)}
+  .ep-hdesc{margin:0;font-size:12px;color:var(--muted);line-height:1.4}
+  /* Listing's red dot: a readiness item for the next step is on that tab */
+  .tab-dot-slot:empty{display:none}
+  .tab-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#C94444;margin-left:6px;vertical-align:middle}
+  /* the right panel (spec 5.3): the one Status & next step card, then a failed save */
+  .ep-panel{position:sticky;top:calc(var(--ep-top-h,52px) + 14px);display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - var(--ep-top-h,52px) - 28px);overflow:auto}   /* a tall panel scrolls instead of being cut off */
+  .event-page .ep-panel:empty{display:none}   /* (beats the narrower layouts' display) */
+  .sp-card{display:flex;flex-direction:column;gap:10px;padding:12px 13px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:10px}
+  .sp-h{margin:0;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .sp-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  .sp-steps:empty{display:none}
+  .sp-step{position:relative;display:grid;grid-template-columns:16px minmax(0,1fr);column-gap:9px;padding:0 0 9px;font-size:12.5px;color:var(--faint)}
+  .sp-step:last-child{padding-bottom:0}
+  .sp-step:not(:last-child)::before{content:"";position:absolute;left:7.5px;top:17px;bottom:1px;width:1px;background:var(--hair-strong)}
+  .sp-step.done:not(:last-child)::before{background:var(--accent)}
+  .sp-dot{grid-row:1 / span 2;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--faint);box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1;background:var(--surface)}
+  .sp-step.done .sp-dot{background:var(--accent);border-color:var(--accent);color:#fff}
+  .sp-step.current .sp-dot{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);background:var(--accent)}
+  .sp-step.current.g .sp-dot{background:#2F7D3B;border-color:#2F7D3B;box-shadow:0 0 0 3px #E7F4E9}
+  .sp-lbl{line-height:16px}
+  .sp-step.done .sp-lbl{color:var(--muted)}
+  .sp-step.current .sp-lbl{color:var(--accent);font-weight:600}
+  .sp-step.current.g .sp-lbl{color:#2F7D3B}
+  /* skipped: a past event's Eventbrite steps it never reached — a dash, muted, no fill */
+  .sp-step.skipped .sp-dot{border-style:dashed;color:var(--faint)}
+  .sp-step.skipped .sp-lbl{color:var(--faint)}
+  .sp-note{grid-column:2;font-size:11.5px;color:var(--muted);line-height:1.35}
+  .sp-checks{display:flex;flex-direction:column;gap:6px}
+  .sp-checks:empty{display:none}
+  .sp-title{font-size:13px;font-weight:600;color:var(--ink);line-height:1.35}
+  .sp-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:12.5px}
+  .sp-rows li{display:flex;align-items:baseline;gap:7px}
+  .sp-rows .sp-ic{flex:none;width:12px;font-weight:700;text-align:center}
+  .sp-rows .ok{color:var(--muted)}
+  .sp-rows .ok .sp-ic{color:#2F7D3B}
+  .sp-rows .bad .sp-ic,.sp-rows .bad a{color:#B23B3B}
+  .sp-rows .bad a{font-weight:600}
+  /* phones: a 44px tap target from padding that the negative margin cancels — the row
+     keeps its text height, no gap above or below */
+  .sp-acts{position:relative;display:flex;align-items:center;gap:8px}
+  .sp-acts:not(:has(button)){display:none}
+  .ep-panel .edacts{flex-wrap:wrap}
+  /* ⋮'s menu hangs from the whole actions row, card-wide, opening downward (the panel sits high on the page) */
+  .ep-panel .kbwrap{position:static}
+  .ep-panel .kmenu{left:0;right:0;width:auto;max-width:none;bottom:auto;top:calc(100% + 6px)}
+  .sp-sub{margin:0;font-size:12px;color:var(--muted);line-height:1.4}
+  .sp-sub:empty,.sp-bars:empty{display:none}
+  .sp-sub a{color:var(--accent);font-weight:500}
+  .sp-bar{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:9px 11px;background:#FBF3E4;border:1px solid #EAD9B5;border-radius:8px}
+  .sp-bar .edguard-msg{min-width:0}
+  /* the card's listing row (#listingCard): badge + small link actions, then the tickets line */
+  .sp-listing{display:flex;flex-direction:column;gap:4px;padding-top:9px;border-top:1px solid var(--hair)}
+  .sp-listing:empty{display:none}
+  .sp-lrow{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px}
+  .sp-lacts{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+  .sp-ltix{font-size:11px;color:var(--muted)}
+  .ep-panel .savestat.error{align-self:flex-start;margin:0}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  /* phones only: the step-list toggle and the sticky bottom bar (spec 5.6) */
+  .sp-more,.ep-phonebar{display:none}
+
+  /* ---- event page layouts: the ONE place their breakpoints live ----------------
+     Container queries on the page's own width (#eventPage, container "ep"), so Help
+     open beside the page (body.help-open padding) counts the same as a narrower window.
+     epLayout() (status-panel.js) reads the answer back from --ep-layout; nothing else
+     repeats these numbers.
+       wide   ≥ 1100px   tab list | main | panel (300px)                     (above)
+       mid    760–1099   tab strip under the top bar, then main | panel (280px)
+       phone  < 760px    status card, tab strip, the tab, sticky bottom bar
+     760 = the narrowest page where main keeps ≥ 420px beside the 280px panel
+     (420 + 280 + 22 gap + 2×18 padding = 758). Touch tap targets (44px) follow the device,
+     not the layout: @media (pointer:coarse), (max-width:600px). */
+  @container ep (max-width:1099.98px){
+    .ep-grid{--ep-layout:mid;display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 22px;padding-top:0}
+    /* the tab strip: full width, sticks under the top bar */
+    /* its own line: basis = the line plus the 18px gutters it bleeds into (margin), so
+       nothing fits beside it; min-width:0 so long tab labels scroll, never widen the page */
+    .event-page .wrail.ep-tabs{flex:0 0 calc(100% + 36px);min-width:0;flex-direction:row;gap:2px;position:sticky;top:var(--ep-top-h,52px);z-index:30;margin:0 -18px;padding:6px 18px;
+      background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-bottom:.5px solid var(--hair);overflow-x:auto;scrollbar-width:none}
+    .event-page .wrail.ep-tabs::-webkit-scrollbar{display:none}
+    .event-page .ep-tabs .wrail-item{flex:0 0 auto;white-space:nowrap}
+    .event-page .ep-tabs .wrail-soon{display:none}
+    /* the next line: main (≥420px, grows) | panel (280px); 420 + 22 + 280 fits the
+       narrowest mid page's 724px line */
+    .ep-main{flex:1 1 420px;min-width:0;max-width:none}
+    .ep-panel{flex:0 0 280px;min-width:0;top:calc(var(--ep-top-h,52px) + var(--ep-tabs-h,40px) + 12px);max-height:calc(100vh - var(--ep-top-h,52px) - var(--ep-tabs-h,40px) - 24px)}
+  }
+  @container ep (max-width:759.98px){
+    /* one column: the status card, then the tab strip (sticky), then the active tab;
+       min-height keeps the bottom bar at the bottom on a short tab */
+    .ep-grid{--ep-layout:phone;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:0;padding:0 0 16px;min-height:calc(100dvh - var(--ep-top-h,52px) - 61px)}
+    .ep-panel{order:-1;flex:none;position:static;max-height:none;overflow:visible;margin:10px 12px 0}
+    .event-page .wrail.ep-tabs{flex:none;margin:10px 0 0;padding:0 12px}
+    .ep-main{flex:none;padding:12px 12px 0}
+    /* the status card: title + the first failing row, "Step N of 6 · see all steps", then
+       (when open) the whole step list and every row; the sentence, bars and listing row stay */
+    .sp-card{gap:8px;padding:10px 12px}
+    .sp-card .sp-h{display:none}
+    .sp-card #edChecks{order:1}
+    .sp-card .sp-more{order:2;display:inline-flex;align-items:center;gap:6px;align-self:flex-start;min-height:44px;margin:-8px 0 -6px;padding:0;border:0;background:none;font:inherit;font-size:12.5px;font-weight:600;color:var(--accent);cursor:pointer}
+    .sp-card .sp-more:empty{display:none}
+    .sp-chev{display:inline-block;transition:transform .15s}
+    .sp-card.open .sp-chev{transform:rotate(180deg)}
+    .sp-card #edStatus{order:3}
+    .sp-card .sp-acts{order:4}
+    .sp-card #edSub{order:5}
+    .sp-card #edBars{order:6}
+    .sp-card #listingCard{order:7;padding-top:7px}
+    .sp-card:not(.open) #edStatus,.sp-card:not(.open) .sp-rows li.ok,.sp-card:not(.open) .sp-rows li.bad ~ li.bad{display:none}
+    /* the sticky bottom bar: the primary (and Not now) + ⋮, moved here by placePhoneBar */
+    .ep-phonebar{position:sticky;bottom:0;z-index:40;align-items:center;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--hair-strong)}
+    .ep-phonebar:has(button){display:flex}
+    .ep-phonebar .edacts{flex:1 1 auto;min-width:0}
+    .ep-phonebar .edacts .fbtn{flex:1 1 0;min-width:0;justify-content:center}
+    .ep-phonebar .kbwrap{position:static}   /* ⋮'s menu hangs from the whole bar, opening upward */
+    .ep-phonebar .kmenu{left:12px;right:12px;width:auto;max-width:none;top:auto;bottom:calc(100% + 6px);max-height:calc(100dvh - 140px);overflow-y:auto}
+    .ep-phonebar .kmenu .mi{min-height:44px;justify-content:center}
+  }
+  /* the phone layout's top bar, one row: ← Calendar, the title, ⋮ (Eric, 2026-11-16:
+     the program tag, subtitle, status badge and icons are for wide and mid only) */
+  @container ep (max-width:759.98px){
+    .event-page .mhead.ep-top{padding:4px 12px;gap:8px}
+    #epTop .ep-back{padding:0 8px;margin-left:-8px}
+    #epTop .stripe{height:24px}
+    #epTop :is(#epTag,#epSub,#epBadges,#epActions){display:none}
+    #epTop .ep-menu{display:block}
+  }
+
+  /* ---- list tabs (SECTIONS[].fill: Potluck & Volunteers, Attendees) --------------
+     The page doesn't scroll: it is exactly the viewport tall, and the tab's area takes
+     what the top bar, tabs and heading (on phones also the status card and the bottom
+     bar) leave. Only the list scrolls inside it: the filters and the potluck/volunteer
+     group headings stay at its top, the Attendees selection footer at its bottom. */
+  body.event-open .event-page.ep-fill{display:flex;flex-direction:column;height:100dvh}
+  .ep-fill .ep-grid{flex:1 1 auto;min-height:0;width:100%;padding-bottom:14px;grid-template-rows:minmax(0,1fr)}
+  .ep-fill .ep-main{align-self:stretch;min-height:0}
+  .event-page.ep-fill .wpanel{flex:1 1 auto;min-height:0}
+  .ep-fill .wpanel > .roster-wrap,.ep-fill .wpanel > .slots-wrap{flex:1 1 auto;min-height:0}
+  .ep-fill .slots-list{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}
+  .ep-fill .roster-body{overscroll-behavior:contain}
+  @container ep (max-width:1099.98px){
+    .ep-fill .ep-grid{display:grid;grid-template-columns:minmax(0,1fr) 280px;grid-template-rows:auto minmax(0,1fr)}
+    .ep-fill .wrail.ep-tabs{grid-column:1 / -1}
+    .ep-fill .ep-panel{position:static;max-height:100%}
+  }
+  @container ep (max-width:759.98px){
+    .ep-fill .ep-grid{display:flex;padding-bottom:0;min-height:0}
+    .ep-fill .ep-panel{max-height:38dvh;overflow:auto}   /* an opened step list mustn't squeeze the list away */
+    .ep-fill .ep-main{flex:1 1 auto;padding-bottom:8px}
+  }
   /* Planning tab: Program(s) + Leads side by side, then Internal description, then the doc */
   .frow2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .frow2 > .fld.full{grid-column:auto}
-  .ptab-h{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  .ptab-sub{text-transform:none;letter-spacing:0;font-weight:500;color:var(--faint)}
-  .ndoc-fld{flex:1 0 auto;min-height:300px}
+  /* the notes doc fills what the fields leave (SECTIONS fill:'scroll' → .ep-scroll, the
+     list tabs' viewport-tall page), at least 420px; when the fields + 420px don't fit,
+     the tab scrolls inside #wpanel (padding/margin keep focus rings unclipped). The
+     create / setting-up / no-doc states keep their natural height. */
+  .ndoc-fld{flex:1 0 auto}
+  .ndoc-fld:has(.ndoc-full.has-doc){min-height:420px}
   .ndoc-fld .ndoc-full.has-doc{flex:1}
+  .event-page.ep-scroll .wpanel{overflow-y:auto;overscroll-behavior:contain;padding:3px;margin:-3px}
   @media (max-width:600px){ .frow2{grid-template-columns:minmax(0,1fr)} }
   .soon-h{font-weight:500;margin-bottom:4px}
   .soon-teaser{display:flex;flex-direction:column;gap:8px}
   .btn.xs{font-size:11px;padding:1px 7px;font-weight:500}
+  /* link-style small action (Preview listing, View on Eventbrite, Copy internal description) */
+  .lnk{font:inherit;font-size:11.5px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;text-decoration:none;white-space:nowrap}
+  .lnk:hover{text-decoration:underline}
+  .lnk:disabled{color:var(--faint);cursor:not-allowed;text-decoration:none}
+  .fld label .lnk{margin-left:6px}
 
   /* feedback / ideas board */
   .fbboard{margin-top:10px}
@@ -697,15 +897,16 @@
   .fbst-planned{background:#FAEEDA;color:#8A5A0B}
   .fbst-shipped{background:#E7F4E9;color:#2F7D3B}
   .fbst-declined{background:var(--soft);color:var(--muted)}
-  @media(max-width:600px){ .wsplit{flex-direction:column} .wrail{flex:none;flex-direction:row;overflow-x:auto;scrollbar-width:none;border-right:0;border-bottom:.5px solid var(--hair);padding:12px 16px 8px} .wrail::-webkit-scrollbar{display:none} .wrail-item{flex:0 0 auto} .wrail-soon{display:none} }
+  @media(max-width:600px){ .wrail{flex:none;flex-direction:row;overflow-x:auto;scrollbar-width:none;border-right:0;border-bottom:.5px solid var(--hair);padding:12px 16px 8px} .wrail::-webkit-scrollbar{display:none} .wrail-item{flex:0 0 auto} .wrail-soon{display:none} }
 
   /* ---- Volunteers & potluck: gather slot builder (editor section) ---- */
   .slots-wrap{display:flex;flex-direction:column;gap:12px}
   .slots-loading{display:flex;align-items:center;gap:9px;padding:14px 4px;font-size:13px;color:var(--muted)}
   .slots-list{display:flex;flex-direction:column;gap:14px}
   .slot-group{display:flex;flex-direction:column;gap:6px}
-  .slot-group-h{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-    align-self:flex-start;padding:2px 8px;border-radius:20px;white-space:nowrap}
+  .slot-group-hd{position:sticky;top:0;z-index:1;background:var(--paper);padding:0 0 2px}   /* sticks to the top of the list while its group scrolls */
+  .slot-group-h{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 8px;border-radius:20px;white-space:nowrap}
   .slot-group-h.pot{background:#F6EDDF;color:#8A5A0B}
   .slot-group-h.vol{background:#E7EEF9;color:#2F5FA3}
   .slot-item{display:flex;flex-direction:column;gap:4px;padding:7px 9px;border:1px solid var(--hair);
@@ -761,8 +962,10 @@
   .roster-seg .n{opacity:.7;margin-left:3px;font-variant-numeric:tabular-nums}
   .roster-seg.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .roster-seg.on .n{opacity:.9}
-  table.roster{width:100%;border-collapse:collapse;font-size:12.5px}
-  table.roster th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--hair);position:sticky;top:0;background:var(--surface);z-index:2}
+  /* separate borders, no spacing: a collapsed border isn't painted with a sticky cell, so
+     the row underneath showed through above the header while scrolling */
+  table.roster{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+  table.roster th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--hair);position:sticky;top:0;background:var(--paper);z-index:2}
   table.roster tbody tr{cursor:pointer}
   table.roster tbody tr:hover{background:var(--soft2)}
   table.roster td{padding:6px;border-bottom:1px solid var(--hair);vertical-align:top}
@@ -840,7 +1043,7 @@
   .gate .gate-help a{color:var(--accent);font-weight:600}
   @media (min-width:1000px){ body.help-open{padding-right:var(--help-w)} }
   @media (min-width:1000px) and (max-width:1399px){ body.help-open .qgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }   /* the page is under 1000px wide then — three columns get cramped */   /* wide: Help sits beside the page — header and calendar narrow instead of hiding under it */
-  @media (min-width:1000px){ body.help-open .scrim{padding-right:calc(var(--help-w) + 16px)} }       /* an open editor (≥568px) sits beside the drawer; narrower, the drawer overlays it */
+  @media (min-width:1000px){ body.help-open .scrim,body.help-open .vd-scrim{padding-right:calc(var(--help-w) + 16px)} }       /* an open editor (≥568px) sits beside the drawer; narrower, the drawer overlays it */
   @media (min-width:780px){  body.help-open .gate-scrim{padding-right:calc(var(--help-w) + 20px)} }  /* the 340px sign-in card still fits beside it */
   @media (max-width:600px){
     .help-drawer{width:100%;border-left:0;box-shadow:none}
@@ -859,7 +1062,6 @@
   .ftag.req{background:#FBE9E7;color:#B3261E}
   .ftag.chg{background:#FBF3E4;color:#7A5F1E}
   .ftag.ok{background:#E7F4E9;color:#2F7D3B}
-  .ftag.mgd{background:var(--soft);color:var(--muted);white-space:normal}
   .fhint:empty{display:none}
   .fhint{display:flex;flex-direction:column;gap:2px;font-size:11.5px}
   .fhint .hint{color:var(--muted)}
@@ -867,13 +1069,7 @@
   .fld .hint.warn{color:#7A5F1E;font-weight:500}
   .fld .hint.warn[hidden]{display:none}
   .fieldgroup-h .fmk{margin-left:4px}
-  .ebcard{display:flex;flex-direction:column;gap:8px;padding:12px 14px;background:var(--surface);border:1px solid var(--hair-strong);border-radius:9px}
-  .ebrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px}
-  .ebrow.hint{font-size:12px;color:var(--muted)}
-  .ebacts{margin-left:auto;display:flex;align-items:center;gap:10px}
   .ftag.pre{background:var(--soft);color:var(--muted)}
-  .ebview{color:var(--accent);font-weight:500;text-decoration:none}
-  .ebview:hover{text-decoration:underline}
   /* leave guard: an in-modal confirm bar above the footer */
   .edguard{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 18px;background:#FBF3E4;border-top:1px solid #EAD9B5;flex-shrink:0}
   .edguard[hidden]{display:none}
@@ -941,8 +1137,8 @@
     .badge.b-confirmed{background:#23352B;color:#82C89D}
     .badge.b-live{background:#20392A;color:#74C48C}
     .b-draft{background:#252F42;color:#8FB4E8;border-color:#2F3E58}
-    .slot-group-h.pot,.slot-kind.pot{background:#3A2F1E;color:#D8A85C}
-    .slot-group-h.vol,.slot-kind.vol{background:#222B3E;color:#8FB4E8}
+    .slot-group-h.pot{background:#3A2F1E;color:#D8A85C}
+    .slot-group-h.vol{background:#222B3E;color:#8FB4E8}
     .fbst-new{background:#252F42;color:#8FB4E8}
     .fbst-planned{background:#3A3322;color:#D9B96C}
     .fbst-shipped{background:#23352B;color:#82C89D}
@@ -951,11 +1147,16 @@
     .danger:hover{background:#3C2626;border-color:#7A4040;color:#E9A0A0}
     .iconbtn.del:hover:not([disabled]){border-color:#7A4040;color:#E08585;background:#3C2626}
     .savestat.error{color:#E08585;background:#3C2626}
-    .edmsg .flinks a,.kmenu .mi.danger b{color:#E08585}
-    .fsteps .dot.current.g{background:#74C48C;border-color:#74C48C;box-shadow:0 0 0 3px #20392A}
-    .fsteps .cur.g{color:#74C48C}
+    .sp-rows .bad .sp-ic,.sp-rows .bad a,.kmenu .mi.danger b{color:#E08585}
+    .sp-rows .ok .sp-ic{color:#74C48C}
+    .sp-step.current.g .sp-dot{background:#74C48C;border-color:#74C48C;box-shadow:0 0 0 3px #20392A}
+    .sp-step.current.g .sp-lbl{color:#74C48C}
+    .sp-step.done .sp-dot{color:#101020}
+    .sp-bar{background:#3A3322;border-color:#4A4130}
+    .tab-dot{background:#E08585}
     .btn.fbtn.go,.btn.fbtn.go:hover{background:#74C48C;border-color:#74C48C;color:#101020}
     .btn.fbtn.primary{color:#101020}
+    .btn.fbtn.go[disabled],.btn.fbtn.go[disabled]:hover,.btn.fbtn.primary[disabled]{background:var(--soft);border-color:var(--hair);color:var(--faint)}
     .ndoc-warn{color:#D9B96C}
     .fic.ok{color:#74C48C}
     .fic.chg{color:#D9B96C}
@@ -963,8 +1164,10 @@
     .ftag.chg{background:#3A3322;color:#D9B96C}
     .ftag.ok{background:#20392A;color:#74C48C}
     .fhint .hint.err{color:#E9A0A0}
+    .vform .hint.err{color:#E9A0A0}
     .fld .hint.warn{color:#D9B96C}
     .edguard{background:#3A3322;border-top-color:#4A4130}
+    .ep-main .edguard{border-color:#4A4130}
     .edguard-msg{color:#D9B96C}
     .weekhead .wd.we{color:#C9938A}
     .toast{color:var(--paper)}

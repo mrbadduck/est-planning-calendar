@@ -1,6 +1,6 @@
-/* shell.js — the app shell: layer toggles, month/quarter click delegation, day picker, sticky offsets, view switch, nav, ⚙ and ☰ menus.
-   Owns: renderLayers, layoutSticky, PHONE_MQ, curView, rerender, applyView, updateNavLabel, ovfMenu, phoneMenu, wirePhoneMenu
-   Reads: state, prefs (state.js); REF_LAYERS (data.js)
+/* shell.js — the app shell: layer toggles, month/quarter click delegation, day picker, sticky offsets, view switch (applyView also shows #listBar, the List's Needs approval row), nav, ⚙ and ☰ menus.
+   Owns: renderLayers, layoutSticky, scrollCalendarToToday, _calPlaced, PHONE_MQ, rerender, applyView, updateNavLabel, ovfMenu, phoneMenu, wirePhoneMenu
+   Reads: state, prefs (state.js); REF_LAYERS (data.js); layoutEventPage (status-panel.js; call time, when the 600px line is crossed)
    Writes: state, prefs (state.js); editing (editor-tabs.js; the day picker)
    Loaded after: editor-close.js (statement order: its listeners register before help.js's; the ⚙/☰ menu functions sit here though they came from the auth region) */
 
@@ -70,7 +70,7 @@ function openDayPicker(ds,list){
   editing={id:'__picker__'};
   document.getElementById('mStripe').style.setProperty('--c','var(--accent)');
   document.getElementById('mTitle').textContent=fmtDate(ds);
-  document.getElementById('mBadges').innerHTML=''; clearHeadMeta(); document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
+  document.getElementById('mBadges').innerHTML=''; document.getElementById('mActions').innerHTML=`<span class="badge b-ref">${list.length} events</span>`;
   document.getElementById('mBody').innerHTML=`<div class="fld full"><div class="chips" id="dp">${list.map(chipHTML).join('')}</div></div>`;
   document.getElementById('mFoot').innerHTML=`<button class="btn primary" data-act="newhere">+ New on this day</button><span class="push"></span><button class="btn" data-act="close">Close</button>`;
   document.getElementById('dp').addEventListener('click',ev=>{ const c=ev.target.closest('.chip'); if(!c) return; const item=state.events.find(x=>x.id===c.dataset.id); if(item) openEditor(item); });
@@ -81,10 +81,26 @@ function openDayPicker(ds,list){
 /* keep sticky offsets correct as the (multi-row) header height changes */
 function layoutSticky(){
   const bar=document.querySelector('.bar'), wh=document.getElementById('weekhead');
-  if(bar) document.documentElement.style.setProperty('--bar-h', bar.offsetHeight+'px');
+  if(bar && bar.offsetHeight) document.documentElement.style.setProperty('--bar-h', bar.offsetHeight+'px');   // (0 while the event page hides it)
+  const ept=document.getElementById('epTop');
+  if(ept && ept.offsetHeight) document.documentElement.style.setProperty('--ep-top-h', ept.offsetHeight+'px');   // the event page's own sticky offset
+  const eptabs=document.getElementById('epTabs');
+  if(eptabs && eptabs.offsetHeight) document.documentElement.style.setProperty('--ep-tabs-h', eptabs.offsetHeight+'px');   // the tab strip's height (mid layout: the panel sticks under it)
   if(wh && wh.offsetHeight) document.documentElement.style.setProperty('--wh-h', wh.offsetHeight+'px');
 }
 window.addEventListener('resize', layoutSticky);
+
+// Scroll the calendar to today (init, and leaving a page opened from a fresh deep link,
+// which had no calendar scroll to return to). A no-op while the event page hides the calendar.
+let _calPlaced=false;   // the calendar has been scrolled to today once (its scroll is now the user's)
+function scrollCalendarToToday(){
+  if(document.body.classList.contains('event-open')) return;
+  _calPlaced=true;
+  const t=new Date(), v=curView();
+  if(v==='overview'){ const el=document.querySelector(`.qcol[data-mk="${monthKey(t.getFullYear(),t.getMonth())}"]`); if(el) el.scrollIntoView({block:'center'}); }
+  else if(v==='list'){ const el=document.querySelector('.lday.lnow'); if(el) el.scrollIntoView({block:'start'}); }   // scroll-margin clears the sticky header + month name
+  else { const el=document.querySelector('.cell.today'); if(el) el.scrollIntoView({block:'center'}); }
+}
 
 /* view switch */
 // Phones (≤600px — the same breakpoint as the stylesheet) get the list only: the
@@ -97,9 +113,10 @@ function applyView(){
   document.getElementById('yearView').style.display = v==='year' ? '' : 'none';
   document.getElementById('quarter').classList.toggle('on', v==='overview');
   document.getElementById('listView').classList.toggle('on', v==='list');
+  document.getElementById('listBar').classList.toggle('on', v==='list');
   rerender(); updateNavLabel(); layoutSticky();
 }
-PHONE_MQ.addEventListener('change', ()=>{ phoneMenu(false); applyView(); });   // rotated, or a window resized across 600px
+PHONE_MQ.addEventListener('change', ()=>{ phoneMenu(false); applyView(); layoutEventPage(); });   // rotated, or a window resized across 600px
 document.getElementById('viewSeg').addEventListener('click',e=>{
   const b=e.target.closest('button'); if(!b) return;
   state.view=b.dataset.view; prefs.view=state.view; savePrefs();

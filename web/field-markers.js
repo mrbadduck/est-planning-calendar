@@ -1,17 +1,17 @@
-/* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the Details listing card.
+/* field-markers.js — the Eventbrite sync icons, hints and tags on field labels, and the listing row of the Status & next step card.
    Owns: ICON_PRIVATE, TIP_PRIVATE, ADDR_DEFAULT_HINT, ADDR_HOME_PUBLIC_WARN, fmkIcon, fieldMarkModel, fieldLabelHTML, fieldHintSlot, listingCardHTML, paintFieldMarks
-   Reads: state (state.js); editing (editor-tabs.js); _ctx (editor.js); _ebStatus, _conflictShown (eventbrite.js)
-   Writes: _conflictShown (eventbrite.js; add/delete)
+   Reads: editing (editor-tabs.js); _ctx (editor.js)
+   Writes: nothing
    Loaded after: notes-doc.js (file-map order; no load-time dependency) */
 
-/* ---- Eventbrite listing on the Details tab (spec 5.4, 5.7; D1, D4) -----------
+/* ---- Eventbrite listing on the Listing tab (spec 5.4, 5.7; D1, D4) -----------
    The form always shows the event's own (Coda) values. Nothing read from
    Eventbrite is ever put into the form or written to Coda: sync status compares
    the form with `ev.pushed`, the snapshot the Worker stores on each push (Last EB
    pushed values, read-only here). Every region that changes while the editor is
    open has a stable container, repainted with paintInner: the field markers
    ([data-fmk]), their hints ([data-fhint]) and the
-   listing card (#listingCard, which Task 14 fills with the live status). */
+   listing row (#listingCard, inside the Status & next step card). */
 // One sync icon per public field (R20): a gray clock before the event is on
 // Eventbrite; once it is, a green check (matches), an amber sync arrow (changed
 // here) or a gray sync arrow (not compared yet). Private fields: the crossed eye.
@@ -36,7 +36,7 @@ const ADDR_HOME_PUBLIC_WARN = 'This is a private home. Its full street address w
 const fmkIcon = (cls, icon, tip, aria) => `<span class="fic${cls?' '+cls:''}" role="img" data-tip="${esc(tip)}" aria-label="${esc(aria)}">${icon}</span>`;
 // What the markers show for the open editor: sync status per public field (only
 // once the event is on Eventbrite) and the fields the next action is waiting on —
-// the same set as the footer's links.
+// the same set as the panel's readiness links.
 function fieldMarkModel(ev){
   const R=ListingRules, linked=!!ev.eventbriteId;
   const sync = linked ? R.syncStatus(ev, ev.pushed || null) : {};
@@ -86,38 +86,31 @@ function fieldLabelHTML(key, labelText, m){
   return `${labelText} <span class="fmk" data-fmk="${key}">${fieldMarksHTML(key, m || fieldMarkModel(editing || {}))}</span>`;
 }
 const fieldHintSlot = key => `<div class="fhint" data-fhint="${key}"></div>`;
-// The listing card, above Title at every stage, with Preview listing (R26). Before
-// the event is on Eventbrite it is one modest row ("Not on Eventbrite yet" + the
-// button; the preview is built from the form). Once it is, the registered
-// count comes from the live status (refreshEbStatus) and is left out until it
-// loads. Counts and the tickets line show what was pushed (what Eventbrite has),
-// never the form's Free tickets. The conflict notice (D8) shows when Eventbrite was
-// edited since our last push; once it has been shown, the next push overwrites.
-// Everyone gets Preview listing; Eventbrite's own copy (the Worker route,
-// write-role gated) only for leads and council — read-only viewers see the
+// The listing row (#listingCard), the Status & next step card's last line (spec 5.3,
+// polish 2026-11-16: one card, no separate listing card): a badge — Not on Eventbrite
+// yet / Private draft / Public — then small link-style actions, Preview listing (R26,
+// every stage) and, once public, View on Eventbrite ↗; then, once on Eventbrite, the
+// tickets line. No sentence of its own: the card's title and sub already say whether
+// people can register, and the sub carries the conflict notice (D8), so it isn't
+// repeated here. Tickets show what was pushed (what Eventbrite has), never the form's
+// Free tickets. Everyone gets Preview listing; Eventbrite's own copy (the Worker
+// route, write-role gated) only for leads and council — read-only viewers see the
 // version built from the fields (openPreview).
-const PREVIEW_BTN = `<button type="button" class="btn xs" data-pv-open>Preview listing</button>`;
+const PREVIEW_BTN = `<button type="button" class="lnk" data-pv-open>Preview listing</button>`;
 function listingCardHTML(ev){
-  if(!ev.eventbriteId){
-    const ended = ev.status==='cancelled' || !!(_ctx && _ctx.past);   // never going on Eventbrite now
-    return `<div class="ebrow"><span class="ftag pre lg">Not on Eventbrite yet</span>${ended?'':`<span class="hint">Nobody sees it until it's added and published.</span>`}<span class="ebacts">${PREVIEW_BTN}</span></div>`;
-  }
+  if(!ev.eventbriteId) return `<div class="sp-lrow"><span class="ftag pre">${isHistory(ev) ? 'Not on Eventbrite' : 'Not on Eventbrite yet'}</span><span class="sp-lacts">${PREVIEW_BTN}</span></div>`;
   const pub = ev.publishStatus==='Published';
-  const pill = pub ? `<span class="ftag ok lg">Public</span>` : `<span class="ftag chg lg">Private draft</span>`;
-  const st = _ebStatus.get(ev.id), sold = st && st.sold!=null ? Number(st.sold) : null;
-  const cap = ebCapacity(ev);
-  const count = sold==null ? '' : cap ? ` · ${sold} of ${cap} registered` : ` · ${sold} registered`;
-  const line = pub ? 'Registration open' + count : 'Nobody can see this listing or register yet.';
-  const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="ebview" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
+  const pill = pub ? `<span class="ftag ok">Public</span>` : `<span class="ftag chg">Private draft</span>`;
+  const view = pub && /^https?:\/\//i.test(String(ev.eventbriteUrl||'')) ? `<a class="lnk" href="${esc(ev.eventbriteUrl)}" target="_blank" rel="noopener">View on Eventbrite ↗</a>` : '';
   const qty = ev.pushed && Number(ev.pushed.capacity) > 0 ? ` · ${Number(ev.pushed.capacity)}` : '';
   const err = ev.publishStatus==='Error' && ev.lastPublishError ? `<div class="ndoc-warn">${esc(ev.lastPublishError)}</div>` : '';
-  const conflict = ebConflict(ev.id) ? `<div class="ndoc-warn">${esc(EB_CONFLICT_NOTICE)}</div>` : '';
-  return `<div class="ebrow">${pill}<b>${esc(line)}</b><span class="ebacts">${view}${PREVIEW_BTN}</span></div>
-    <div class="ebrow hint"><span>Tickets: General Admission · free${qty}</span></div>${conflict}${err}`;
+  return `<div class="sp-lrow">${pill}<span class="sp-lacts">${PREVIEW_BTN}${view}</span></div>`
+    + `<div class="sp-ltix">Tickets: General Admission · free${qty}</div>${err}`;
 }
-// Repaint every marker, hint and the card from the open editor's event.
-// Called with the footer (open, tab switch, every save-state change), so markers
-// follow the same event state the footer reads.
+// Repaint every marker, hint and the listing row from the open editor's event.
+// Called by renderStatusPanel (open, tab switch, every save-state change), so the
+// markers follow the same event state the panel reads. (Whether the conflict notice
+// was seen, D8, is decided there.)
 function paintFieldMarks(){
   const panel=document.getElementById('wpanel');
   if(!panel || !editing || !_ctx || _ctx.ev!==editing) return;
@@ -132,10 +125,6 @@ function paintFieldMarks(){
   });
   panel.querySelectorAll('[data-fhint]').forEach(el=>paintInner(el, fieldHintHTML(el.dataset.fhint, m)));
   const c=document.getElementById('listingCard');
-  if(c){
-    paintInner(c, listingCardHTML(editing));
-    // The next push may overwrite only right after a real notice was seen (D8).
-    if(editing.eventbriteId && ebConflict(editing.id)) _conflictShown.add(editing.id); else _conflictShown.delete(editing.id);
-  }
+  if(c) paintInner(c, listingCardHTML(editing));
   const dh=document.getElementById('f_pubdeschint'); if(dh) paintInner(dh, esc(pubDescHintText(!!editing.eventbriteId)));
 }
