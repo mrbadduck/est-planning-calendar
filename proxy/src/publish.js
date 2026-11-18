@@ -1,6 +1,9 @@
 // Pure helpers for the Eventbrite publish flow. No I/O — unit-tested.
 import { normText } from './eventbrite.js';
 import '../../web/listing-readiness.js';   // globalThis.ListingRules (the app's shared rules)
+import '../../web/venue-address.js';       // globalThis.VenueAddress (the app's shared address rules)
+import { VENUE_COLS } from './coda-columns.js';
+import { venueFromRow } from './venues.js';
 
 // Map Coda's GET /mutationStatus/:id response to our route's response.
 export function mutationResult(status, body) {
@@ -171,16 +174,18 @@ export function deleteGate({ published, status, ebStatus } = {}, id = {}) {
 }
 
 // GET /ref/venues item (R12): what the editor's venue picker and readiness need,
-// never the Address itself — it holds private home addresses and /ref is
-// unauthenticated. `row` is a name-keyed simpleWithArrays Venues row.
+// never the address itself — it holds private home addresses and /ref is
+// unauthenticated. `row` is an id-keyed (VENUE_COLS) simpleWithArrays Venues row;
+// the output keeps the name-keyed `values` shape the app reads. hasAddress follows
+// VenueAddress.hasAddress: structured Street+City, else the legacy Address cell.
 export function venueRefItem(row) {
   const v = (row && row.values) || {};
-  const type = Array.isArray(v['Venue Type']) ? v['Venue Type'][0] : v['Venue Type'];
+  const type = Array.isArray(v[VENUE_COLS.type]) ? v[VENUE_COLS.type][0] : v[VENUE_COLS.type];
   return {
     id: row && row.id,
     name: (row && row.name) || '',
-    values: { 'Venue Type': type == null ? '' : type, 'Closed/Unavailable?': v['Closed/Unavailable?'] === true },
-    hasAddress: !!v['Address'],
+    values: { 'Venue Type': type == null ? '' : type, 'Closed/Unavailable?': v[VENUE_COLS.closed] === true },
+    hasAddress: globalThis.VenueAddress.hasAddress(venueFromRow(row)),
   };
 }
 

@@ -186,18 +186,19 @@ test('deleteGate: a live/started Eventbrite listing refuses delete even when Pub
 });
 
 import { venueRefItem } from '../src/publish.js';
+import { VENUE_COLS as VC } from '../src/coda-columns.js';
 
 test('venueRefItem: projects a venue row without its address (R12)', () => {
   const row = { id: 'i-1', name: 'Mirowitz Home', href: 'x', values: {
-    'Venue Name': 'Mirowitz Home', 'Venue Type': 'Home', 'Closed/Unavailable?': false,
-    Address: '123 Secret St, Nashville, TN', Notes: 'gate code 1234' } };
+    [VC.name]: 'Mirowitz Home', [VC.type]: 'Home', [VC.closed]: false,
+    [VC.address]: '123 Secret St, Nashville, TN', 'c-notes': 'gate code 1234' } };
   const out = venueRefItem(row);
   assert.deepEqual(out, { id: 'i-1', name: 'Mirowitz Home',
     values: { 'Venue Type': 'Home', 'Closed/Unavailable?': false }, hasAddress: true });
   assert.ok(!JSON.stringify(out).includes('Secret'));
 });
 test('venueRefItem: no address, array type, closed', () => {
-  const out = venueRefItem({ id: 'i-2', name: 'Park', values: { 'Venue Type': ['Outdoor'], 'Closed/Unavailable?': true, Address: '' } });
+  const out = venueRefItem({ id: 'i-2', name: 'Park', values: { [VC.type]: ['Outdoor'], [VC.closed]: true, [VC.address]: '' } });
   assert.deepEqual(out, { id: 'i-2', name: 'Park', values: { 'Venue Type': 'Outdoor', 'Closed/Unavailable?': true }, hasAddress: false });
   assert.equal(venueRefItem({ id: 'i-3', name: 'X' }).hasAddress, false);
 });
@@ -292,4 +293,15 @@ test('publishSuccessBody: carries the requestId of the last row write', () => {
   const b = publishSuccessBody({ ebId: '1', url: 'u', draftOnly: false, pushedJson: '{}', requestId: 'mutate:abc' });
   assert.equal(b.requestId, 'mutate:abc');
   assert.equal(publishSuccessBody({ ebId: '1', url: 'u', pushedJson: '{}' }).requestId, null);
+});
+
+const VENUE_COLS = VC;
+test('venueRefItem: reads by column id; hasAddress from structured Street+City, else the legacy Address', () => {
+  const C = VENUE_COLS;
+  const structured = venueRefItem({ id: 'i-4', name: 'Hall', values: { [C.type]: 'Partner', [C.closed]: false,
+    [C.street]: '1 Hall Rd', [C.city]: 'Nashville', [C.address]: '' } });
+  assert.deepEqual(structured, { id: 'i-4', name: 'Hall', values: { 'Venue Type': 'Partner', 'Closed/Unavailable?': false }, hasAddress: true });
+  assert.ok(!JSON.stringify(structured).includes('Hall Rd'));
+  assert.equal(venueRefItem({ id: 'i-5', name: 'L', values: { [C.address]: '9 Legacy St, Nashville, TN' } }).hasAddress, true);
+  assert.equal(venueRefItem({ id: 'i-6', name: 'S', values: { [C.street]: '9 Only St' } }).hasAddress, false, 'street without city is not an address');
 });

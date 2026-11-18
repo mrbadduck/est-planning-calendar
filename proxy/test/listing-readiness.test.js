@@ -126,7 +126,7 @@ test('footerModel draft lead', () => {
   assert.equal(m.primary.label, 'Propose to council');
   assert.equal(m.primary.act, 'propose');
   assert.deepEqual(acts(m), ['delete']);
-  assert.deepEqual(m.steps.map(s => s.state), ['current', 'todo', 'todo', 'todo', 'todo']);
+  assert.deepEqual(m.steps.map(s => s.state), ['current', 'todo', 'todo', 'todo', 'todo', 'todo']);
 });
 
 test('footerModel proposed lead and council', () => {
@@ -358,4 +358,152 @@ test('footerModel: Preview listing is never a footer secondary (R26)', () => {
   const ev = { ...ready(), publicDescription: 'x' };
   for (const stage of ['draft', 'proposed', 'approved', 'onEventbrite', 'published', 'cancelled'])
     for (const pushed of [{}, null]) assert.equal(fm({ stage, ev, pushed }).secondary, null, stage);
+});
+
+// ---- footerModel checklist (Task 8) ----
+const LABELS = ['Title', 'Date and times', 'Free tickets', 'Venue and address', 'Description'];
+const cl = (stage, ev) => R.footerModel({ stage, past: false, role: LEAD, unpushed: [],
+  checks: R.readiness(ev, { todayISO: TODAY }) }).checklist;
+
+test('footerModel checklist is empty before approval and after cancel', () => {
+  for (const stage of ['draft', 'proposed', 'cancelled']) assert.deepEqual(cl(stage, ready()), []);
+});
+
+test('footerModel checklist names the first failing date check; no description row before Eventbrite', () => {
+  const rows = cl('approved', { ...ready(), end: '' });
+  const date = rows.find(r => r.key === 'date');
+  assert.equal(date.ok, false);
+  assert.equal(date.field, 'end');
+  assert.equal(date.message, 'Add an end time');
+  assert.equal(rows.find(r => r.key === 'publicDescription'), undefined);
+  assert.ok(rows.every(r => LABELS.includes(r.label)));
+});
+
+test('footerModel checklist adds Description on Eventbrite and all-pass rows are ok', () => {
+  const rows = cl('onEventbrite', { ...ready(), publicDescription: 'Come eat' });
+  assert.ok(rows.find(r => r.key === 'publicDescription'));
+  assert.deepEqual(rows.map(r => r.label), LABELS);
+  assert.ok(rows.every(r => r.ok && r.message === ''));
+  const bad = cl('published', ready()).find(r => r.key === 'publicDescription');
+  assert.equal(bad.ok, false);
+  assert.equal(bad.field, 'publicDescription');
+});
+
+test('footerModel checklist follows what the primary is gated on, not just the stage', () => {
+  // On Eventbrite with unpushed edits: the primary is Update draft, gated on the add
+  // checks, so a missing public description is no ✗ row (and no link).
+  const ev = ready();   // no public description
+  const upd = fm({ stage: 'onEventbrite', ev, unpushed: ['title'] });
+  assert.equal(upd.primary.act, 'update-eb');
+  assert.equal(upd.primary.enabled, true);
+  assert.equal(upd.checklist.find(r => r.key === 'publicDescription'), undefined);
+  assert.ok(upd.checklist.every(r => r.ok));
+  assert.deepEqual(upd.links, []);
+  // No unpushed edits: the primary is Publish, gated on the publish checks.
+  const pubm = fm({ stage: 'onEventbrite', ev });
+  assert.equal(pubm.primary.act, 'publish-eb');
+  const row = pubm.checklist.find(r => r.key === 'publicDescription');
+  assert.equal(row.ok, false);
+  assert.deepEqual(pubm.links.map(l => l.field), ['publicDescription']);
+  // Published with unpushed edits: Update listing is gated on the publish checks.
+  const ul = fm({ stage: 'published', ev, unpushed: ['title'] });
+  assert.equal(ul.primary.act, 'update-listing');
+  assert.equal(ul.checklist.find(r => r.key === 'publicDescription').ok, false);
+});
+
+test('footerModel checklist is empty for a past event (nothing left to do, R10)', () => {
+  const m = R.footerModel({ stage: 'approved', past: true, role: LEAD, unpushed: [],
+    checks: R.readiness({ ...ready(), end: '' }, { todayISO: TODAY }) });
+  assert.deepEqual(m.checklist, []);
+  assert.deepEqual(m.links, []);
+});
+
+test('footerModel checklist is empty while the registrant-email offer shows', () => {
+  for (const stage of ['published', 'onEventbrite']) {
+    const ev = ready();   // no public description: the publish list has a failing row
+    assert.ok(fm({ stage, ev }).checklist.length > 0, stage);
+    const m = fm({ stage, ev, justChanged: { fields: ['date'], registrants: 3 } });
+    assert.equal(m.primary.act, 'email-registrants', stage);
+    assert.deepEqual(m.checklist, [], stage);
+  }
+});
+
+test('footerModel copy names the panel, not the footer or the title', () => {
+  const subs = [
+    R.footerModel({ stage: 'proposed', past: false, role: LEAD, unpushed: [], checks: R.readiness(ready(), { todayISO: TODAY }) }).sub,
+    R.footerModel({ stage: 'onEventbrite', past: false, role: LEAD, unpushed: [], pushed: {}, checks: R.readiness(ready(), { todayISO: TODAY }) }).sub,
+  ];
+  for (const s of subs) assert.ok(!/footer|above the title/i.test(s), s);
+});
+
+// ---- published line follows Eventbrite's live status (polish round 2, item 1) ----
+test('footerModel published line follows the live Eventbrite status', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  const t = o => fm({ stage: 'published', ev, registrants: 3, capacity: 20, ...o }).title;
+  assert.equal(t({ liveStatus: 'live' }), 'Published · registration open · 3 of 20 registered');
+  assert.equal(t({ liveStatus: 'started' }), 'Published · happening now · 3 of 20 registered');
+  assert.equal(t({ liveStatus: 'ended' }), 'Published · registration closed · 3 of 20 registered');
+  assert.equal(t({ liveStatus: 'completed' }), 'Published · registration closed · 3 of 20 registered');
+  assert.equal(t({ liveStatus: 'canceled' }), 'Published · canceled on Eventbrite · 3 of 20 registered');
+  assert.equal(t({ liveStatus: '' }), 'Published · registration open · 3 of 20 registered');   // not loaded yet, date ahead
+  assert.equal(t({ liveStatus: 'draft' }), 'Published · registration open · 3 of 20 registered');
+  assert.equal(fm({ stage: 'published', ev, registrants: null, liveStatus: 'ended' }).title, 'Published · registration closed');
+  // with unpushed changes the line is in the sub
+  assert.match(fm({ stage: 'published', ev, unpushed: ['start'], liveStatus: 'started' }).sub, /^Published · happening now\./);
+});
+test('footerModel published line: unknown status after the date (or end) reads registration closed', () => {
+  const ev = { ...ready(), publicDescription: 'x' };
+  assert.equal(fm({ stage: 'published', ev, registrants: 2, ended: true }).title, 'Published · registration closed · 2 registered');
+  assert.equal(fm({ stage: 'published', ev, registrants: 2, ended: true, liveStatus: 'live' }).title, 'Published · registration open · 2 registered');
+  assert.equal(fm({ stage: 'published', ev, registrants: 2, ended: false }).title, 'Published · registration open · 2 registered');
+});
+
+// ---- Past, the sixth step (polish round 2, item 2) ----
+const states = m => m.steps.map(s => s.state);
+test('footerModel has six steps ending in Past', () => {
+  assert.deepEqual(fm({}).steps.map(s => s.label), ['Draft', 'Proposed', 'Approved', 'On Eventbrite', 'Published', 'Past']);
+});
+test('footerModel non-past events: Past is still to do', () => {
+  assert.deepEqual(states(fm({ stage: 'draft' })), ['current', 'todo', 'todo', 'todo', 'todo', 'todo']);
+  assert.deepEqual(states(fm({ stage: 'approved' })), ['done', 'done', 'current', 'todo', 'todo', 'todo']);
+  assert.deepEqual(states(fm({ stage: 'onEventbrite' })), ['done', 'done', 'done', 'current', 'todo', 'todo']);
+  assert.deepEqual(states(fm({ stage: 'published' })), ['done', 'done', 'done', 'done', 'current', 'todo']);
+  assert.ok(fm({ stage: 'cancelled' }).steps.every(s => s.state === 'todo'));
+});
+test('footerModel past published event: Past is current, Published done', () => {
+  const m = fm({ stage: 'published', past: true, registrants: 12, capacity: 40, liveStatus: 'completed' });
+  assert.deepEqual(states(m), ['done', 'done', 'done', 'done', 'done', 'current']);
+  assert.equal(m.title, 'This event has happened · 12 registered');
+  assert.equal(m.sub, 'Next: log expenses and capture what you learned — coming soon.');
+  assert.deepEqual(m.subLinks, [{ text: 'expenses', sect: 'budget' }, { text: 'what you learned', sect: 'feedback' }]);
+  assert.equal(m.primary, null);
+  assert.deepEqual(m.checklist, []);
+  assert.equal(fm({ stage: 'published', past: true, registrants: null }).title, 'This event has happened');
+});
+test('footerModel past approved event never pushed: Eventbrite steps skipped, Past current', () => {
+  const m = fm({ stage: 'approved', past: true });
+  assert.deepEqual(states(m), ['done', 'done', 'done', 'skipped', 'skipped', 'current']);
+  assert.equal(m.title, 'This event has happened');
+  assert.equal(m.primary, null);
+  const d = fm({ stage: 'onEventbrite', past: true });
+  assert.deepEqual(states(d), ['done', 'done', 'done', 'done', 'skipped', 'current']);
+});
+test('footerModel Past: the registrant-email offer still wins the title', () => {
+  const j = fm({ stage: 'published', past: true, justChanged: { fields: ['date'], registrants: 2 } });
+  assert.equal(j.primary.act, 'email-registrants');
+  assert.deepEqual(j.subLinks, []);
+});
+
+test('footerModel checklist names the failing venue check, so its link can open the right form', () => {
+  const ckl = (ev, venue) => R.footerModel({ stage: 'approved', past: false, role: LEAD, unpushed: [],
+    checks: R.readiness(ev, { venue, todayISO: TODAY }) }).checklist.find(r => r.key === 'venue');
+  const other = ckl({ ...ready(), venueOther: 'Rec Center' }, null);
+  assert.equal(other.ok, false);
+  assert.equal(other.check, 'venueOther');
+  assert.equal(other.field, 'venue');
+  const noAddr = ckl({ ...ready(), venueName: 'Shoresh Hall' }, { name: 'Shoresh Hall', type: 'Synagogue', hasAddress: false });
+  assert.equal(noAddr.check, 'venueAddress');
+  const fine = ckl({ ...ready(), venueName: 'Shoresh Hall' }, { name: 'Shoresh Hall', type: 'Synagogue', hasAddress: true });
+  assert.equal(fine.ok, true);
+  assert.equal(fine.check, '');
 });
