@@ -234,13 +234,42 @@ WebCrypto), `node --test`, vanilla JS app (buildless).
     Removed from Eventbrite`, `Published?` false, Eventbrite id kept; logged `action:'removed'`.
     `runSweep` also GETs each upcoming row with an Eventbrite id that the listing didn't return,
     so deletions are caught without a webhook.
+  - **Capped and resumable (stays inside the free plan's 50 outbound calls per run):** a run
+    handles at most `SWEEP_MAX_EVENTS = 8` events that need work, then stores where it stopped in
+    KV `eb-sweep-cursor` and exits; the next hourly run resumes there. Pure
+    `sweepBatch(candidates, cursor, max) -> {batch, nextCursor}` picks the slice.
   - Worker var `EB_SYNC_MODE = off | live` (default `off`) gates both entry points.
 
-- [ ] **Step 1: Write the failing tests** — a pure `removedCells()` returns Publish status `'Removed from Eventbrite'` and `Published?` false; `parseEbWebhook` accepts `{api_url:'https://www.eventbriteapi.com/v3/events/123/'}` → `'123'` and rejects any other host or a non-numeric id; `syncDecision`: pending → `'skip'`; marker set and zero rows (**Review Focus 2**) → `'flowin'`; zero rows, no marker → `'import'`; two rows → `'error'`.
+- [ ] **Step 1: Write the failing tests** — a pure `removedCells()` returns Publish status `'Removed from Eventbrite'` and `Published?` false; `parseEbWebhook` accepts `{api_url:'https://www.eventbriteapi.com/v3/events/123/'}` → `'123'` and rejects any other host or a non-numeric id; `syncDecision`: pending → `'skip'`; marker set and zero rows (**Review Focus 2**) → `'flowin'`; zero rows, no marker → `'import'`; two rows → `'error'`; `sweepBatch` with 20 candidates, cursor at 8, max 8 → candidates 8–15 and `nextCursor` 16, and with the last slice `nextCursor` null.
 - [ ] **Step 2: Run** — FAIL.
 - [ ] **Step 3: Implement** the pure helpers, then `eb-sync-run.js`. The webhook route compares the path secret with `env.EB_WEBHOOK_SECRET` (constant-time), answers 200 at once and runs `syncEbEvent` in `ctx.waitUntil`. `scheduled` calls `runSweep` in `ctx.waitUntil`.
 - [ ] **Step 4: Run** `node --test test/eb-sync.test.js` — PASS; `npx wrangler deploy --dry-run` (from `proxy/`) builds.
 - [ ] **Step 5: Commit** — `feat(proxy): Eventbrite webhook and hourly sweep keep planning rows in step`.
+
+### Task 6b: gather reads a small cached snapshot, not Coda
+
+Today every gather page load reads three Coda tables in rich format (`buildMemberEvents`). After
+the backfill the planning table is ~40× bigger, so gather moves to a cached snapshot holding only
+upcoming events with their slots and claims, before Phase C grows the table.
+
+**Files:**
+- Modify: `proxy/src/gather.js` (pure snapshot builder), `proxy/src/worker.js` (`buildMemberEvents` reads the snapshot), `proxy/src/worker-io.js` (bust helper)
+- Test: `proxy/test/gather.test.js`
+
+**Interfaces:**
+- Produces: pure `gatherSnapshot(eventRows, slotRows, claimRows, todayIso) -> {events, slotsByEvent, claimsBySlot}`
+  keeping only rows that pass `isPublishedUpcoming` or `isApprovedUpcoming`, their slots, and those
+  slots' claims (rich cell values kept as they are, so `projectEventForMember` is unchanged).
+- KV key `GATHER_KV_KEY = 'gather-events-v1'`, read with `swrGet` (soft 30 s, hard 5 min).
+- `bustEventCaches(env)` in `worker-io.js` deletes `ROWS_KV_KEY` and `GATHER_KV_KEY`; every place that
+  busts `ROWS_KV_KEY` today calls it instead, and the claim and slot write routes call it too.
+- Per request, only the caller-specific parts (mineClaimed, claimant names, preview flag) are worked out.
+
+- [ ] **Step 1: Write the failing tests** — a past event, a draft, an upcoming published event with two slots and a claim, and a claim on the past event's slot → the snapshot has one event, its two slots, its one claim, and nothing from the past event.
+- [ ] **Step 2: Run** `node --test test/gather.test.js` — FAIL.
+- [ ] **Step 3: Implement** `gatherSnapshot`, `bustEventCaches`, and switch `buildMemberEvents` to the snapshot.
+- [ ] **Step 4: Run** `node --test test/gather.test.js test/worker-io.test.js` — PASS; `./scripts/check.sh` passes.
+- [ ] **Step 5: Commit** — `perf(proxy): gather reads a cached snapshot of upcoming events` (record `Help: none — no visible change` in the message).
 
 ### Task 7: What leads see, help and decision 0009
 
@@ -333,7 +362,8 @@ WebCrypto), `node --test`, vanilla JS app (buildless).
 **Interfaces:**
 - Consumes: Tasks 9–10; `PLANNING_COLS.gcalEventId`; `logPublish` with `target:'Google Calendar'`.
 - Produces: `syncGcal(env, rowId) -> Promise<{op, ok}>` and `sweepGcal(env) -> Promise<{checked, ops}>`
-  (every approved row dated yesterday or later, plus every row with a stored id whose `onCalendar` is now false).
+  (every approved row dated yesterday or later, plus every row with a stored id whose `onCalendar` is now false;
+  capped at `GCAL_SWEEP_MAX = 20` Google calls per run, resuming from KV `gcal-sweep-cursor` with `sweepBatch` from Task 6).
   Pure `gcalModeAction(mode, op) -> 'call'|'log-only'|'skip'`: `off`→skip, `shadow`→log-only, `live`→call (none → skip always).
   On a `patch` or `delete` that returns 404/410: `patch` re-inserts and stores the new id, `delete` clears the id; both log.
   The last hash per row lives in KV `gcal-hash:<rowId>`; the id is written to the row.
@@ -389,7 +419,9 @@ WebCrypto), `node --test`, vanilla JS app (buildless).
 - [ ] **Step 3: Implement** `planBackfill` (exported for the test) and the CLI (tokens from `proxy/.dev.vars`, never printed; follows `scripts/backfill-venue-address.mjs`).
 - [ ] **Step 4: Run** — PASS. Then the dry run against prod (reads only) and attach its report to the PR. Expected counts: 238 total, 171 with Eventbrite, 20 cancelled.
 - [ ] **Step 5: Help + commit** — add a dated `web/help/whats-new.md` line: past events back to 2017 now show in plan's past years (history, read as Past). `./scripts/check.sh` passes. Commit — `chore(one-table): backfill script for EST Events SRC history`.
-- [ ] **Step 6: 🔒 Eric** — resolve the duplicates and match the unmatched past events in Coda; re-run the dry run until both lists are empty; then `--apply`; re-run the dry run, which must report 0 creates.
+- [ ] **Step 6: Measure before writing** — a local benchmark `scripts/bench-rows.mjs` builds a 250-row planning payload from the dry run's creates (in Coda's `simpleWithArrays` shape) and times `JSON.parse` + the `/rows` projection, and `JSON.parse` of the gather snapshot, 200 runs each. Report p50/p95. Go ahead only if `/rows` p95 is under 5 ms; otherwise stop and plan per-year caching of `/rows` with Eric (or the $5 Workers plan).
+- [ ] **Step 7: 🔒 Eric** — resolve the duplicates and match the unmatched past events in Coda; re-run the dry run until both lists are empty; then `--apply`; re-run the dry run, which must report 0 creates.
+- [ ] **Step 8: Watch CPU** — for three days after `--apply`, check the Worker's CPU time (p50/p99) in the Cloudflare dashboard. If p99 nears 10 ms, raise it with Eric: per-year `/rows` caching, or the $5 plan.
 
 ### Task 15: Before/after metrics check
 
