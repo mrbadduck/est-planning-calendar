@@ -309,7 +309,7 @@ test('venueRefItem: reads by column id; hasAddress from structured Street+City, 
 import { pushSnapshot, snapshotAfterPush } from '../src/publish.js';
 
 test('pushSnapshot: stores Eventbrite normalized values, keeps summary/venue/visibility/ticket', () => {
-  const ev = { title: 'T', publicSummary: 'Sum', publicDescription: 'Hi  there\n', venueName: 'Home', addressVisibility: 'Registrants only', capacity: 40 };
+  const ev = { title: 'T', publicSummary: 'Sum', publicDescription: 'Old text', venueName: 'Home', addressVisibility: 'Registrants only', capacity: 40 };
   const fields = { title: 'T', date: '2026-12-05', start: '18:30', end: '19:45', capacity: 40, publicDescription: 'Hi there', changed: 'c1', ebVenueId: 'v1', ebStatus: 'live' };
   const s = JSON.parse(pushSnapshot(ev, fields, '456'));
   assert.equal(s.publicDescription, 'Hi there');
@@ -331,4 +331,15 @@ test('snapshotAfterPush: failed re-read falls back, never throws', async () => {
   const ok = { ok: true, body: { name: { text: 'T' }, start: { local: '2026-12-05T18:30:00' }, end: { local: '2026-12-05T19:45:00' }, capacity: 5, status: 'live', changed: 'c', description: { html: '' } } };
   const s = JSON.parse(await snapshotAfterPush(async () => ok, 'e1', ev, '9'));
   assert.equal(s.ebStatus, 'live');
+});
+
+test('pushSnapshot: whitespace-only differences keep the form text', () => {
+  const f = (o) => ({ title: 'A B', date: '2026-12-05', start: '18:30', end: '19:45', capacity: 5, publicDescription: 'One Two', ...o });
+  let s = JSON.parse(pushSnapshot({ title: 'A  B', publicDescription: 'One\n\nTwo' }, f(), '1'));
+  assert.equal(s.publicDescription, 'One\n\nTwo');
+  assert.equal(s.title, 'A  B');
+});
+test('pushSnapshot: a genuinely different Eventbrite description is stored', () => {
+  const s = JSON.parse(pushSnapshot({ title: 'T', publicDescription: 'One\n\nTwo' }, { title: 'T', publicDescription: 'Changed', capacity: 5 }, '1'));
+  assert.equal(s.publicDescription, 'Changed');
 });

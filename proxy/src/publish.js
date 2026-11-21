@@ -67,6 +67,10 @@ export function pushedValues(ev, { ticketClassId } = {}) {
 // is not read as an edit later). `fields` null (re-read failed) falls back to what we sent.
 export function pushSnapshot(ev, fields, ticketClassId) {
   if (!fields) return pushedValues(ev, { ticketClassId });
+  // normText collapses whitespace, which the app's trim-only compare would read as an edit:
+  // when only whitespace differs, keep the form's own text.
+  const keepForm = (k) => (normText(ev[k]) === normText(fields[k]) ? { [k]: ev[k] } : {});
+  fields = { ...fields, ...keepForm('title'), ...keepForm('publicDescription') };
   return ebSnapshot(fields, { publicSummary: ev.publicSummary, venueName: ev.venueName, addressVisibility: ev.addressVisibility, ticketClassId });
 }
 

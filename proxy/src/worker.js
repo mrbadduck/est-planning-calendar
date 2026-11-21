@@ -651,7 +651,7 @@ export default {
             { column: 'Publish status', value: draftOnly ? 'Draft' : 'Published' },
             { column: 'Last publish error', value: '' },
             { column: PLANNING_COLS.lastEbPushAt, value: lastPushAt },   // conflict-guard baseline (drafts too)
-            { column: PLANNING_COLS.lastEbPushedValues, value: pushedJson },   // what we just sent (sync status)
+            { column: PLANNING_COLS.lastEbPushedValues, value: pushedJson },   // what Eventbrite holds after the push (sync status)
           ];
           if (!draftOnly) okCells.push({ column: 'Published?', value: true }, { column: 'Last published at', value: new Date().toISOString() });
           await setRow(okCells);
