@@ -31,6 +31,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
+import { ROWS_KV_KEY, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -96,28 +97,7 @@ async function swrGet(env, ctx, key, softMs, hardMs, fetcher) {
 async function swrFill(kv, key, fetcher) {
   try { await kv.put(key, JSON.stringify({ at: Date.now(), data: await fetcher() })); } catch (_) { /* keep serving stale */ }
 }
-async function swrBust(env, key) {
-  const kv = env.CACHE; if (!kv) return;
-  try { await kv.delete(key); } catch (_) {}
-}
-const ROWS_KV_KEY = 'rows-v1';
 const VENUES_KV_KEY = 'ref-venues-v2';   // /ref/venues projection (venueRefItem); bump on a shape change
-// R19: Eventbrite ids the Worker created but Coda hasn't applied to the row yet
-// (resolveEbIds in publish.js). A KV failure here only loses the backstop.
-async function readEbPending(env, rowId) {
-  const kv = env.CACHE; if (!kv || !rowId) return null;
-  try { return await kv.get(ebPendingKey(rowId), 'json'); } catch (_) { return null; }
-}
-async function writeEbPending(env, rowId, marker) {
-  const kv = env.CACHE; if (!kv || !rowId) return;
-  try { await kv.put(ebPendingKey(rowId), JSON.stringify(marker), { expirationTtl: EB_PENDING_TTL }); } catch (_) {}
-}
-// A Coda row PUT returns 202 {requestId}: the write applies 13–30 s later (F1).
-async function codaRequestId(r) {
-  if (!r || !r.ok) return null;
-  try { const j = await r.clone().json(); return (j && j.requestId) || null; } catch (_) { return null; }
-}
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1121,28 +1101,6 @@ const json = (obj, status, cors) =>
 const pass = async (r, cors) =>
   new Response(await r.text(), { status: r.status, headers: { 'Content-Type': 'application/json', ...cors } });
 
-// Read every page of a table's rows (column names + simpleWithArrays), aggregated.
-// Returns { ok:true, items } or { ok:false, resp } carrying the upstream error.
-async function readAllRows(rowsUrl, auth, opts = {}) {
-  const items = [];
-  let pageToken = null, pages = 0;
-  do {
-    const u = new URL(rowsUrl);
-    // rich -> relations come back as { rowId, name } objects (needed for grouping +
-    // ownership by id); implies id-keyed. byId -> id-keyed, values still name-strings.
-    u.searchParams.set('useColumnNames', (opts.byId || opts.rich) ? 'false' : 'true');
-    u.searchParams.set('valueFormat', opts.rich ? 'rich' : 'simpleWithArrays');
-    u.searchParams.set('limit', '200');
-    if (pageToken) u.searchParams.set('pageToken', pageToken);
-    const r = await fetch(u.toString(), { headers: auth });
-    if (!r.ok) return { ok: false, resp: r };
-    const j = await r.json();
-    if (Array.isArray(j.items)) items.push(...j.items);
-    pageToken = j.nextPageToken || null;
-  } while (pageToken && ++pages < 6);
-  return { ok: true, items };
-}
-
 // Coerce a Coda cell that may be a plain URL string or a { url } urlref object.
 function cellUrl(v) {
   if (v == null) return '';
@@ -1473,29 +1431,6 @@ async function buildMyClaims(base, docId, tableId, env, auth, personId) {
 // Thin wrappers over the Eventbrite REST API. Each returns {ok,status,body}; the
 // route inspects those and never lets a non-2xx pass silently. The pure payload
 // builders live in ./eventbrite.js (imported above) — this file only does I/O.
-const EB_BASE = 'https://www.eventbriteapi.com/v3';
-async function ebFetch(env, path, method = 'GET', body, opts = {}) {
-  const reqBody = body ? JSON.stringify(body) : undefined;
-  const r = await fetch(`${EB_BASE}${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${env.EVENTBRITE_TOKEN}`, 'Content-Type': 'application/json' },
-    body: reqBody,
-  });
-  const text = await r.text();
-  let j = null; try { j = JSON.parse(text); } catch (_) {}
-  // Full request/response trace for wrangler tail + Workers Logs. The bearer token
-  // is never in `path`/`reqBody`, so this is safe to log verbatim. Response headers
-  // included (rate-limit + request-id help when Eventbrite is flaky).
-  // opts.quiet logs status only — used for attendee reads, whose bodies carry
-  // registrant PII that must never land in logs.
-  try {
-    console.log('eb', JSON.stringify({
-      req: { method, path, body: opts.quiet ? undefined : reqBody },
-      res: opts.quiet ? { status: r.status } : { status: r.status, headers: Object.fromEntries(r.headers), body: text },
-    }));
-  } catch (_) {}
-  return { ok: r.ok, status: r.status, body: j, text };
-}
 const ebCreateEvent = (env, payload) => ebFetch(env, `/organizations/${env.EVENTBRITE_ORG_ID}/events/`, 'POST', payload);
 const ebUpdateEvent = (env, id, payload) => ebFetch(env, `/events/${id}/`, 'POST', payload);
 const ebCreateVenue = (env, payload) => ebFetch(env, `/organizations/${env.EVENTBRITE_ORG_ID}/venues/`, 'POST', payload);
@@ -1507,28 +1442,6 @@ const ebSetStructuredContent = (env, id, version, body) => ebFetch(env, `/events
 const ebPublish = (env, id) => ebFetch(env, `/events/${id}/publish/`, 'POST');
 const ebUnpublish = (env, id) => ebFetch(env, `/events/${id}/unpublish/`, 'POST');   // revert to draft (free events, no orders)
 const ebDelete = (env, id) => ebFetch(env, `/events/${id}/`, 'DELETE');               // delete an event (no orders only, F7)
-
-// Append one row to the Publish Log table. Logging must NEVER throw — a failed
-// log write can't be allowed to break (or falsely fail) the publish path.
-async function logPublish(env, base, docId, auth, rec) {
-  if (!env.CODA_PUBLISH_LOG_TABLE) return;
-  const cells = [
-    { column: 'When', value: new Date().toISOString() },
-    { column: 'Planning Event', value: rec.rowId ? [rec.rowId] : [] },
-    { column: 'Actor', value: rec.actorId ? [rec.actorId] : [] },
-    { column: 'Target', value: 'Eventbrite' },
-    { column: 'Action', value: rec.action },
-    { column: 'Result', value: rec.ok ? 'ok' : 'error' },
-    { column: 'Eventbrite ID', value: rec.ebId || '' },
-    { column: 'Eventbrite URL', value: rec.ebUrl || '' },
-    { column: 'HTTP status', value: rec.status || 0 },
-    { column: 'Message', value: rec.message || '' },
-  ];
-  try {
-    await fetch(`${base}/docs/${docId}/tables/${env.CODA_PUBLISH_LOG_TABLE}/rows`,
-      { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
-  } catch (_) { /* logging must never break the publish path */ }
-}
 
 // Resolve the planning row's venue to an Eventbrite venue and attach it to the
 // event. `name` is the venue display name ('' when none); `found` is its EST
