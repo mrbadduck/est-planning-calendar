@@ -25,6 +25,41 @@ export const PLANNING_COLS = {
   lastEbPushedValues: 'c-nmm4LZ79JO', // Last EB pushed values (JSON snapshot of what the Worker last sent to Eventbrite)
   published:         'c-My7LREwSH9', // Published?
   status:            'c-ioK48RRF3x', // Status
+  capacity:          'c-FtIEIv1oNF', // Capacity
+  publishStatus:     'c-Bppgu3CtFt', // Publish status
+  ticketClassId:     'c-_FdJ_-XX0_', // Ticket class ID
+  lastPublishedAt:   'c-VQaRCCKLzX', // Last published at
+  lastPublishError:  'c-rIhvH9m_Y5', // Last publish error
+  eventDescription:  'c-ZJO5Ge_PyI', // Event description
+  programs:          'c-tHwtj89ksi', // Programs
+  leads:             'c-92mRz-1SYp', // Leads
+  volunteers:        'c-8_uS1RK9Qx', // Volunteers
+  legacyRow:         'c-sUpvHhlGlI', // Linked EST Events SRC row (to be renamed "Legacy EST Events row")
+  createdBy:         'c-ueS3RrH9ie', // Created by
+};
+
+// EST Events SRC, the legacy events table the one-table backfill reads.
+export const LEGACY_EVENTS_TABLE = 'grid-9TAt5vMMKH';
+
+export const LEGACY_COLS = {
+  name:                    'c-YcC1vx5Ung', // Name
+  eventbriteEvent:         'c-LvlbW7Fk28', // Eventbrite event
+  venue:                   'c-qnAUWGhhWe', // Venue
+  collaborators:           'c-v8SaE7WTNb', // Collaborators
+  cancelled:               'c-kZqi1huBiz', // Cancelled
+  date:                    'c-FNeOszspAw', // Date
+  volunteers:              'c-K8QqK9dNsv', // Volunteers
+  leads:                   'c-Gp18FBaE8q', // Leads
+  attendeesOverride:       'c-LHDV30AIeI', // Num Attendees (Manual Override)
+  eventbriteId:            'c-sLsqeZ0_zh', // Eventbrite ID
+  gcalEventId:             'c-qFF9aveinM', // gCal Event ID
+  bannerOverride:          'c--RGP1jqmMp', // Banner Image Override
+  registrationUrlOverride: 'c-2-8FNMkNKQ', // Registration URL Override
+  programs:                'c-43WF5l9MHf', // Programs
+  start:                   'c-Dx4hZN7o83', // Start
+  end:                     'c-0pwRaIBqeA', // End
+  eventDescription:        'c-veXmap6hVO', // Event description
+  photos:                  'c-diN53OflnB', // Photos
 };
 
 export const SLOT_COLS = {
