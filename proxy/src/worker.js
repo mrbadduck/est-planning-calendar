@@ -45,7 +45,7 @@ import {
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
-import { mutationResult, rowToListingEvent, pushedValues, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
 const ListingRules = globalThis.ListingRules;
@@ -645,7 +645,7 @@ export default {
           }
 
           // 6. success write-back + log
-          const pushedJson = pushedValues(ev, { ticketClassId });
+          const pushedJson = await snapshotAfterPush((path) => ebFetch(env, path, 'GET'), ebId, ev, ticketClassId);   // Eventbrite's own values; falls back to what we sent
           const lastPushAt = new Date().toISOString();
           const okCells = [
             { column: 'Publish status', value: draftOnly ? 'Draft' : 'Published' },

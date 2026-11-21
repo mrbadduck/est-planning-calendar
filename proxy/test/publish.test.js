@@ -305,3 +305,30 @@ test('venueRefItem: reads by column id; hasAddress from structured Street+City, 
   assert.equal(venueRefItem({ id: 'i-5', name: 'L', values: { [C.address]: '9 Legacy St, Nashville, TN' } }).hasAddress, true);
   assert.equal(venueRefItem({ id: 'i-6', name: 'S', values: { [C.street]: '9 Only St' } }).hasAddress, false, 'street without city is not an address');
 });
+
+import { pushSnapshot, snapshotAfterPush } from '../src/publish.js';
+
+test('pushSnapshot: stores Eventbrite normalized values, keeps summary/venue/visibility/ticket', () => {
+  const ev = { title: 'T', publicSummary: 'Sum', publicDescription: 'Hi  there\n', venueName: 'Home', addressVisibility: 'Registrants only', capacity: 40 };
+  const fields = { title: 'T', date: '2026-12-05', start: '18:30', end: '19:45', capacity: 40, publicDescription: 'Hi there', changed: 'c1', ebVenueId: 'v1', ebStatus: 'live' };
+  const s = JSON.parse(pushSnapshot(ev, fields, '456'));
+  assert.equal(s.publicDescription, 'Hi there');
+  assert.equal(s.publicSummary, 'Sum');
+  assert.equal(s.venueName, 'Home');
+  assert.equal(s.addressVisibility, 'Registrants only');
+  assert.equal(s.ticketClassId, '456');
+  assert.equal(s.ebStatus, 'live');
+});
+test('pushSnapshot: null fields falls back to pushedValues', () => {
+  const ev = { title: 'T', date: '2026-12-05', capacity: 5, publicDescription: 'x' };
+  assert.equal(pushSnapshot(ev, null, '9'), pushedValues(ev, { ticketClassId: '9' }));
+});
+test('snapshotAfterPush: failed re-read falls back, never throws', async () => {
+  const ev = { title: 'T', capacity: 5 };
+  const fallback = pushedValues(ev, { ticketClassId: '9' });
+  assert.equal(await snapshotAfterPush(async () => ({ ok: false }), 'e1', ev, '9'), fallback);
+  assert.equal(await snapshotAfterPush(async () => { throw new Error('boom'); }, 'e1', ev, '9'), fallback);
+  const ok = { ok: true, body: { name: { text: 'T' }, start: { local: '2026-12-05T18:30:00' }, end: { local: '2026-12-05T19:45:00' }, capacity: 5, status: 'live', changed: 'c', description: { html: '' } } };
+  const s = JSON.parse(await snapshotAfterPush(async () => ok, 'e1', ev, '9'));
+  assert.equal(s.ebStatus, 'live');
+});

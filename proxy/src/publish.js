@@ -4,6 +4,7 @@ import '../../web/listing-readiness.js';   // globalThis.ListingRules (the app's
 import '../../web/venue-address.js';       // globalThis.VenueAddress (the app's shared address rules)
 import { VENUE_COLS } from './coda-columns.js';
 import { venueFromRow } from './venues.js';
+import { ebToFields, ebSnapshot } from './eb-sync.js';
 
 // Map Coda's GET /mutationStatus/:id response to our route's response.
 export function mutationResult(status, body) {
@@ -60,6 +61,28 @@ export function pushedValues(ev, { ticketClassId } = {}) {
     addressVisibility: ev.addressVisibility || '',
     ticketClassId: ticketClassId || '',
   });
+}
+
+// Snapshot after a push: Eventbrite's own normalized values (so its HTML rewriting
+// is not read as an edit later). `fields` null (re-read failed) falls back to what we sent.
+export function pushSnapshot(ev, fields, ticketClassId) {
+  if (!fields) return pushedValues(ev, { ticketClassId });
+  return ebSnapshot(fields, { publicSummary: ev.publicSummary, venueName: ev.venueName, addressVisibility: ev.addressVisibility, ticketClassId });
+}
+
+// Re-read the event and its structured content, then build the snapshot. A failed
+// re-read must never fail the push: any error or null fields falls back.
+export async function snapshotAfterPush(ebFetch, ebId, ev, ticketClassId) {
+  try {
+    const [r, sc] = await Promise.all([
+      ebFetch(`/events/${ebId}/?expand=venue,ticket_classes`),
+      ebFetch(`/events/${ebId}/structured_content/`),
+    ]);
+    const fields = r && r.ok && sc && sc.ok ? ebToFields(r.body, sc.body) : null;
+    return pushSnapshot(ev, fields, ticketClassId);
+  } catch (_) {
+    return pushSnapshot(ev, null, ticketClassId);
+  }
 }
 
 // The publish route's 200 body. `pushed` is the snapshot just written to Last EB
