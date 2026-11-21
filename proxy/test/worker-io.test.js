@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { publishLogCells } from '../src/worker-io.js';
+import { publishLogCells, bustEventCaches, ROWS_KV_KEY, GATHER_KV_KEY } from '../src/worker-io.js';
 
 const cell = (cells, col) => cells.find((c) => c.column === col).value;
 
@@ -22,4 +22,11 @@ test('publishLogCells: rec.target fills Target; sweep prefix; actor keeps plain 
   assert.equal(cell(a, 'Message'), 'hi');
   assert.deepEqual(cell(a, 'Actor'), ['i-1']);
   assert.deepEqual(cell(a, 'Planning Event'), ['r-1']);
+});
+
+test('bustEventCaches deletes the rows and gather snapshots', async () => {
+  const gone = [];
+  await bustEventCaches({ CACHE: { delete: async (k) => { gone.push(k); } } });
+  assert.deepEqual(gone.sort(), [GATHER_KV_KEY, ROWS_KV_KEY].sort());
+  await bustEventCaches({});   // no binding: no throw
 });

@@ -31,7 +31,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -41,7 +41,7 @@ import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from '.
 import { venueFromRow, venueForEditor, createCells as venueCreateCells, updateCells as venueUpdateCells } from './venues.js';
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
-  claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
+  claimCreateCells, claimOwnerId, slotCells, gatherSnapshot, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
   slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
@@ -181,7 +181,7 @@ export default {
               }
             }
             const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
-            if (w.ok) { await swrBust(env, ROWS_KV_KEY); if (env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} } }
+            if (w.ok) { await bustEventCaches(env); if (env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} } }
             await logPublish(env, base, docId, auth, { rowId: w.ok ? '' : rowId, actorId: id.personId, action: 'delete', ok: w.ok, status: w.status, ebId, message: w.ok ? `event deleted (eb: ${ebOutcome}; row ${rowId})` : `row delete failed (eb: ${ebOutcome})` });
             return pass(w, cors);
           }
@@ -204,7 +204,7 @@ export default {
             }
             const target = request.method === 'POST' ? rowsUrl : `${rowsUrl}/${encodeURIComponent(rowId)}`;
             const w = await fetch(target, { method: request.method, headers: auth, body: JSON.stringify(body) });
-            if (w.ok) await swrBust(env, ROWS_KV_KEY);   // next read must see this write, not the snapshot
+            if (w.ok) await bustEventCaches(env);   // next read must see this write, not the snapshot
             return pass(w, cors);
           }
           return json({ error: 'bad write request' }, 400, cors);
@@ -505,7 +505,7 @@ export default {
         let ebIdNow = ev.eventbriteId || '';   // set once the event exists on Eventbrite
         const setRow = async (cells) => {
           const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) { await swrBust(env, ROWS_KV_KEY); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // publish write-backs must be visible to the next /rows read
+          if (r.ok) { await bustEventCaches(env); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // publish write-backs must be visible to the next /rows read
           return r;
         };
         const failBody = (extra) => ({ ...extra, requestId: lastRequestId, ...(ebIdNow ? { eventbriteId: ebIdNow } : {}) });
@@ -742,7 +742,7 @@ export default {
         let lastRequestId = null;   // Coda's id for the row write: the app waits on it (D3)
         const setRow = async (cells) => {
           const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) { await swrBust(env, ROWS_KV_KEY); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // write-backs must be visible to the next /rows read
+          if (r.ok) { await bustEventCaches(env); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // write-backs must be visible to the next /rows read
           return r;
         };
         const action = isCancel ? 'cancel' : 'unpublish';
@@ -836,7 +836,7 @@ export default {
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
         const btnUrl = `${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}/buttons/${encodeURIComponent(buttonId)}`;
         const w = await fetch(btnUrl, { method: 'POST', headers: auth });
-        if (w.ok) await swrBust(env, ROWS_KV_KEY);   // the button writes the doc URL into the row; the fast-poll must see it
+        if (w.ok) await bustEventCaches(env);   // the button writes the doc URL into the row; the fast-poll must see it
         return pass(w, cors);
       }
 
@@ -908,7 +908,7 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         const m = who ? await resolveMember(who, base, docId, auth, env, ctx) : { personId: null, name: '', canWrite: false };
         const nameOf = who ? await memberNameOf(base, docId, auth, env, ctx) : null;
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { previewer: m.canWrite, nameOf, anonymous: !who });
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { ctx, previewer: m.canWrite, nameOf, anonymous: !who });
         if (res.error) return pass(res.error, cors);
         return json({ items: res.items }, 200, cors);
       }
@@ -944,7 +944,7 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         const m = who ? await resolveMember(who, base, docId, auth, env, ctx) : { personId: null, name: '', canWrite: false };
         const nameOf = who ? await memberNameOf(base, docId, auth, env, ctx) : null;
-        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, previewer: m.canWrite, nameOf, anonymous: !who });
+        const res = await buildMemberEvents(base, docId, tableId, env, auth, m, { onlyId: decodeURIComponent(parts[1]), includeClaimants: true, ctx, previewer: m.canWrite, nameOf, anonymous: !who });
         if (res.error) return pass(res.error, cors);
         if (!res.items.length) return json({ error: 'not found' }, 404, cors);
         return json(res.items[0], 200, cors);
@@ -985,7 +985,7 @@ export default {
         const cells = claimCreateCells(input, memberId, CLAIM_COLS);
         const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
         if (!r.ok) return pass(r, cors);
-        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, input.slot));   // roster (plan Attendees) must see the new claim
+        if (ctx) ctx.waitUntil(Promise.all([bustRosterForSlot(env, base, docId, auth, input.slot), bustEventCaches(env)]));   // roster (plan Attendees) must see the new claim
         const j = await r.json();
         return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
       }
@@ -1008,7 +1008,7 @@ export default {
         const claimRow = await one.json();
         const owner = claimOwnerId(claimRow, CLAIM_COLS);
         if (!(owner && owner === m.personId) && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
-        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])));   // roster must see the change
+        if (ctx) ctx.waitUntil(Promise.all([bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])), bustEventCaches(env)]));   // roster must see the change
         if (request.method === 'DELETE')
           return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth }), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
@@ -1060,18 +1060,20 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const slotId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const slotsUrl = `${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`;
+        const busted = async (r) => { if (r.ok) await bustEventCaches(env); return r; };   // gather snapshot must see the slot change
         if (request.method === 'DELETE' && slotId)
-          return pass(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'DELETE', headers: auth }), cors);
+          return pass(await busted(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'DELETE', headers: auth })), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         if (request.method === 'POST' && !slotId) {
           if (!body.event) return json({ error: 'event required' }, 400, cors);
           const r = await fetch(slotsUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }) });
           if (!r.ok) return pass(r, cors);
+          await bustEventCaches(env);
           const j = await r.json();
           return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
         }
         if (request.method === 'PUT' && slotId)
-          return pass(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: slotCells(body, SLOT_COLS) } }) }), cors);
+          return pass(await busted(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: slotCells(body, SLOT_COLS) } }) })), cors);
         return json({ error: 'bad slot request' }, 400, cors);
       }
 
@@ -1365,31 +1367,22 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
   const callerName = (caller && caller.name) || '';
   const callerId = (caller && caller.personId) || null;
   const today = new Date().toISOString().slice(0, 10);
-  const [ev, sl, cl] = await Promise.all([
-    readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true }),
-    readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
-    readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
-  ]);
-  if (!ev.ok) return { error: ev.resp };
-  const slotsByEvent = new Map();
-  for (const s of (sl.ok ? sl.items : [])) {
-    const eid = relId(s.values[SLOT_COLS.event]);
-    if (!eid) continue;
-    if (!slotsByEvent.has(eid)) slotsByEvent.set(eid, []);
-    slotsByEvent.get(eid).push(s);
-  }
-  const claimsBySlot = {};
-  for (const c of (cl.ok ? cl.items : [])) {
-    const sid = relId(c.values[CLAIM_COLS.slot]);
-    if (!sid) continue;
-    (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
-  }
+  const fetchSnap = async () => {
+    const [ev, sl, cl] = await Promise.all([tableId, env.CODA_SLOTS_TABLE, env.CODA_CLAIMS_TABLE].map((t) =>
+      readAllRows(`${base}/docs/${docId}/tables/${t}/rows`, auth, { rich: true })));
+    for (const x of [ev, sl, cl]) if (!x.ok) throw Object.assign(new Error(`gather read failed (${x.resp.status})`), { resp: x.resp });
+    return gatherSnapshot(ev.items, sl.items, cl.items, new Date().toISOString().slice(0, 10));
+  };
+  let snap;
+  try { snap = await swrGet(env, opts.ctx, GATHER_KV_KEY, 30_000, 300_000, fetchSnap); }   // soft 30s / hard 5min
+  catch (e) { return { error: e.resp || new Response(JSON.stringify({ error: String(e.message || e) }), { status: 502 }) }; }
+  const { events, slotsByEvent, claimsBySlot } = snap;
   // Members see published+upcoming only. Write-authorized callers (leads/council)
   // ALSO see approved-but-unpublished rows, flagged `preview` for the tag in gather.
-  let rows = ev.items.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, today)
+  let rows = events.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, today)
     || (opts.previewer && isApprovedUpcoming(r, PLANNING_COLS, today)));
   if (opts.onlyId) rows = rows.filter((r) => r.id === opts.onlyId);
-  const items = rows.map((r) => projectEventForMember(r, slotsByEvent.get(r.id) || [], claimsBySlot, callerName, {
+  const items = rows.map((r) => projectEventForMember(r, slotsByEvent[r.id] || [], claimsBySlot, callerName, {
     includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf, anonymous: !!opts.anonymous,
     preview: !!opts.previewer && !isPublishedUpcoming(r, PLANNING_COLS, today),
   }));

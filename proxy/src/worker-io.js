@@ -10,6 +10,11 @@ export async function swrBust(env, key) {
   try { await kv.delete(key); } catch (_) {}
 }
 export const ROWS_KV_KEY = 'rows-v1';
+export const GATHER_KV_KEY = 'gather-events-v1';   // gatherSnapshot of upcoming events + slots + claims
+// Anything that changes an event, slot or claim busts both event-derived snapshots.
+export async function bustEventCaches(env) {
+  await Promise.all([swrBust(env, ROWS_KV_KEY), swrBust(env, GATHER_KV_KEY)]);
+}
 
 // R19: Eventbrite ids the Worker created but Coda hasn't applied to the row yet
 // (resolveEbIds in publish.js). A KV failure here only loses the backstop.
