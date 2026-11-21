@@ -63,7 +63,7 @@ export function ebSnapshot(fields, keep) {
     publicDescription: f.publicDescription || '',
     venueName: k.venueName || '',
     addressVisibility: k.addressVisibility || '',
-    ticketClassId: k.ticketClassId || '',
+    ticketClassId: k.ticketClassId || f.ticketClassId || '',
     ebChanged: f.changed || '',
     ebVenueId: f.ebVenueId || '',
     ebStatus: f.ebStatus || '',

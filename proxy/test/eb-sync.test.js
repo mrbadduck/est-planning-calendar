@@ -56,5 +56,6 @@ test('ebSnapshot carries keep values, ebChanged, ebVenueId and ebStatus', () => 
   assert.equal(s.publicSummary, 'S'); assert.equal(s.ebChanged, f.changed);
   assert.equal(s.ebVenueId, '77'); assert.equal(s.ebStatus, 'live');
   assert.equal(s.title, 'Littles Shabbat'); assert.equal(s.capacity, 25);
-  assert.equal(s.venueName, ''); assert.equal(s.ticketClassId, '');
+  assert.equal(s.venueName, ''); assert.equal(s.ticketClassId, 'tc1');
+  assert.equal(JSON.parse(ebSnapshot({ ...f, capacity: null }, {})).capacity, 0);
 });
