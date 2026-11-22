@@ -15,6 +15,12 @@ export const GATHER_KV_KEY = 'gather-events-v1';   // gatherSnapshot of upcoming
 export async function bustEventCaches(env) {
   await Promise.all([swrBust(env, ROWS_KV_KEY), swrBust(env, GATHER_KV_KEY)]);
 }
+// After a claim or slot write Coda accepts it now but applies it ~28 s later, so a re-read
+// in between would refill the snapshot without the write: bust now and again after apply.
+export async function bustEventCachesNowAndAfterApply(env, ctx, delayMs = 28_000) {
+  await bustEventCaches(env);
+  if (ctx) ctx.waitUntil(new Promise((r) => setTimeout(r, delayMs)).then(() => bustEventCaches(env)));
+}
 
 // R19: Eventbrite ids the Worker created but Coda hasn't applied to the row yet
 // (resolveEbIds in publish.js). A KV failure here only loses the backstop.

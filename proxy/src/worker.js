@@ -31,7 +31,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -985,7 +985,8 @@ export default {
         const cells = claimCreateCells(input, memberId, CLAIM_COLS);
         const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
         if (!r.ok) return pass(r, cors);
-        if (ctx) ctx.waitUntil(Promise.all([bustRosterForSlot(env, base, docId, auth, input.slot), bustEventCaches(env)]));   // roster (plan Attendees) must see the new claim
+        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, input.slot));   // roster (plan Attendees) must see the new claim
+        await bustEventCachesNowAndAfterApply(env, ctx);   // gather snapshot, now and once Coda has applied
         const j = await r.json();
         return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
       }
@@ -1008,11 +1009,12 @@ export default {
         const claimRow = await one.json();
         const owner = claimOwnerId(claimRow, CLAIM_COLS);
         if (!(owner && owner === m.personId) && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
-        if (ctx) ctx.waitUntil(Promise.all([bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])), bustEventCaches(env)]));   // roster must see the change
+        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])));   // roster must see the change
+        const claimDone = async (r) => { if (r.ok) await bustEventCachesNowAndAfterApply(env, ctx); return r; };   // gather snapshot, only once Coda accepted
         if (request.method === 'DELETE')
-          return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth }), cors);
+          return pass(await claimDone(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth })), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
-        return pass(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: claimUpdateCells(body, CLAIM_COLS) } }) }), cors);
+        return pass(await claimDone(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: claimUpdateCells(body, CLAIM_COLS) } }) })), cors);
       }
 
       if (parts[0] === 'slots' && request.method === 'GET') {
@@ -1060,7 +1062,7 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const slotId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const slotsUrl = `${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`;
-        const busted = async (r) => { if (r.ok) await bustEventCaches(env); return r; };   // gather snapshot must see the slot change
+        const busted = async (r) => { if (r.ok) await bustEventCachesNowAndAfterApply(env, ctx); return r; };   // gather snapshot must see the slot change
         if (request.method === 'DELETE' && slotId)
           return pass(await busted(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'DELETE', headers: auth })), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
@@ -1068,7 +1070,7 @@ export default {
           if (!body.event) return json({ error: 'event required' }, 400, cors);
           const r = await fetch(slotsUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }) });
           if (!r.ok) return pass(r, cors);
-          await bustEventCaches(env);
+          await bustEventCachesNowAndAfterApply(env, ctx);
           const j = await r.json();
           return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
         }
