@@ -57,7 +57,7 @@ test('ebSnapshot carries keep values, ebChanged, ebVenueId and ebStatus', () => 
   assert.equal(s.ebVenueId, '77'); assert.equal(s.ebStatus, 'live');
   assert.equal(s.title, 'Littles Shabbat'); assert.equal(s.capacity, 25);
   assert.equal(s.venueName, ''); assert.equal(s.ticketClassId, 'tc1');
-  assert.equal(JSON.parse(ebSnapshot({ ...f, capacity: null }, {})).capacity, 0);
+  assert.equal(JSON.parse(ebSnapshot({ ...f, capacity: null }, {})).capacity, '');
 });
 
 // ── Task 4: import or flow-in ──────────────────────────────────────────────
@@ -161,7 +161,7 @@ test('flow-in: Eventbrite HTML description equals the plain snapshot', () => {
 test('flow-in: text compared with normText, capacity null equals 0', () => {
   const f0 = liveF({ capacity: null });
   const row = rowOf(f0, { title: ' Littles  Shabbat ', capacity: '' });
-  assert.equal(row.pushed.capacity, 0);
+  assert.equal(row.pushed.capacity, '');
   assert.deepEqual(planFlowIn(row, f0, matchVenue('77', venues), NOW).changed, []);
   const r = planFlowIn(row, { ...f0, capacity: 30 }, matchVenue('77', venues), NOW);
   assert.deepEqual(r.changed, ['capacity']); assert.equal(cell(r.cells, C.capacity).value, 30);
@@ -371,4 +371,24 @@ test('I1: a mid-push webhook that reads the old snapshot writes a snapshot equal
 test('I1: an echo that matches the snapshot already writes nothing', () => {
   const f0 = liveF();
   assert.deepEqual(planFlowIn(rowOf(f0), f0, matchVenue('77', venues), NOW), { cells: [], changed: [], conflicts: [] });
+});
+
+// ── Final fix I2: automatic status steps are not Eventbrite changes ──
+test('I2: live -> ended changes no row cell and is not reported as changed', () => {
+  const f0 = liveF();
+  const r = planFlowIn(rowOf(f0), { ...f0, ebStatus: 'ended', changed: 'X3' }, matchVenue('77', venues), NOW);
+  assert.deepEqual(r.changed, []);
+  for (const col of [C.status, C.publishStatus, C.published, C.lastFromEb]) assert.equal(cell(r.cells, col), undefined);
+  assert.equal(r.cells.length, 1);
+  assert.equal(JSON.parse(cell(r.cells, C.lastEbPushedValues).value).ebStatus, 'ended');
+});
+
+// ── Final fix M1: imports store a blank capacity as blank ──
+test('M1: ebSnapshot stores a null capacity as blank, matching the import cell', () => {
+  const f = liveF({ capacity: null });
+  assert.equal(JSON.parse(ebSnapshot(f, {})).capacity, '');
+  const cells = importCells(f, matchVenue('77', venues), NOW);
+  assert.equal(cell(cells, C.capacity).value, '');
+  assert.equal(JSON.parse(cell(cells, C.lastEbPushedValues).value).capacity, cell(cells, C.capacity).value);
+  assert.equal(JSON.parse(ebSnapshot(liveF(), {})).capacity, 25);
 });

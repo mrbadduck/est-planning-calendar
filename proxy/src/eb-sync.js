@@ -59,7 +59,8 @@ export function ebSnapshot(fields, keep) {
     date: f.date || '',
     start: f.start || '',
     end: f.end || '',
-    capacity: Number(f.capacity),
+    // Blank (not 0) when Eventbrite has none, as the import cell and the app's compare hold it (M1).
+    capacity: f.capacity == null || f.capacity === '' ? '' : Number(f.capacity),
     publicSummary: k.publicSummary || '',
     publicDescription: f.publicDescription || '',
     venueName: k.venueName || '',
@@ -91,6 +92,8 @@ export function matchVenue(ebVenueId, venues) {
 
 const capNum = (x) => { const n = Number(x == null || x === '' ? 0 : x); return Number.isFinite(n) ? n : 0; };
 const capCell = (x) => (x == null || capNum(x) === 0 ? '' : capNum(x));
+
+const sameCells = (a, b) => a.status === b.status && a.publishStatus === b.publishStatus && a.published === b.published;
 
 function statusCells(ebStatus) {
   const s = ebStatusCells(ebStatus), out = [];
@@ -130,7 +133,7 @@ export function importCells(fields, venueMatch, nowIso) {
 function planAsSnapshot(r) {
   return {
     title: r.title || '', date: r.date || '', start: r.start || '', end: r.end || '',
-    capacity: capNum(r.capacity), publicSummary: r.publicSummary || '',
+    capacity: capCell(r.capacity), publicSummary: r.publicSummary || '',
     publicDescription: r.publicDescription || '', venueName: r.venueName || '',
     addressVisibility: r.addressVisibility || '', ticketClassId: r.ticketClassId || '',
     ebChanged: '', ebVenueId: '', ebStatus: '',
@@ -142,7 +145,7 @@ const SIMPLE = {
   date:              { col: C.date,              eq: (a, b) => String(a || '') === String(b || '') },
   start:             { col: C.start,             eq: (a, b) => String(a || '') === String(b || '') },
   end:               { col: C.end,               eq: (a, b) => String(a || '') === String(b || '') },
-  capacity:          { col: C.capacity,          eq: (a, b) => capNum(a) === capNum(b), cell: capCell, snap: capNum },
+  capacity:          { col: C.capacity,          eq: (a, b) => capNum(a) === capNum(b), cell: capCell, snap: capCell },
   publicDescription: { col: C.publicDescription, eq: (a, b) => normText(a) === normText(b) },
 };
 
@@ -215,6 +218,8 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
       if (!has('ebStatus')) { next.ebStatus = f.ebStatus || ''; adopted = true; continue; }
       // Plan never edits Eventbrite status except by pushing: always write.
       if (String(f.ebStatus || '') === String(snap.ebStatus || '')) continue;
+      // I2: an automatic step (live -> ended) changes no row cell: snapshot only, not a change.
+      if (sameCells(ebStatusCells(f.ebStatus), ebStatusCells(snap.ebStatus))) { refresh('ebStatus', f.ebStatus || ''); continue; }
       // C1: a Cancelled row is plan-owned unless Eventbrite says canceled (a plan
       // Cancel unpublishes the listing; its echo must not bring Status back).
       if (r.status === 'cancelled' && f.ebStatus !== 'canceled') continue;
