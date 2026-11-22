@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../../web/page-rules.js';
 
-const { sectionFromParam, stepNotes, needsApproval } = globalThis.PageRules;
+const { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval } = globalThis.PageRules;
 
 test('sectionFromParam maps aliases and passes other ids through', () => {
   assert.equal(sectionFromParam('notes'), 'planning');
@@ -57,4 +57,20 @@ test('needsApproval is true only for a proposed planning event', () => {
   assert.equal(needsApproval({ source: 'planning', status: 'proposed' }), true);
   assert.equal(needsApproval({ source: 'planning', status: 'draft' }), false);
   assert.equal(needsApproval({ source: 'ref', status: 'proposed' }), false);
+});
+
+test('an imported event says so where the creator would be', () => {
+  assert.equal(stepNotes({ origin: 'Eventbrite' }, { fmtDate })[0], 'Imported from Eventbrite');
+  assert.equal(stepNotes({ origin: 'Plan', createdBy: 'Ana' }, { fmtDate })[0], 'by Ana');
+});
+
+test('updatedFromEbLine names the fields that came in from Eventbrite and when', () => {
+  const at = '2026-11-19T10:00:00Z';
+  const ev = { lastFromEb: { at, fields: ['start', 'capacity'] }, lastEbPushAt: '2026-11-18T00:00:00Z' };
+  assert.equal(updatedFromEbLine(ev, fmtDate), 'Updated from Eventbrite: Start time, Capacity · D(' + localDay(at) + ')');
+  assert.equal(updatedFromEbLine(Object.assign({}, ev, { lastEbPushAt: '2026-11-20T00:00:00Z' }), fmtDate), '');
+  assert.equal(updatedFromEbLine(Object.assign({}, ev, { lastEbPushAt: '' }), fmtDate).startsWith('Updated from Eventbrite: '), true);
+  assert.equal(updatedFromEbLine({ lastFromEb: null }, fmtDate), '');
+  assert.equal(updatedFromEbLine({ lastFromEb: { at, fields: ['publishState', 'venue', 'title', 'date', 'end', 'publicDescription'] } }, fmtDate)
+    .split(' · ')[0], 'Updated from Eventbrite: Status on Eventbrite, Venue, Title, Date, End time, Description');
 });

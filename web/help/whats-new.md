@@ -5,6 +5,10 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-11-22
+- **Events made on Eventbrite now show up here.** If someone creates an event directly on Eventbrite, it appears in the calendar and in gather within about 10 to 25 minutes, marked **Imported from Eventbrite** where the person who made it would be.
+- **Changes made on Eventbrite come through.** Edit a title, date, time, capacity, description, venue or status on Eventbrite and the event here follows within a minute or so. **Status & next step** says **Updated from Eventbrite** and lists what changed. If you changed the same thing here and haven't updated the listing yet, your version stays and you get the usual notice that the listing was edited on Eventbrite. The summary, tickets and **Address on listing** are never copied from Eventbrite.
+
 ## 2026-11-16
 - **Add a venue and fix its address without leaving the event.** Under **Where**, in the new-event form or on an event at any stage, type a new name and choose **+ Add … as a venue**, or use **Edit address** on a picked venue; either opens a small window to fill in. The two venue steps in **Status & next step** open the same windows. Fixing an address changes it for every event at that venue.
 - **A Past step.** Once an approved event's date has passed, **Status & next step** shows a sixth step, **Past**: "This event has happened", with how many registered. Logging expenses and capturing what you learned are coming soon. Steps an event skipped, like going on Eventbrite, show a dash. The label at the top of the event and in the List view says the same.

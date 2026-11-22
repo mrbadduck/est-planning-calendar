@@ -9,6 +9,10 @@
    stepNotes(ev, {fmtDate, registrants, capacity}) -> string[6]
      One note per lifecycle step (Draft, Proposed, Approved, On Eventbrite,
      Published, Past — the event's date); '' when there is nothing to say.
+   updatedFromEbLine(ev, fmtDate) -> string
+     "Updated from Eventbrite: Start time, Capacity · <when>" when a change came in
+     from Eventbrite after the last push from plan (ev.lastFromEb, ev.lastEbPushAt);
+     '' otherwise.
    needsApproval(ev) -> boolean
      A planning event that is Proposed. */
 (function (root) {
@@ -34,7 +38,7 @@
     const o = opts || {};
     const fmt = typeof o.fmtDate === 'function' ? o.fmtDate : s => s;
     const day = v => { const s = str(v); return s ? fmt(localDay(s)) : ''; };
-    const draft = str(ev.createdBy) ? 'by ' + str(ev.createdBy) : '';
+    const draft = ev.origin === 'Eventbrite' ? 'Imported from Eventbrite' : str(ev.createdBy) ? 'by ' + str(ev.createdBy) : '';
     const approved = [str(ev.approvedBy) ? 'by ' + str(ev.approvedBy) : '', day(ev.approvedAt)].filter(Boolean).join(' · ');
     const eb = day(ev.lastEbPushAt);
     let pub = day(ev.lastPublishedAt);
@@ -43,7 +47,22 @@
     return [draft, '', approved, eb, pub, day(ev.date)];
   }
 
+  const EB_LABELS = { title: 'Title', date: 'Date', start: 'Start time', end: 'End time', capacity: 'Capacity',
+    publicDescription: 'Description', venue: 'Venue', publishState: 'Status on Eventbrite' };
+  function updatedFromEbLine(ev, fmtDate) {
+    const l = ev && ev.lastFromEb;
+    if (!l || !str(l.at) || !Array.isArray(l.fields)) return '';
+    const at = new Date(l.at).getTime();
+    if (isNaN(at)) return '';
+    const push = str(ev.lastEbPushAt) ? new Date(ev.lastEbPushAt).getTime() : NaN;
+    if (!isNaN(push) && at <= push) return '';
+    const names = l.fields.map(f => EB_LABELS[f]).filter(Boolean);
+    if (!names.length) return '';
+    const fmt = typeof fmtDate === 'function' ? fmtDate : s => s;
+    return 'Updated from Eventbrite: ' + names.join(', ') + ' · ' + fmt(localDay(str(l.at)));
+  }
+
   const needsApproval = ev => !!ev && ev.source === 'planning' && ev.status === 'proposed';
 
-  root.PageRules = { sectionFromParam, stepNotes, needsApproval };
+  root.PageRules = { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
