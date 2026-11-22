@@ -15,12 +15,29 @@ export const WEBHOOK_ACTIONS = 'event.created,event.published,event.updated,even
 const BASE = 'https://www.eventbriteapi.com/v3';
 const PATH_PREFIX = '/webhooks/eventbrite/';
 
-// Pure: hide the path secret of a Worker webhook URL.
+// Pure: hide the path secret of a Worker webhook URL; any other service's URL (which can
+// carry its own token) shows host only.
 export function maskEndpoint(url) {
   if (!url) return '';
   const s = String(url);
   const i = s.indexOf(PATH_PREFIX);
-  return i < 0 ? s : s.slice(0, i + PATH_PREFIX.length) + '****';
+  if (s.startsWith(WORKER_ORIGIN) && i >= 0) return s.slice(0, i + PATH_PREFIX.length) + '****';
+  try { return new URL(s).origin + '/\u2026'; } catch { return '(unparseable url)'; }
+}
+
+// Pure: KEY=value lines of a .dev.vars file. Quoted values keep everything inside the quotes;
+// unquoted values lose a trailing " # comment".
+export function parseDevVars(text) {
+  const out = {};
+  for (const line of String(text).split(/\r?\n/)) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!m) continue;
+    let v = m[2];
+    const q = /^(["'])(.*?)\1/.exec(v);
+    v = q ? q[2] : v.replace(/\s+#.*$/, '').trim();
+    out[m[1]] = v;
+  }
+  return out;
 }
 
 const isWorkerHook = w => !!w && typeof w.endpoint_url === 'string' && w.endpoint_url.startsWith(WORKER_ORIGIN + PATH_PREFIX);
@@ -35,7 +52,8 @@ export function planWebhook(existing, endpoint) {
 function readVars() {
   const dir = path.dirname(fileURLToPath(import.meta.url));
   const text = fs.readFileSync(path.join(dir, '../proxy/.dev.vars'), 'utf8');
-  const get = k => { const m = new RegExp(`^\\s*${k}\\s*=\\s*["']?([^"'\\r\\n]+?)["']?\\s*$`, 'm').exec(text); return m ? m[1] : ''; };
+  const vars = parseDevVars(text);
+  const get = k => vars[k] || '';
   const toml = fs.readFileSync(path.join(dir, '../proxy/wrangler.toml'), 'utf8');
   const org = /^\s*EVENTBRITE_ORG_ID\s*=\s*"([^"]+)"/m.exec(toml);
   return { token: get('EVENTBRITE_TOKEN'), secret: get('EB_WEBHOOK_SECRET'), org: org && org[1] };
@@ -43,7 +61,11 @@ function readVars() {
 
 async function ebFetch(token, url, init) {
   const r = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
-  if (!r.ok) throw new Error(`Eventbrite ${(init && init.method) || 'GET'} ${r.status}`);
+  if (!r.ok) {
+    let why = '';
+    try { const j = await r.json(); why = j && j.error_description ? `: ${j.error_description}` : ''; } catch { /* no body */ }
+    throw new Error(`Eventbrite ${(init && init.method) || 'GET'} ${r.status}${why}`);
+  }
   return r.json();
 }
 

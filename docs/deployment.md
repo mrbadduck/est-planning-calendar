@@ -130,7 +130,10 @@ The Worker imports and refreshes events from Eventbrite into the planning table.
   create (GET only). `node scripts/eb-webhook.mjs --apply` registers
   `event.created,event.published,event.updated,event.unpublished` to the Worker URL; it refuses if
   `EB_WEBHOOK_SECRET` is missing or a webhook to the Worker already exists. Tokens come from
-  `proxy/.dev.vars` and are never printed; the path secret is masked.
+  `proxy/.dev.vars` and are never printed; the path secret is masked. **Run the dry run first.**
+  The create route (`POST /v3/organizations/{org}/webhooks/`) is unconfirmed: if `--apply` gets a
+  4xx, nothing was created (the script prints Eventbrite's `error_description`); the documented
+  fallback is `POST /v3/webhooks/` with the same body.
 - **Before going live**: the Coda select `Publish status` needs the option `Removed from Eventbrite`.
 - **Known limit**: the sweep reads at most 1,200 planning rows. Fix that before the backfill.
 
