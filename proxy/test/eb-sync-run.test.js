@@ -260,3 +260,22 @@ test('webhook: a malformed secret segment is a 404, not a 500', async () => {
   const r = await ebWebhook(req({}), env(), ctxStub(), '%E0%A4%A');
   assert.equal(r.status, 404);
 });
+
+test('a conflict keeps the publish guard armed: no Last EB push at on that row', async () => {
+  const e = env();
+  const pushed = { title: 'Shabbat', date: '2027-03-13', start: '10:00', end: '11:00', capacity: 20, publicSummary: '', publicDescription: '',
+    venueName: '', addressVisibility: '', ticketClassId: 'tc', ebChanged: 'ch1', ebVenueId: '', ebStatus: 'live' };
+  // Eventbrite: start 18:00 and capacity 30. Plan: start 12:00 (unpushed) -> start conflict; capacity flows in.
+  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent({ start: { local: '2027-03-13T18:00:00' }, capacity: 30 }))); sc();
+  on('GET', /tables\/T\/rows\?/, res(200, { items: [{ id: 'i-1', values: { [C.eventbriteId]: '123' } }] }));
+  on('GET', /tables\/T\/rows\/i-1\?/, res(200, { id: 'i-1', values: { Title: 'Shabbat', Date: '2027-03-13', Start: '12:00', End: '11:00',
+    Capacity: 20, 'Eventbrite Event ID': '123', 'Last EB pushed values': JSON.stringify(pushed) } }));
+  on('PUT', /tables\/T\/rows\/i-1$/, res(202, { requestId: 'q' }));
+  on('POST', /tables\/LOG\/rows/, res(202, {}));
+  const out = await syncEbEvent(e, '123', 'eventbrite');
+  assert.deepEqual(out.changed, ['capacity']); assert.deepEqual(out.conflicts, ['start']);
+  const cells = calls.find((c) => c.method === 'PUT').body.row.cells;
+  assert.equal(cells.find((c) => c.column === C.capacity).value, 30);
+  assert.equal(cells.find((c) => c.column === C.start), undefined);
+  assert.equal(cells.find((c) => c.column === C.lastEbPushAt), undefined, 'Last EB push at left as it was');
+});

@@ -214,7 +214,9 @@ async function handle(env, c, ebId, via, ctx, log) {
   const base = plan.cells.length ? plan.cells : seenCells(rowEv, fields);
   let putStatus = 0;
   if (base.length) {
-    const cells = stampPushAt(base, fields.changed);
+    // A conflict keeps Last EB push at where it was, so the publish guard still warns
+    // the lead before their next push overwrites Eventbrite's conflicting edit.
+    const cells = plan.conflicts.length ? base : stampPushAt(base, fields.changed);
     const put = await fetch(`${c.rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: c.auth, body: JSON.stringify({ row: { cells } }) });
     putStatus = put.status;
     if (!put.ok) {
