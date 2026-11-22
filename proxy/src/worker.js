@@ -544,6 +544,7 @@ export default {
             });
           }
         }
+        await notePending({ ebId: ev.eventbriteId });   // I1: before the first Eventbrite write, so the sync skips our own push
         await setRow([{ column: 'Publish status', value: 'Publishing' }]);
 
         // A thrown error (network reject, readAllRows throwing, etc.) must NOT

@@ -145,10 +145,13 @@ test('flow-in conflict: plan and Eventbrite both changed', () => {
   assert.equal(cell(r.cells, C.start), undefined);
   assert.deepEqual(r.conflicts, ['start']); assert.deepEqual(r.changed, []); assert.deepEqual(r.cells, []);
 });
-test('flow-in echo: plan already holds the live value', () => {
+test('flow-in echo: plan already holds the live value; only the snapshot is refreshed', () => {
   const f0 = liveF({ start: '18:00' });
-  const r = planFlowIn(rowOf(f0, { start: '19:00' }), { ...f0, start: '19:00' }, matchVenue('77', venues), NOW);
-  assert.deepEqual(r, { cells: [], changed: [], conflicts: [] });
+  const r = planFlowIn(rowOf(f0, { start: '19:00' }), { ...f0, start: '19:00', changed: 'X2' }, matchVenue('77', venues), NOW);
+  assert.deepEqual(r.changed, []); assert.deepEqual(r.conflicts, []);
+  assert.equal(r.cells.length, 1, 'just the snapshot cell, no Last from Eventbrite');
+  const snap = JSON.parse(cell(r.cells, C.lastEbPushedValues).value);
+  assert.equal(snap.start, '19:00'); assert.equal(snap.ebChanged, 'X2');
 });
 test('flow-in: Eventbrite HTML description equals the plain snapshot', () => {
   const f = ebToFields(body(), sc('<p>Hi there</p>'));
@@ -348,4 +351,24 @@ test('C1 sweepCandidates: a Cancelled row missing from the listing is not checke
   const rows = [{ id: 'r1', values: { [C.eventbriteId]: '9', [C.date]: '2027-01-10', [C.status]: 'Cancelled',
     [C.publishStatus]: 'Cancelled', [C.lastEbPushedValues]: '{}' } }];
   assert.deepEqual(sweepCandidates({ listed: [], rows, today: '2026-11-22' }), []);
+});
+
+// ── Final fix I1: the webhook for a lead's own push never reverts the fresh snapshot ──
+import { pushSnapshot } from '../src/publish.js';
+test('I1: a mid-push webhook that reads the old snapshot writes a snapshot equal to the new one', () => {
+  const f0 = liveF();
+  const edits = { title: 'Littles  Shabbat at the Park', start: '19:00', end: '20:00', capacity: 30, publicDescription: 'New words' };
+  const row = rowOf(f0, edits);   // plan holds the pushed values; its snapshot is still the old one
+  const f1 = { ...f0, ...edits, title: 'Littles Shabbat at the Park', changed: 'X9' };   // Eventbrite after the push
+  const fresh = JSON.parse(pushSnapshot({ ...row, ...edits }, f1, 'tc1'));
+  const r = planFlowIn(row, f1, matchVenue('77', venues), NOW);
+  assert.deepEqual(r.changed, []); assert.deepEqual(r.conflicts, []);
+  assert.equal(r.cells.length, 1); assert.equal(cell(r.cells, C.lastFromEb), undefined);
+  const snap = JSON.parse(cell(r.cells, C.lastEbPushedValues).value);
+  for (const k of ['title', 'date', 'start', 'end', 'capacity', 'publicDescription', 'venueName', 'addressVisibility', 'ebVenueId', 'ebStatus'])
+    assert.deepEqual(snap[k], fresh[k], k);
+});
+test('I1: an echo that matches the snapshot already writes nothing', () => {
+  const f0 = liveF();
+  assert.deepEqual(planFlowIn(rowOf(f0), f0, matchVenue('77', venues), NOW), { cells: [], changed: [], conflicts: [] });
 });
