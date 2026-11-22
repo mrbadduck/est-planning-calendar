@@ -27,11 +27,13 @@ export const PLANNING_COLS = {
   status:            'c-ioK48RRF3x', // Status
   capacity:          'c-FtIEIv1oNF', // Capacity
   publishStatus:     'c-Bppgu3CtFt', // Publish status
-  ticketClassId:     'c-_FdJ_-XX0_', // Ticket class ID
+  ticketClassId:     'c-_FdJ_-XX0_', // Eventbrite Ticket Class ID
   lastPublishedAt:   'c-VQaRCCKLzX', // Last published at
   lastPublishError:  'c-rIhvH9m_Y5', // Last publish error
-  eventDescription:  'c-ZJO5Ge_PyI', // Event description
-  programs:          'c-tHwtj89ksi', // Programs
+  eventDescription:  'c-ZJO5Ge_PyI', // Event Description
+  programs:          'c-tHwtj89ksi', // Program(s)
+  source:            'c-XNXXPfY74v', // Source (select: Plan / Eventbrite / Backfill; default Plan)
+  lastFromEb:        'c-b02zbLiHgk', // Last from Eventbrite (Worker-written JSON {at, fields})
   leads:             'c-92mRz-1SYp', // Leads
   volunteers:        'c-8_uS1RK9Qx', // Volunteers
   legacyRow:         'c-sUpvHhlGlI', // Linked EST Events SRC row (to be renamed "Legacy EST Events row")
@@ -42,24 +44,24 @@ export const PLANNING_COLS = {
 export const LEGACY_EVENTS_TABLE = 'grid-9TAt5vMMKH';
 
 export const LEGACY_COLS = {
-  name:                    'c-YcC1vx5Ung', // Name
-  eventbriteEvent:         'c-LvlbW7Fk28', // Eventbrite event
+  name:                    'c-YcC1vx5Ung', // Event Name
+  eventbriteEvent:         'c-LvlbW7Fk28', // Eventbrite Event
   venue:                   'c-qnAUWGhhWe', // Venue
   collaborators:           'c-v8SaE7WTNb', // Collaborators
-  cancelled:               'c-kZqi1huBiz', // Cancelled
-  date:                    'c-FNeOszspAw', // Date
+  cancelled:               'c-kZqi1huBiz', // Cancelled?
+  date:                    'c-FNeOszspAw', // Event Date (for Metrics)
   volunteers:              'c-K8QqK9dNsv', // Volunteers
   leads:                   'c-Gp18FBaE8q', // Leads
   attendeesOverride:       'c-LHDV30AIeI', // Num Attendees (Manual Override)
-  eventbriteId:            'c-sLsqeZ0_zh', // Eventbrite ID
-  gcalEventId:             'c-qFF9aveinM', // gCal Event ID
+  eventbriteId:            'c-sLsqeZ0_zh', // Eventbrite Id
+  gcalEventId:             'c-qFF9aveinM', // gCal Event Id
   bannerOverride:          'c--RGP1jqmMp', // Banner Image Override
   registrationUrlOverride: 'c-2-8FNMkNKQ', // Registration URL Override
-  programs:                'c-43WF5l9MHf', // Programs
-  start:                   'c-Dx4hZN7o83', // Start
-  end:                     'c-0pwRaIBqeA', // End
-  eventDescription:        'c-veXmap6hVO', // Event description
-  photos:                  'c-diN53OflnB', // Photos
+  programs:                'c-43WF5l9MHf', // Program(s)
+  start:                   'c-Dx4hZN7o83', // Event Start
+  end:                     'c-0pwRaIBqeA', // Event End
+  eventDescription:        'c-veXmap6hVO', // Event Description
+  photos:                  'c-diN53OflnB', // Event Photos
 };
 
 export const SLOT_COLS = {
