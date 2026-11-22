@@ -818,8 +818,9 @@
     .sp-card #edStatus{order:3}
     .sp-card .sp-acts{order:4}
     .sp-card #edSub{order:5}
-    .sp-card #edBars{order:6}
-    .sp-card #listingCard{order:7;padding-top:7px}
+    .sp-card #edFromEb{order:6}
+    .sp-card #edBars{order:7}
+    .sp-card #listingCard{order:8;padding-top:7px}
     .sp-card:not(.open) #edStatus,.sp-card:not(.open) .sp-rows li.ok,.sp-card:not(.open) .sp-rows li.bad ~ li.bad{display:none}
     /* the sticky bottom bar: the primary (and Not now) + ⋮, moved here by placePhoneBar */
     .ep-phonebar{position:sticky;bottom:0;z-index:40;align-items:center;gap:8px;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,var(--paper) 94%,transparent);backdrop-filter:blur(8px);border-top:1px solid var(--hair-strong)}

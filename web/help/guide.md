@@ -254,7 +254,7 @@ You can also make an event directly on Eventbrite. It shows up in the calendar a
 
 When someone changes an event on Eventbrite, the event here follows within a minute or so, and **Status & next step** says **Updated from Eventbrite** and lists what changed: title, date, start or end time, capacity, description, venue or status.
 
-If you changed the same thing here and haven't clicked [[Update draft]] or [[Update listing]] yet, your version stays, and the notice says the listing was edited on Eventbrite. Check it before you update.
+If you changed the same thing here and haven't clicked [[Update draft]] or [[Update listing]] yet, your version stays, and **Status & next step** says *Someone changed this listing on Eventbrite since your last update. Updating will replace their changes.* Check it before you update.
 
 The summary, the tickets and [[Address on listing]] are never copied from Eventbrite. Set them here.
 
