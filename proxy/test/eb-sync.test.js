@@ -116,8 +116,13 @@ test('importCells: unmatched venue goes to Venue (other); visibility from street
   assert.equal(cell(cells, C.venue), undefined);
   assert.equal(cell(cells, C.venueOther).value, 'The Hall, 1 Main St, Nashville, TN');
   assert.equal(cell(cells, C.addressVisibility).value, 'Public');
+});
+test('importCells: unmatched venue with no street address is Registrants only; online is blank', () => {
   const noAddr = importCells(liveF({ hasStreetAddress: false }), { venueRowId: null }, NOW);
-  assert.equal(cell(noAddr, C.addressVisibility).value, '');
+  assert.equal(cell(noAddr, C.addressVisibility).value, 'Registrants only');
+  assert.equal(JSON.parse(cell(noAddr, C.lastEbPushedValues).value).addressVisibility, 'Registrants only');
+  const online = importCells(liveF({ online: true, ebVenueId: '', venueText: '', hasStreetAddress: false }), { venueRowId: null }, NOW);
+  assert.equal(cell(online, C.addressVisibility).value, '');
 });
 test('flow-in: untouched in Eventbrite leaves a plan edit alone', () => {
   const f = liveF({ start: '18:00' });
@@ -225,4 +230,12 @@ test('flow-in: old snapshot with no ebStatus adopts the live status as baseline'
   const s2 = JSON.parse(cell(r2.cells, C.lastEbPushedValues).value);
   assert.equal(s2.ebStatus, 'canceled'); assert.equal(s2.start, '19:00');
   assert.deepEqual(JSON.parse(cell(r2.cells, C.lastFromEb).value).fields, ['start']);
+});
+test('flow-in venue: a lead\'s unpushed address visibility edit makes it a conflict', () => {
+  const f0 = liveF();
+  const row = rowOf(f0, { addressVisibility: 'Registrants only' });
+  assert.equal(row.pushed.addressVisibility, 'Public');
+  const r = planFlowIn(row, { ...f0, ebVenueId: '90' }, matchVenue('90', venues), NOW);
+  assert.deepEqual(r.conflicts, ['venue']); assert.deepEqual(r.changed, []);
+  assert.equal(cell(r.cells, C.venue), undefined); assert.equal(cell(r.cells, C.addressVisibility), undefined);
 });

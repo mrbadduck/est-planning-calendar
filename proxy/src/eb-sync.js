@@ -103,7 +103,9 @@ function statusCells(ebStatus) {
 // lead had built it in plan and pushed it. Program(s), Leads, Created by stay blank.
 export function importCells(fields, venueMatch, nowIso) {
   const f = fields || {}, m = venueMatch || {};
-  const addressVisibility = m.venueRowId ? m.addressVisibility : (f.hasStreetAddress ? 'Public' : '');
+  const hasVenue = !f.online && !!(f.ebVenueId || f.venueText);
+  const addressVisibility = m.venueRowId ? m.addressVisibility
+    : (f.hasStreetAddress ? 'Public' : (hasVenue ? 'Registrants only' : ''));
   return [
     { column: C.title, value: f.title || '' },
     { column: C.scheduling, value: 'Exact' },
@@ -180,7 +182,9 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
         planUntouched = true;
       } else {
         movedOnEb = liveId !== String(snap.ebVenueId || '');
-        planUntouched = (r.venueName || '') === (snap.venueName || '');
+        // Plan owns address visibility: an unpushed edit to it counts as plan-touched.
+        planUntouched = (r.venueName || '') === (snap.venueName || '')
+          && (r.addressVisibility || '') === (snap.addressVisibility || '');
         planIsLive = m.venueRowId ? (r.venueName || '') === liveName
           : !(r.venueName || '') && normText(r.venueOther) === normText(f.venueText);
       }
