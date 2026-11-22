@@ -240,14 +240,20 @@ export function parseEbWebhook(body) {
   return m ? m[1] : null;
 }
 
+// KV eb-row:<ebId> while an import is requested but not applied yet (Coda's upsert
+// returns no row id). A marker holding a real row id is still honoured.
+export const IMPORTING = 'importing';
+
 // What to do with an Eventbrite event: rowsWithId are the planning rows holding
-// its id; markerRowId is our own fresh insert (KV eb-row:<ebId>); pending is a
+// its id; markerRowId is KV eb-row:<ebId> (IMPORTING or a row id); pending is a
 // plan push in flight for that row (KV ebpending:<rowId>).
 export function syncDecision({ rowsWithId, markerRowId, pending }) {
   const n = (rowsWithId || []).length;
   if (pending) return 'skip';
   if (n > 1) return 'error';
-  if (markerRowId || n === 1) return 'flowin';
+  if (n === 1) return 'flowin';
+  if (markerRowId === IMPORTING) return 'skip';
+  if (markerRowId) return 'flowin';
   return 'import';
 }
 
@@ -272,10 +278,25 @@ export function secretMatches(given, secret) {
 
 // Nothing flowed in but Eventbrite's changed stamp moved (e.g. a push echo, or an
 // edit plan already has): record the stamp so the sweep stops picking the row up.
+// A never-pushed row gets plan as its snapshot (as planFlowIn treats it), with the
+// live venue id and status: nothing differed, so they are its baseline.
 export function seenCells(rowEv, fields) {
-  const p = rowEv && rowEv.pushed, changed = (fields && fields.changed) || '';
-  if (!p || !changed || p.ebChanged === changed) return [];
-  return [{ column: C.lastEbPushedValues, value: JSON.stringify({ ...p, ebChanged: changed }) }];
+  const r = rowEv || {}, f = fields || {}, changed = f.changed || '';
+  if (!changed) return [];
+  if (!r.pushed) {
+    const snap = { ...planAsSnapshot(r), ebChanged: changed, ebVenueId: String(f.ebVenueId || ''), ebStatus: f.ebStatus || '' };
+    return [{ column: C.lastEbPushedValues, value: JSON.stringify(snap) }];
+  }
+  if (r.pushed.ebChanged === changed) return [];
+  return [{ column: C.lastEbPushedValues, value: JSON.stringify({ ...r.pushed, ebChanged: changed }) }];
+}
+
+// Every import, flow-in and seen write sets Last EB push at to Eventbrite's own
+// changed stamp, so the publish conflict guard doesn't read an edit plan already
+// took in as "edited on Eventbrite".
+export function stampPushAt(cells, changed) {
+  if (!changed) return cells;
+  return [...(cells || []).filter((c) => c.column !== C.lastEbPushAt), { column: C.lastEbPushAt, value: changed }];
 }
 
 const cellStr = (v) => (v == null ? '' : Array.isArray(v) ? cellStr(v[0]) : String(v));

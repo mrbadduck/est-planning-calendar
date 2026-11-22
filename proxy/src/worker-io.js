@@ -40,7 +40,8 @@ export async function codaRequestId(r) {
 
 
 // Read every page of a table's rows (column names + simpleWithArrays), aggregated.
-// Returns { ok:true, items } or { ok:false, resp } carrying the upstream error.
+// Returns { ok:true, items, truncated } or { ok:false, resp } carrying the upstream error.
+// truncated: it stopped at its page cap with rows still unread.
 export async function readAllRows(rowsUrl, auth, opts = {}) {
   const items = [];
   let pageToken = null, pages = 0;
@@ -58,7 +59,7 @@ export async function readAllRows(rowsUrl, auth, opts = {}) {
     if (Array.isArray(j.items)) items.push(...j.items);
     pageToken = j.nextPageToken || null;
   } while (pageToken && ++pages < 6);
-  return { ok: true, items };
+  return { ok: true, items, truncated: !!pageToken };
 }
 
 export const EB_BASE = 'https://www.eventbriteapi.com/v3';
@@ -102,6 +103,17 @@ export function publishLogCells(rec, nowIso) {
     { column: 'HTTP status', value: rec.status || 0 },
     { column: 'Message', value: prefix + (rec.message || '') },
   ];
+}
+
+// Append many records in ONE Publish Log insert (a sync run's whole log: one
+// outbound call). Never throws; nothing to log makes no call.
+export async function logPublishMany(env, base, docId, auth, recs) {
+  if (!env.CODA_PUBLISH_LOG_TABLE || !recs || !recs.length) return;
+  const nowIso = new Date().toISOString();
+  try {
+    await fetch(`${base}/docs/${docId}/tables/${env.CODA_PUBLISH_LOG_TABLE}/rows`,
+      { method: 'POST', headers: auth, body: JSON.stringify({ rows: recs.map((rec) => ({ cells: publishLogCells(rec, nowIso) })) }) });
+  } catch (_) { /* logging must never break the sync */ }
 }
 
 // Append one row to the Publish Log table. Logging must NEVER throw — a failed

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { publishLogCells, bustEventCaches, bustEventCachesNowAndAfterApply, ROWS_KV_KEY, GATHER_KV_KEY } from '../src/worker-io.js';
+import { publishLogCells, logPublishMany, readAllRows, bustEventCaches, bustEventCachesNowAndAfterApply, ROWS_KV_KEY, GATHER_KV_KEY } from '../src/worker-io.js';
 
 const cell = (cells, col) => cells.find((c) => c.column === col).value;
 
@@ -39,4 +39,31 @@ test('bustEventCachesNowAndAfterApply busts both keys now and again after the de
   await Promise.all(pending);
   assert.deepEqual(gone.slice().sort(), [GATHER_KV_KEY, GATHER_KV_KEY, ROWS_KV_KEY, ROWS_KV_KEY].sort());
   assert.equal(pending.length, 1);
+});
+
+test('logPublishMany: every record in one Publish Log insert; nothing to log, no call', async () => {
+  const real = globalThis.fetch, calls = [];
+  globalThis.fetch = async (u, init) => { calls.push({ u, body: JSON.parse(init.body) }); return new Response('{}', { status: 202 }); };
+  try {
+    const env = { CODA_PUBLISH_LOG_TABLE: 'LOG' };
+    await logPublishMany(env, 'https://c', 'D', {}, [{ action: 'import', ok: true, via: 'sweep' }, { action: 'removed', ok: true, via: 'sweep' }]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].u, 'https://c/docs/D/tables/LOG/rows');
+    assert.equal(calls[0].body.rows.length, 2);
+    assert.equal(cell(calls[0].body.rows[1].cells, 'Action'), 'removed');
+    await logPublishMany(env, 'https://c', 'D', {}, []);
+    assert.equal(calls.length, 1);
+    globalThis.fetch = async () => { throw new Error('down'); };
+    await logPublishMany(env, 'https://c', 'D', {}, [{ action: 'x', ok: true }]);   // never throws
+  } finally { globalThis.fetch = real; }
+});
+test('readAllRows: truncated when it stops at its page cap', async () => {
+  const real = globalThis.fetch; let n = 0;
+  globalThis.fetch = async () => { n++; return new Response(JSON.stringify({ items: [{ id: 'r' + n }], nextPageToken: 'more' }), { status: 200 }); };
+  try {
+    const out = await readAllRows('https://c/rows', {});
+    assert.equal(out.ok, true); assert.equal(out.truncated, true); assert.equal(out.items.length, 6);
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: [{ id: 'a' }] }), { status: 200 });
+    assert.equal((await readAllRows('https://c/rows', {})).truncated, false);
+  } finally { globalThis.fetch = real; }
 });

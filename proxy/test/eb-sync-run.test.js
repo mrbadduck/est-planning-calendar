@@ -32,36 +32,64 @@ const env = (o = {}) => ({ CODA_API_BASE: 'https://coda.test', CODA_DOC_ID: 'D',
   EB_SYNC_MODE: 'live', EB_WEBHOOK_SECRET: 's3cret', CACHE: kvStub(), ...o });
 const ebEvent = (o = {}) => ({ id: '123', organization_id: '42', name: { text: 'Shabbat' }, status: 'live', url: 'https://eb/123',
   start: { local: '2027-03-13T10:00:00' }, end: { local: '2027-03-13T11:00:00' }, capacity: 20, changed: 'ch2',
-  online_event: false, venue_id: '', venue: null, ticket_classes: [{ id: 'tc', quantity_total: 20 }], ...o });
-const logs = () => calls.filter((c) => /\/tables\/LOG\/rows/.test(c.url)).map((c) => {
-  const cells = c.body.rows[0].cells; const g = (n) => cells.find((x) => x.column === n).value;
+  online_event: false, venue_id: '', venue: null, created: '2026-01-01T00:00:00Z', ticket_classes: [{ id: 'tc', quantity_total: 20 }], ...o });
+const logCalls = () => calls.filter((c) => /\/tables\/LOG\/rows/.test(c.url));
+const logs = () => logCalls().flatMap((c) => c.body.rows).map(({ cells }) => {
+  const g = (n) => cells.find((x) => x.column === n).value;
   return { action: g('Action'), result: g('Result'), message: g('Message') };
 });
 const sc = () => on('GET', /\/events\/\d+\/structured_content\//, res(200, { modules: [] }));
 const noRows = () => on('GET', /coda\.test\/docs\/D\/tables\/T\/rows\?/, res(200, { items: [] }));
+const rowsGet = () => calls.filter((c) => c.method === 'GET' && /tables\/T\/rows\?/.test(c.url));
 
-test('import: upserts on the Eventbrite id, writes eb-row marker, logs import', async () => {
+// Coda's upsert (keyColumns set) answers 202 {requestId} with no addedRowIds.
+const upsertOk = () => on('POST', /tables\/T\/rows$/, res(202, { requestId: 'mutate:q1' }));
+test('import: upserts on the Eventbrite id, marks it importing, logs the requestId', async () => {
   const e = env();
-  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent())); sc(); noRows();
-  on('POST', /tables\/T\/rows$/, res(202, { requestId: 'q', addedRowIds: ['i-new'] }));
+  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent())); sc(); noRows(); upsertOk();
   on('POST', /tables\/LOG\/rows/, res(202, {}));
   const out = await syncEbEvent(e, '123', 'eventbrite');
-  assert.equal(out.action, 'import'); assert.equal(out.rowId, 'i-new');
+  assert.equal(out.action, 'import');
   const ins = calls.find((c) => c.method === 'POST' && /tables\/T\/rows$/.test(c.url));
   assert.deepEqual(ins.body.keyColumns, [C.eventbriteId]);
-  assert.equal(ins.body.rows[0].cells.find((c) => c.column === C.eventbriteId).value, '123');
-  assert.deepEqual(e.CACHE.puts.find(([k]) => k === 'eb-row:123').slice(1), ['i-new', { expirationTtl: 3600 }]);
-  assert.equal(logs()[0].action, 'import'); assert.ok(logs()[0].message.startsWith('[eventbrite] '));
+  const cells = ins.body.rows[0].cells;
+  assert.equal(cells.find((c) => c.column === C.eventbriteId).value, '123');
+  assert.equal(cells.find((c) => c.column === C.lastEbPushAt).value, 'ch2', 'Last EB push at = Eventbrite changed');
+  assert.deepEqual(e.CACHE.puts.find(([k]) => k === 'eb-row:123').slice(1), ['importing', { expirationTtl: 600 }]);
+  assert.equal(logs()[0].action, 'import'); assert.equal(logs()[0].result, 'ok');
+  assert.ok(logs()[0].message.startsWith('[eventbrite] ')); assert.match(logs()[0].message, /mutate:q1/);
+  assert.equal(logCalls().length, 1);
 });
-test('import race: empty addedRowIds writes no marker and logs it', async () => {
-  const e = env();
+test('import still applying (marker importing, no row yet): skip, never import twice', async () => {
+  const e = env({ CACHE: kvStub({ 'eb-row:123': 'importing' }) });
   on('GET', /\/events\/123\/\?expand/, res(200, ebEvent())); sc(); noRows();
-  on('POST', /tables\/T\/rows$/, res(202, { requestId: 'q', addedRowIds: [] }));
   on('POST', /tables\/LOG\/rows/, res(202, {}));
   const out = await syncEbEvent(e, '123', 'sweep');
-  assert.equal(out.action, 'error');
-  assert.equal(e.CACHE.m.has('eb-row:123'), false);
-  assert.equal(logs()[0].result, 'error'); assert.ok(logs()[0].message.startsWith('[sweep] '));
+  assert.equal(out.action, 'skip');
+  assert.equal(calls.filter((c) => c.method === 'POST' && /tables\/T\/rows$/.test(c.url)).length, 0);
+});
+test('webhook path: a brand-new event is left for the sweep (a plan push may not have applied yet)', async () => {
+  const e = env();
+  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent({ created: new Date(Date.now() - 60_000).toISOString() }))); sc(); noRows();
+  on('POST', /tables\/LOG\/rows/, res(202, {}));
+  const out = await syncEbEvent(e, '123', 'eventbrite');
+  assert.equal(out.action, 'skip');
+  assert.equal(calls.filter((c) => c.method === 'POST' && /tables\/T\/rows$/.test(c.url)).length, 0);
+  assert.equal(logs()[0].action, 'skip'); assert.match(logs()[0].message, /sweep imports it/);
+  // The sweep imports the same new event.
+  calls.length = 0; upsertOk();
+  assert.equal((await syncEbEvent(e, '123', 'sweep')).action, 'import');
+});
+test('webhook path finds the row with a Coda query on the Eventbrite id', async () => {
+  const e = env();
+  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent())); sc(); noRows(); upsertOk();
+  on('POST', /tables\/LOG\/rows/, res(202, {}));
+  await syncEbEvent(e, '123', 'eventbrite');
+  const g = rowsGet();
+  assert.equal(g.length, 1);
+  const u = new URL(g[0].url);
+  assert.equal(u.searchParams.get('query'), `${C.eventbriteId}:"123"`);
+  assert.equal(u.searchParams.get('useColumnNames'), 'false');
 });
 test('marker set, row not applied yet (404): skip, never import twice', async () => {
   const e = env({ CACHE: kvStub({ 'eb-row:123': 'i-new' }) });
@@ -121,6 +149,7 @@ test('flow-in: PUTs the changed cells on the row, busts caches, logs flow-in', a
   assert.equal(out.action, 'flowin'); assert.deepEqual(out.changed, ['start']);
   const put = calls.find((c) => c.method === 'PUT');
   assert.equal(put.body.row.cells.find((c) => c.column === C.start).value, '18:00');
+  assert.equal(put.body.row.cells.find((c) => c.column === C.lastEbPushAt).value, 'ch2', 'the next push sees no Eventbrite edit');
   assert.equal(kv.m.has('rows-v1'), false); assert.equal(kv.m.has('gather-events-v1'), false);
   assert.equal(logs()[0].action, 'flow-in');
 });
@@ -182,11 +211,52 @@ test('sweep: stops paging past 30 days back, caps at 8 and stores the cursor', a
   on('GET', /tables\/T\/rows\?/, res(200, { items: [] }));
   sc();
   let n = 0;
-  on('POST', /tables\/T\/rows$/, () => res(202, { addedRowIds: ['i-' + (n++)] }));
+  on('POST', /tables\/T\/rows$/, () => res(202, { requestId: 'mutate:' + (n++) }));
   on('POST', /tables\/LOG\/rows/, res(202, {}));
   const out = await runSweep(e);
   assert.equal(out.seen, 10); assert.equal(out.imported, 8);
   assert.equal(calls.filter((c) => /organizations\/42\/events/.test(c.url)).length, 1, 'no second page once past the window');
   assert.equal(calls.filter((c) => /\/events\/\d+\/\?expand/.test(c.url)).length, 0, 'listed bodies are reused');
   assert.equal(e.CACHE.m.get('eb-sweep-cursor'), '8');
+  assert.ok(new URL(calls.find((c) => /organizations\/42\/events/.test(c.url)).url).searchParams.get('status') === 'all', 'drafts are listed too');
+  assert.equal(logCalls().length, 1, 'one Publish Log insert per run');
+  assert.equal(logs().length, 8);
+  assert.equal(rowsGet().length, 1, 'one full row read per run');
+});
+
+test('flow-in with a conflict: one Publish Log record carries both', async () => {
+  const e = env();
+  const pushed = { title: 'Shabbat', date: '2027-03-13', start: '10:00', end: '11:00', capacity: 20, publicSummary: '', publicDescription: '',
+    venueName: '', addressVisibility: '', ticketClassId: 'tc', ebChanged: 'ch1', ebVenueId: '', ebStatus: 'live' };
+  // Eventbrite moved start and retitled; plan also retitled (unpushed) -> title conflict.
+  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent({ name: { text: 'EB title' }, start: { local: '2027-03-13T18:00:00' } }))); sc();
+  on('GET', /tables\/T\/rows\?/, res(200, { items: [{ id: 'i-1', values: { [C.eventbriteId]: '123' } }] }));
+  on('GET', /tables\/T\/rows\/i-1\?/, res(200, { id: 'i-1', values: { Title: 'Plan title', Date: '2027-03-13', Start: '10:00', End: '11:00',
+    Capacity: 20, 'Eventbrite Event ID': '123', 'Last EB pushed values': JSON.stringify(pushed) } }));
+  on('PUT', /tables\/T\/rows\/i-1$/, res(202, { requestId: 'q' }));
+  on('POST', /tables\/LOG\/rows/, res(202, {}));
+  const out = await syncEbEvent(e, '123', 'eventbrite');
+  assert.deepEqual(out.changed, ['start']); assert.deepEqual(out.conflicts, ['title']);
+  assert.equal(logCalls().length, 1); assert.equal(logs().length, 1);
+  assert.equal(logs()[0].action, 'flow-in'); assert.match(logs()[0].message, /start/); assert.match(logs()[0].message, /title/);
+});
+test('nothing changed but the stamp moved: snapshot and Last EB push at take the live changed', async () => {
+  const e = env();
+  const pushed = { title: 'Shabbat', date: '2027-03-13', start: '10:00', end: '11:00', capacity: 20, publicSummary: '', publicDescription: '',
+    venueName: '', addressVisibility: '', ticketClassId: 'tc', ebChanged: 'ch1', ebVenueId: '', ebStatus: 'live' };
+  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent())); sc();
+  on('GET', /tables\/T\/rows\?/, res(200, { items: [{ id: 'i-1', values: { [C.eventbriteId]: '123' } }] }));
+  on('GET', /tables\/T\/rows\/i-1\?/, res(200, { id: 'i-1', values: { Title: 'Shabbat', Date: '2027-03-13', Start: '10:00', End: '11:00',
+    Capacity: 20, 'Eventbrite Event ID': '123', 'Last EB pushed values': JSON.stringify(pushed) } }));
+  on('PUT', /tables\/T\/rows\/i-1$/, res(202, { requestId: 'q' }));
+  const out = await syncEbEvent(e, '123', 'sweep');
+  assert.equal(out.action, 'unchanged');
+  const cells = calls.find((c) => c.method === 'PUT').body.row.cells;
+  assert.equal(JSON.parse(cells.find((c) => c.column === C.lastEbPushedValues).value).ebChanged, 'ch2');
+  assert.equal(cells.find((c) => c.column === C.lastEbPushAt).value, 'ch2');
+  assert.equal(logCalls().length, 0);
+});
+test('webhook: a malformed secret segment is a 404, not a 500', async () => {
+  const r = await ebWebhook(req({}), env(), ctxStub(), '%E0%A4%A');
+  assert.equal(r.status, 404);
 });

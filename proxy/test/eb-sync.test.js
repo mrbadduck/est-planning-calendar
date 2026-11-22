@@ -241,7 +241,7 @@ test('flow-in venue: a lead\'s unpushed address visibility edit makes it a confl
 });
 
 // ── Webhook, sweep and the one handler (Task 6) ──────────────────────────
-import { removedCells, parseEbWebhook, syncDecision, sweepBatch, secretMatches, seenCells, sweepCandidates, REMOVED_STATUS } from '../src/eb-sync.js';
+import { removedCells, parseEbWebhook, syncDecision, sweepBatch, secretMatches, seenCells, sweepCandidates, stampPushAt, REMOVED_STATUS, IMPORTING } from '../src/eb-sync.js';
 
 test('removedCells: Publish status Removed from Eventbrite, Published? false, id kept', () => {
   const cells = removedCells();
@@ -267,6 +267,19 @@ test('syncDecision: pending skip, marker or one row flow-in, none import, two er
   assert.equal(syncDecision({ rowsWithId: [], markerRowId: null, pending: null }), 'import');
   assert.equal(syncDecision({ rowsWithId: [{ id: 'r1' }, { id: 'r2' }], markerRowId: null, pending: null }), 'error');
 });
+test('syncDecision: an import still applying (marker importing) skips until the row is visible', () => {
+  assert.equal(IMPORTING, 'importing');
+  assert.equal(syncDecision({ rowsWithId: [], markerRowId: 'importing', pending: null }), 'skip');
+  assert.equal(syncDecision({ rowsWithId: [{ id: 'r1' }], markerRowId: 'importing', pending: null }), 'flowin');
+});
+test('stampPushAt: Last EB push at becomes Eventbrite\'s changed stamp', () => {
+  const a = stampPushAt([{ column: C.title, value: 'x' }], '2027-03-01T12:00:00Z');
+  assert.deepEqual(a, [{ column: C.title, value: 'x' }, { column: C.lastEbPushAt, value: '2027-03-01T12:00:00Z' }]);
+  const b = stampPushAt([{ column: C.lastEbPushAt, value: NOW }, { column: C.title, value: 'x' }], 'ch');
+  assert.equal(b.filter((c) => c.column === C.lastEbPushAt).length, 1);
+  assert.equal(cell(b, C.lastEbPushAt).value, 'ch');
+  assert.deepEqual(stampPushAt([{ column: C.title, value: 'x' }], ''), [{ column: C.title, value: 'x' }]);
+});
 test('sweepBatch: slices from the cursor; last slice has nextCursor null', () => {
   const c = Array.from({ length: 20 }, (_, i) => i);
   assert.deepEqual(sweepBatch(c, 8, 8), { batch: [8, 9, 10, 11, 12, 13, 14, 15], nextCursor: 16 });
@@ -290,7 +303,16 @@ test('seenCells: records the live changed stamp when nothing flowed in', () => {
   assert.equal(cells[0].column, C.lastEbPushedValues);
   assert.equal(snap.ebChanged, 'new'); assert.equal(snap.title, 'A');
   assert.deepEqual(seenCells({ pushed: { ...pushed, ebChanged: 'new' } }, { changed: 'new' }), []);
-  assert.deepEqual(seenCells({ pushed: null }, { changed: 'new' }), []);
+  assert.deepEqual(seenCells({ pushed: null, title: 'A' }, { changed: '' }), []);
+});
+test('seenCells: a never-pushed row gets plan as its snapshot, with the live stamp, venue id and status', () => {
+  const cells = seenCells({ pushed: null, title: 'A', date: '2027-01-02', capacity: '12', venueName: 'The Hall' },
+    { changed: 'new', ebVenueId: '77', ebStatus: 'live' });
+  assert.equal(cells.length, 1);
+  const snap = JSON.parse(cells[0].value);
+  assert.equal(snap.title, 'A'); assert.equal(snap.date, '2027-01-02'); assert.equal(snap.capacity, 12);
+  assert.equal(snap.venueName, 'The Hall');
+  assert.equal(snap.ebChanged, 'new'); assert.equal(snap.ebVenueId, '77'); assert.equal(snap.ebStatus, 'live');
 });
 test('sweepCandidates: changed or unknown listed events, plus upcoming rows missing from the listing', () => {
   const row = (id, ebId, o = {}) => ({ id, values: { [C.eventbriteId]: ebId, [C.date]: o.date || '2027-01-10',

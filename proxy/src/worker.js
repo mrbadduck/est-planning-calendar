@@ -20,7 +20,7 @@
  *   POST   /venues         add a venue (body: {name, typeId, street, unit, city, state, zip}) -> {id, requestId} — role-gated
  *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} | {requestId:null, unchanged:true} (same address: no write) — role-gated
  *   POST   /webhooks/eventbrite/:secret  Eventbrite webhook -> syncEbEvent in waitUntil (eb-sync-run.js); 404 on a wrong secret
- *   (cron) scheduled  hourly Eventbrite sweep (runSweep); both gated by EB_SYNC_MODE = off | live
+ *   (cron) scheduled  Eventbrite sweep every 15 min (runSweep); both gated by EB_SYNC_MODE = off | live
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -109,7 +109,7 @@ export default {
     // Eventbrite calls this itself (no X-App-Key): before the app-key gate.
     const wh = url.pathname.split('/').filter(Boolean);
     if (wh[0] === 'webhooks' && wh[1] === 'eventbrite' && wh.length === 3 && request.method === 'POST')
-      return ebWebhook(request, env, ctx, decodeURIComponent(wh[2]));
+      return ebWebhook(request, env, ctx, wh[2]);   // decoded there: a malformed % is a 404
 
     if (env.APP_KEY && request.headers.get('X-App-Key') !== env.APP_KEY)
       return json({ error: 'unauthorized' }, 401, cors);
@@ -1091,7 +1091,7 @@ export default {
       return json({ error: String((e && e.message) || e) }, 502, cors);
     }
   },
-  // Hourly Eventbrite sweep ([triggers] in wrangler.toml); runSweep is a no-op unless EB_SYNC_MODE = live.
+  // Eventbrite sweep every 15 minutes ([triggers] in wrangler.toml); runSweep is a no-op unless EB_SYNC_MODE = live.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runSweep(env));
   },
