@@ -315,3 +315,25 @@ test('C1: Eventbrite 404 on a Cancelled row writes nothing and logs once', async
   assert.equal(logs().length, 1); assert.equal(logs()[0].action, 'removed');
   assert.match(logs()[0].message, /Cancelled/);
 });
+
+// ── Final fix M4 ──
+test('M4: a sweep whose row read hit the page cap imports nothing, still flows in, and says why', async () => {
+  const e = env();
+  const pushed = { title: 'Shabbat', date: '2027-03-13', start: '10:00', end: '11:00', capacity: 20, publicSummary: '', publicDescription: '',
+    venueName: '', addressVisibility: '', ticketClassId: 'tc', ebChanged: 'ch1', ebVenueId: '', ebStatus: 'live' };
+  const evs = [ebEvent({ id: '123', start: { local: '2027-03-13T18:00:00' } }), ebEvent({ id: '456' })];
+  on('GET', /\/organizations\/42\/events\//, res(200, { events: evs, pagination: { has_more_items: false } }));
+  let page = 0;   // page 1 holds the row; every page says there is more: truncated
+  on('GET', /tables\/T\/rows\?/, () => res(200, { items: page++ ? [] : [{ id: 'i-1', values: { [C.eventbriteId]: '123', [C.date]: '2027-03-13',
+    [C.lastEbPushedValues]: JSON.stringify(pushed) } }], nextPageToken: 'more' }));
+  on('GET', /tables\/T\/rows\/i-1\?/, res(200, { id: 'i-1', values: { Title: 'Shabbat', Date: '2027-03-13', Start: '10:00', End: '11:00',
+    Capacity: 20, 'Eventbrite Event ID': '123', 'Last EB pushed values': JSON.stringify(pushed) } }));
+  on('PUT', /tables\/T\/rows\/i-1$/, res(202, { requestId: 'q' }));
+  sc(); upsertOk();
+  on('POST', /tables\/LOG\/rows/, res(202, {}));
+  const out = await runSweep(e);
+  assert.equal(out.imported, 0); assert.equal(out.flowedIn, 1);
+  assert.equal(calls.filter((c) => c.method === 'POST' && /tables\/T\/rows$/.test(c.url)).length, 0, 'no import upsert');
+  const why = logs().filter((l) => /page cap/.test(l.message));
+  assert.equal(why.length, 1); assert.match(why[0].message, /no imports/i);
+});

@@ -265,15 +265,16 @@ export const IMPORTING = 'importing';
 
 // What to do with an Eventbrite event: rowsWithId are the planning rows holding
 // its id; markerRowId is KV eb-row:<ebId> (IMPORTING or a row id); pending is a
-// plan push in flight for that row (KV ebpending:<rowId>).
-export function syncDecision({ rowsWithId, markerRowId, pending }) {
+// plan push in flight for that row (KV ebpending:<rowId>). noImport: the sweep's row
+// read stopped at its page cap, so "no row holds it" can't be trusted (M4).
+export function syncDecision({ rowsWithId, markerRowId, pending, noImport }) {
   const n = (rowsWithId || []).length;
   if (pending) return 'skip';
   if (n > 1) return 'error';
   if (n === 1) return 'flowin';
   if (markerRowId === IMPORTING) return 'skip';
   if (markerRowId) return 'flowin';
-  return 'import';
+  return noImport ? 'skip' : 'import';
 }
 
 // The slice of candidates one sweep run handles. A cursor past the end (the list

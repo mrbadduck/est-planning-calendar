@@ -169,11 +169,11 @@ async function handle(env, c, ebId, via, ctx, log) {
     const pr = await pendingRowForEb(env, ebId);
     if (pr) { rowId = pr; pending = { ebId }; }
   }
-  const decision = syncDecision({ rowsWithId, markerRowId, pending });
+  const decision = syncDecision({ rowsWithId, markerRowId, pending, noImport: ctx.noImport === true });
   const nowIso = new Date().toISOString();
 
   if (decision === 'skip') {
-    note({ ebId, via, skip: pending ? 'plan push in flight' : 'import still applying', rowId });
+    note({ ebId, via, skip: pending ? 'plan push in flight' : (markerRowId === IMPORTING ? 'import still applying' : 'no imports this run (row read truncated)'), rowId });
     return { action: 'skip', rowId };
   }
   if (decision === 'error') {
@@ -284,10 +284,14 @@ export async function runSweep(env) {
 
     const rr = await readAllRows(c.rowsUrl, c.auth, { byId: true });
     if (!rr.ok) { warn({ sweep: 'row read failed', status: rr.resp && rr.resp.status }); return out; }
-    if (rr.truncated) warn({ sweep: `planning row read stopped at its page cap (${rr.items.length} rows); rows past it look unlinked` });
+    if (rr.truncated) {   // M4: rows past the cap look unlinked, so importing could duplicate them
+      const message = `Planning row read stopped at its page cap (${rr.items.length} rows): no imports this run; changes to rows it read still flow in`;
+      warn({ sweep: message });
+      logs.push({ via: 'sweep', action: 'skip', ok: false, status: 0, message });
+    }
     const candidates = sweepCandidates({ listed, rows: rr.items, today });
     const { batch, nextCursor } = sweepBatch(candidates, await kvGet(env, SWEEP_CURSOR_KEY), SWEEP_MAX_EVENTS);
-    const shared = { rows: rr.items, logs };   // one object: the Venues read and the log are shared too
+    const shared = { rows: rr.items, logs, noImport: !!rr.truncated };   // one object: the Venues read and the log are shared too
     for (const cand of batch) {
       shared.body = cand.body;
       const res = await syncEbEvent(env, cand.ebId, 'sweep', shared);

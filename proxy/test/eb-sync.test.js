@@ -392,3 +392,9 @@ test('M1: ebSnapshot stores a null capacity as blank, matching the import cell',
   assert.equal(JSON.parse(cell(cells, C.lastEbPushedValues).value).capacity, cell(cells, C.capacity).value);
   assert.equal(JSON.parse(ebSnapshot(liveF(), {})).capacity, 25);
 });
+
+// ── Final fix M4: no imports from a truncated row read ──
+test('M4 syncDecision: noImport turns an import into a skip, flow-ins unchanged', () => {
+  assert.equal(syncDecision({ rowsWithId: [], markerRowId: null, pending: null, noImport: true }), 'skip');
+  assert.equal(syncDecision({ rowsWithId: [{ id: 'r1' }], markerRowId: null, pending: null, noImport: true }), 'flowin');
+});
