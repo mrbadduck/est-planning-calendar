@@ -106,14 +106,17 @@ export function publishLogCells(rec, nowIso) {
 }
 
 // Append many records in ONE Publish Log insert (a sync run's whole log: one
-// outbound call). Never throws; nothing to log makes no call.
+// outbound call). Never throws; nothing to log makes no call. A failed write is
+// never silent: the console line says how many records were lost.
 export async function logPublishMany(env, base, docId, auth, recs) {
   if (!env.CODA_PUBLISH_LOG_TABLE || !recs || !recs.length) return;
   const nowIso = new Date().toISOString();
+  const lost = (why) => { try { console.error('publish-log', JSON.stringify({ lost: recs.length, ...why })); } catch (_) {} };
   try {
-    await fetch(`${base}/docs/${docId}/tables/${env.CODA_PUBLISH_LOG_TABLE}/rows`,
+    const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_PUBLISH_LOG_TABLE}/rows`,
       { method: 'POST', headers: auth, body: JSON.stringify({ rows: recs.map((rec) => ({ cells: publishLogCells(rec, nowIso) })) }) });
-  } catch (_) { /* logging must never break the sync */ }
+    if (!r.ok) lost({ status: r.status });
+  } catch (err) { lost({ error: String((err && err.message) || err) }); }   // logging must never break the sync
 }
 
 // Append one row to the Publish Log table. Logging must NEVER throw — a failed

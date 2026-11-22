@@ -68,17 +68,22 @@ test('import still applying (marker importing, no row yet): skip, never import t
   assert.equal(out.action, 'skip');
   assert.equal(calls.filter((c) => c.method === 'POST' && /tables\/T\/rows$/.test(c.url)).length, 0);
 });
-test('webhook path: a brand-new event is left for the sweep (a plan push may not have applied yet)', async () => {
+test('a brand-new event is never imported, by the webhook or the sweep (a plan push may not have applied yet)', async () => {
   const e = env();
-  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent({ created: new Date(Date.now() - 60_000).toISOString() }))); sc(); noRows();
+  const fresh = ebEvent({ created: new Date(Date.now() - 60_000).toISOString() });
+  on('GET', /\/events\/123\/\?expand/, res(200, fresh)); sc(); noRows(); upsertOk();
   on('POST', /tables\/LOG\/rows/, res(202, {}));
-  const out = await syncEbEvent(e, '123', 'eventbrite');
-  assert.equal(out.action, 'skip');
-  assert.equal(calls.filter((c) => c.method === 'POST' && /tables\/T\/rows$/.test(c.url)).length, 0);
-  assert.equal(logs()[0].action, 'skip'); assert.match(logs()[0].message, /sweep imports it/);
-  // The sweep imports the same new event.
-  calls.length = 0; upsertOk();
-  assert.equal((await syncEbEvent(e, '123', 'sweep')).action, 'import');
+  const errs = [], real = console.log; console.log = (...a) => errs.push(a.join(' '));
+  try {
+    assert.equal((await syncEbEvent(e, '123', 'eventbrite')).action, 'skip');
+    assert.equal((await syncEbEvent(e, '123', 'sweep', { rows: [], body: fresh })).action, 'skip');
+  } finally { console.log = real; }
+  assert.equal(calls.filter((c) => c.method === 'POST' && /tables\/T\/rows$/.test(c.url)).length, 0, 'no import');
+  assert.equal(logCalls().length, 0, 'console only, not the Publish Log');
+  assert.equal(errs.filter((x) => /new event/.test(x)).length, 2);
+  // Ten minutes on, the sweep imports it.
+  const old = { ...fresh, created: new Date(Date.now() - 11 * 60_000).toISOString() };
+  assert.equal((await syncEbEvent(e, '123', 'sweep', { rows: [], body: old })).action, 'import');
 });
 test('webhook path finds the row with a Coda query on the Eventbrite id', async () => {
   const e = env();

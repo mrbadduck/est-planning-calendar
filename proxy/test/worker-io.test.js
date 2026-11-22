@@ -67,3 +67,18 @@ test('readAllRows: truncated when it stops at its page cap', async () => {
     assert.equal((await readAllRows('https://c/rows', {})).truncated, false);
   } finally { globalThis.fetch = real; }
 });
+
+test('logPublishMany: a failed log write is never silent (throw or non-2xx) and never throws', async () => {
+  const real = globalThis.fetch, realErr = console.error, errs = [];
+  console.error = (...a) => errs.push(a.join(' '));
+  try {
+    const env = { CODA_PUBLISH_LOG_TABLE: 'LOG' };
+    globalThis.fetch = async () => { throw new Error('down'); };
+    await logPublishMany(env, 'https://c', 'D', {}, [{ action: 'a', ok: true }, { action: 'b', ok: true }]);
+    globalThis.fetch = async () => new Response('nope', { status: 429 });
+    await logPublishMany(env, 'https://c', 'D', {}, [{ action: 'a', ok: true }, { action: 'b', ok: true }, { action: 'c', ok: true }]);
+    assert.equal(errs.length, 2);
+    assert.match(errs[0], /down/); assert.match(errs[0], /2/);
+    assert.match(errs[1], /429/); assert.match(errs[1], /3/);
+  } finally { globalThis.fetch = real; console.error = realErr; }
+});

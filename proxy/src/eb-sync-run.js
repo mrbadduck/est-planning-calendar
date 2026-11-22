@@ -15,9 +15,10 @@ const VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
 // returns no row id, and applies ~28 s later: 10 minutes covers it with room to spare.
 const IMPORT_MARKER_TTL = 600;
 const rowMarkerKey = (ebId) => `eb-row:${ebId}`;
-// The webhook never imports an event younger than this: a plan push may not have
-// written its Eventbrite id onto its row yet. The sweep imports it instead.
-const WEBHOOK_NEW_EVENT_MS = 10 * 60_000;
+// Neither the webhook nor the sweep imports an event younger than this: a plan push
+// may not have written its Eventbrite id onto its row yet, and the ebpending marker
+// can be missed (KV is eventually consistent). A later sweep imports it.
+const NEW_EVENT_MS = 10 * 60_000;
 export const SWEEP_MAX_EVENTS = 8;        // keeps a run inside the free plan's 50 outbound calls
 const SWEEP_CURSOR_KEY = 'eb-sweep-cursor';
 const SWEEP_MAX_PAGES = 3;
@@ -178,8 +179,8 @@ async function handle(env, c, ebId, via, ctx, log) {
 
   if (decision === 'import') {
     const created = Date.parse(body.created || '');
-    if (via === 'eventbrite' && !(Date.now() - created >= WEBHOOK_NEW_EVENT_MS)) {   // unknown age counts as new
-      log({ action: 'skip', ok: true, status: 0, ebUrl: fields.url, message: 'New event; the sweep imports it' });
+    if (!(Date.now() - created >= NEW_EVENT_MS)) {   // unknown age counts as new
+      note({ ebId, via, skip: 'new event; a later sweep imports it' });   // console only
       return { action: 'skip' };
     }
     const venueMatch = fields.ebVenueId ? matchVenue(fields.ebVenueId, await loadVenues(c, ctx)) : matchVenue('', []);
