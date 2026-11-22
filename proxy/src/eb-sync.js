@@ -155,6 +155,10 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
   const snap = neverPushed ? planAsSnapshot(r) : r.pushed;
   const next = { ...planAsSnapshot(r), ...snap };
   const cells = [], changed = [], conflicts = [];
+  // A snapshot written before Eventbrite sync has no ebVenueId / ebStatus key:
+  // no baseline yet. Adopt the live value into the snapshot; don't flow it in.
+  const has = (k) => Object.prototype.hasOwnProperty.call(snap, k);
+  let adopted = false;
 
   for (const name of SYNCED) {
     if (SIMPLE[name]) {
@@ -166,6 +170,7 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
         changed.push(name);
       } else if (!d.eq(plan, live)) conflicts.push(name);
     } else if (name === 'venue') {
+      if (!has('ebVenueId')) { next.ebVenueId = String(f.ebVenueId || ''); adopted = true; continue; }
       const liveName = m.venueRowId ? (m.venueName || '') : '';
       const liveId = String(f.ebVenueId || '');
       let movedOnEb, planUntouched, planIsLive;
@@ -193,6 +198,7 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
         changed.push('venue');
       } else if (!planIsLive) conflicts.push('venue');
     } else if (name === 'publishState') {
+      if (!has('ebStatus')) { next.ebStatus = f.ebStatus || ''; adopted = true; continue; }
       // Plan never edits Eventbrite status except by pushing: always write.
       if (String(f.ebStatus || '') === String(snap.ebStatus || '')) continue;
       cells.push(...statusCells(f.ebStatus));
@@ -201,7 +207,10 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
     }
   }
 
-  if (!changed.length) return { cells: [], changed, conflicts };
+  if (!changed.length) {
+    if (!adopted) return { cells: [], changed, conflicts };
+    return { cells: [{ column: C.lastEbPushedValues, value: JSON.stringify(next) }], changed, conflicts };
+  }
   next.ebChanged = f.changed || '';
   cells.push(
     { column: C.lastEbPushedValues, value: JSON.stringify(next) },

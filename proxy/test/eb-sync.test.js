@@ -198,3 +198,31 @@ test('flow-in never pushed: Eventbrite wins where it differs from plan, no confl
   const snap = JSON.parse(cell(r.cells, C.lastEbPushedValues).value);
   assert.equal(snap.start, '10:00'); assert.equal(snap.date, f.date); assert.equal(snap.publicSummary, 'S');
 });
+test('flow-in: old snapshot with no ebVenueId adopts the live venue as baseline', () => {
+  const f0 = liveF();
+  const row = rowOf(f0);
+  delete row.pushed.ebVenueId;
+  const r = planFlowIn(row, { ...f0, ebVenueId: '90' }, matchVenue('90', venues), NOW);
+  assert.deepEqual(r.changed, []); assert.deepEqual(r.conflicts, []);
+  assert.equal(cell(r.cells, C.venue), undefined); assert.equal(cell(r.cells, C.venueOther), undefined);
+  assert.equal(cell(r.cells, C.lastFromEb), undefined);
+  assert.equal(r.cells.length, 1);
+  const snap = JSON.parse(cell(r.cells, C.lastEbPushedValues).value);
+  assert.equal(snap.ebVenueId, '90'); assert.equal(snap.venueName, 'The Hall');
+});
+test('flow-in: old snapshot with no ebStatus adopts the live status as baseline', () => {
+  const f0 = liveF();
+  const row = rowOf(f0);
+  delete row.pushed.ebStatus;
+  const r = planFlowIn(row, { ...f0, ebStatus: 'canceled' }, matchVenue('77', venues), NOW);
+  assert.deepEqual(r.changed, []); assert.deepEqual(r.conflicts, []);
+  for (const col of [C.status, C.publishStatus, C.published, C.lastFromEb]) assert.equal(cell(r.cells, col), undefined);
+  assert.equal(r.cells.length, 1);
+  assert.equal(JSON.parse(cell(r.cells, C.lastEbPushedValues).value).ebStatus, 'canceled');
+  // Adoption alongside a real change: both land in one snapshot.
+  const r2 = planFlowIn(row, { ...f0, ebStatus: 'canceled', start: '19:00' }, matchVenue('77', venues), NOW);
+  assert.deepEqual(r2.changed, ['start']);
+  const s2 = JSON.parse(cell(r2.cells, C.lastEbPushedValues).value);
+  assert.equal(s2.ebStatus, 'canceled'); assert.equal(s2.start, '19:00');
+  assert.deepEqual(JSON.parse(cell(r2.cells, C.lastFromEb).value).fields, ['start']);
+});
