@@ -222,3 +222,89 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
   );
   return { cells, changed, conflicts };
 }
+
+// ── Webhook, sweep and the one handler (§5.1–5.2) ─────────────────────────
+
+// The event was deleted on Eventbrite: the row stays, its Eventbrite id kept.
+// (The select option is added in Coda before release.)
+export const REMOVED_STATUS = 'Removed from Eventbrite';
+export function removedCells() {
+  return [{ column: C.publishStatus, value: REMOVED_STATUS }, { column: C.published, value: false }];
+}
+
+// Eventbrite webhooks are unsigned: trust only an Eventbrite event api_url, and
+// only for its numeric id (the Worker fetches the event itself).
+const EB_EVENT_URL = /^https:\/\/www\.eventbriteapi\.com\/v3\/events\/(\d+)\/?$/;
+export function parseEbWebhook(body) {
+  const m = EB_EVENT_URL.exec(String((body && body.api_url) || ''));
+  return m ? m[1] : null;
+}
+
+// What to do with an Eventbrite event: rowsWithId are the planning rows holding
+// its id; markerRowId is our own fresh insert (KV eb-row:<ebId>); pending is a
+// plan push in flight for that row (KV ebpending:<rowId>).
+export function syncDecision({ rowsWithId, markerRowId, pending }) {
+  const n = (rowsWithId || []).length;
+  if (pending) return 'skip';
+  if (n > 1) return 'error';
+  if (markerRowId || n === 1) return 'flowin';
+  return 'import';
+}
+
+// The slice of candidates one sweep run handles. A cursor past the end (the list
+// shrank since the last run) starts over.
+export function sweepBatch(candidates, cursor, max) {
+  const list = candidates || [];
+  let at = Number(cursor) || 0;
+  if (at < 0 || at >= list.length) at = 0;
+  const end = at + max;
+  return { batch: list.slice(at, end), nextCursor: end < list.length ? end : null };
+}
+
+// Constant-time string compare for the webhook path secret. An unset secret never matches.
+export function secretMatches(given, secret) {
+  const a = String(given == null ? '' : given), b = String(secret == null ? '' : secret);
+  if (!b) return false;
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < b.length; i++) diff |= (a.charCodeAt(i) || 0) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// Nothing flowed in but Eventbrite's changed stamp moved (e.g. a push echo, or an
+// edit plan already has): record the stamp so the sweep stops picking the row up.
+export function seenCells(rowEv, fields) {
+  const p = rowEv && rowEv.pushed, changed = (fields && fields.changed) || '';
+  if (!p || !changed || p.ebChanged === changed) return [];
+  return [{ column: C.lastEbPushedValues, value: JSON.stringify({ ...p, ebChanged: changed }) }];
+}
+
+const cellStr = (v) => (v == null ? '' : Array.isArray(v) ? cellStr(v[0]) : String(v));
+const snapChanged = (v) => { try { const p = JSON.parse(cellStr(v)); return (p && p.ebChanged) || ''; } catch (_) { return ''; } };
+
+// The events a sweep run should hand to the handler, in a stable order.
+// listed: Eventbrite listing events; rows: id-keyed planning rows; today: YYYY-MM-DD.
+// A listed event needs work when no row holds it or its snapshot's ebChanged differs.
+// An upcoming row with an Eventbrite id the listing didn't return is checked too
+// (deleted on Eventbrite?), unless it is already marked removed.
+export function sweepCandidates({ listed, rows, today }) {
+  const byEb = new Map();
+  for (const r of rows || []) {
+    const id = cellStr(r.values && r.values[C.eventbriteId]);
+    if (id && !byEb.has(id)) byEb.set(id, r);
+  }
+  const out = [], seen = new Set();
+  for (const ev of listed || []) {
+    const id = String((ev && ev.id) || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const r = byEb.get(id);
+    if (!r || snapChanged(r.values[C.lastEbPushedValues]) !== String(ev.changed || '')) out.push({ ebId: id, body: ev });
+  }
+  for (const [id, r] of byEb) {
+    if (seen.has(id)) continue;
+    if (cellStr(r.values[C.date]).slice(0, 10) < today) continue;
+    if (cellStr(r.values[C.publishStatus]) === REMOVED_STATUS) continue;
+    out.push({ ebId: id, body: null });
+  }
+  return out;
+}

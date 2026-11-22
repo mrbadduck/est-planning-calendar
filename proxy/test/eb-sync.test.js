@@ -239,3 +239,72 @@ test('flow-in venue: a lead\'s unpushed address visibility edit makes it a confl
   assert.deepEqual(r.conflicts, ['venue']); assert.deepEqual(r.changed, []);
   assert.equal(cell(r.cells, C.venue), undefined); assert.equal(cell(r.cells, C.addressVisibility), undefined);
 });
+
+// ── Webhook, sweep and the one handler (Task 6) ──────────────────────────
+import { removedCells, parseEbWebhook, syncDecision, sweepBatch, secretMatches, seenCells, sweepCandidates, REMOVED_STATUS } from '../src/eb-sync.js';
+
+test('removedCells: Publish status Removed from Eventbrite, Published? false, id kept', () => {
+  const cells = removedCells();
+  assert.equal(REMOVED_STATUS, 'Removed from Eventbrite');
+  assert.equal(cells.find((c) => c.column === C.publishStatus).value, 'Removed from Eventbrite');
+  assert.equal(cells.find((c) => c.column === C.published).value, false);
+  assert.equal(cells.find((c) => c.column === C.eventbriteId), undefined);
+});
+test('parseEbWebhook: only an Eventbrite event api_url gives an id', () => {
+  assert.equal(parseEbWebhook({ api_url: 'https://www.eventbriteapi.com/v3/events/123/' }), '123');
+  assert.equal(parseEbWebhook({ api_url: 'https://www.eventbriteapi.com/v3/events/123' }), '123');
+  assert.equal(parseEbWebhook({ api_url: 'https://evil.example.com/v3/events/123/' }), null);
+  assert.equal(parseEbWebhook({ api_url: 'http://www.eventbriteapi.com/v3/events/123/' }), null);
+  assert.equal(parseEbWebhook({ api_url: 'https://www.eventbriteapi.com/v3/events/abc/' }), null);
+  assert.equal(parseEbWebhook({ api_url: 'https://www.eventbriteapi.com/v3/orders/123/' }), null);
+  assert.equal(parseEbWebhook({}), null);
+  assert.equal(parseEbWebhook(null), null);
+});
+test('syncDecision: pending skip, marker or one row flow-in, none import, two error', () => {
+  assert.equal(syncDecision({ rowsWithId: [{ id: 'r1' }], markerRowId: null, pending: { ebId: '1' } }), 'skip');
+  assert.equal(syncDecision({ rowsWithId: [], markerRowId: 'r1', pending: null }), 'flowin');
+  assert.equal(syncDecision({ rowsWithId: [{ id: 'r1' }], markerRowId: null, pending: null }), 'flowin');
+  assert.equal(syncDecision({ rowsWithId: [], markerRowId: null, pending: null }), 'import');
+  assert.equal(syncDecision({ rowsWithId: [{ id: 'r1' }, { id: 'r2' }], markerRowId: null, pending: null }), 'error');
+});
+test('sweepBatch: slices from the cursor; last slice has nextCursor null', () => {
+  const c = Array.from({ length: 20 }, (_, i) => i);
+  assert.deepEqual(sweepBatch(c, 8, 8), { batch: [8, 9, 10, 11, 12, 13, 14, 15], nextCursor: 16 });
+  assert.deepEqual(sweepBatch(c, 16, 8), { batch: [16, 17, 18, 19], nextCursor: null });
+  assert.deepEqual(sweepBatch(c, null, 8).batch, [0, 1, 2, 3, 4, 5, 6, 7]);
+  // A cursor past the end (the list shrank) starts over.
+  assert.deepEqual(sweepBatch(c.slice(0, 5), 8, 8), { batch: [0, 1, 2, 3, 4], nextCursor: null });
+});
+test('secretMatches: exact match only', () => {
+  assert.equal(secretMatches('abc123', 'abc123'), true);
+  assert.equal(secretMatches('abc124', 'abc123'), false);
+  assert.equal(secretMatches('abc', 'abc123'), false);
+  assert.equal(secretMatches('', ''), false);
+  assert.equal(secretMatches('x', undefined), false);
+});
+test('seenCells: records the live changed stamp when nothing flowed in', () => {
+  const pushed = { title: 'A', ebChanged: 'old', ebVenueId: '7', ebStatus: 'live' };
+  const cells = seenCells({ pushed }, { changed: 'new' });
+  assert.equal(cells.length, 1);
+  const snap = JSON.parse(cells[0].value);
+  assert.equal(cells[0].column, C.lastEbPushedValues);
+  assert.equal(snap.ebChanged, 'new'); assert.equal(snap.title, 'A');
+  assert.deepEqual(seenCells({ pushed: { ...pushed, ebChanged: 'new' } }, { changed: 'new' }), []);
+  assert.deepEqual(seenCells({ pushed: null }, { changed: 'new' }), []);
+});
+test('sweepCandidates: changed or unknown listed events, plus upcoming rows missing from the listing', () => {
+  const row = (id, ebId, o = {}) => ({ id, values: { [C.eventbriteId]: ebId, [C.date]: o.date || '2027-01-10',
+    [C.publishStatus]: o.ps || 'Published', [C.lastEbPushedValues]: o.snap === undefined ? JSON.stringify({ ebChanged: 'c1' }) : o.snap } });
+  const rows = [
+    row('r1', '1'),                                   // listed, same changed -> not a candidate
+    row('r2', '2'),                                   // listed, changed differs -> candidate
+    row('r5', '5'),                                   // upcoming, not listed -> candidate (no body)
+    row('r6', '6', { date: '2026-01-01' }),           // past, not listed -> no
+    row('r7', '7', { ps: 'Removed from Eventbrite' }),// already removed -> no
+    row('r8', '', {}),                                // no Eventbrite id -> no
+  ];
+  const listed = [{ id: '1', changed: 'c1' }, { id: '2', changed: 'c2' }, { id: '3', changed: 'c9' }];
+  const c = sweepCandidates({ listed, rows, today: '2026-11-22' });
+  assert.deepEqual(c.map((x) => x.ebId), ['2', '3', '5']);
+  assert.equal(c[0].body.id, '2'); assert.equal(c[2].body, null);
+});
