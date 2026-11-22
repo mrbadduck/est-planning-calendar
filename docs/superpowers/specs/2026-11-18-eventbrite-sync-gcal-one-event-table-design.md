@@ -213,9 +213,9 @@ retreats, 50+ dinners), and imported events.
   row. Insert writes it; update and delete use it.
 - **Event contents:** title; start/end in `America/Chicago` (all-day when set);
   description = public summary, then the registration line, then the gather link.
-  The registration line is the Eventbrite link once the event is Published; until then
-  it reads "Registration on Eventbrite coming soon" (Eric, 2026-11-19), and it's
-  replaced with the link on the next sync after publishing;
+  The registration line is the Eventbrite link once the event is Published; otherwise
+  the `External registration URL` when one is set; otherwise it reads "Registration on
+  Eventbrite coming soon" (Eric, 2026-11-19). It's replaced on the next sync;
   location honors `Address visibility` (registrants-only → area only, the same rule
   as the Eventbrite venue).
 - **When it syncs:** after every successful push or flow-in that changes a gCal field,
@@ -271,7 +271,9 @@ A script in `scripts/` (Node, like the venues backfill): **dry run by default**,
 | Venue | Venue (first one); any others go into **Additional venues** (3 rows: Channukah Bonfire(s) '20 at four houses, The Sabbath Dance, Leadership Retreat Dec '24) |
 | Cancelled? | Status = `Cancelled`; otherwise `Approved` |
 | Event Description | Event Description |
-| Num Attendees (Manual Override), Banner Image Override, Registration URL Override, Event Photos | new columns of the same names |
+| Num Attendees (Manual Override) | the column of the same name |
+| Registration URL Override | External registration URL |
+| Banner Image Override, Event Photos | not carried over (stay in the legacy table) |
 | gCal Event Id | gCal Event ID |
 | row id | **Legacy EST Events row** (the existing `Linked EST Events SRC row`, renamed) |
 | — | Source = `Backfill` |
@@ -290,7 +292,13 @@ A script in `scripts/` (Node, like the venues backfill): **dry run by default**,
   events, not shown in the app — Venue stays single so the app, the Eventbrite push and the
   address rules don't change; agreed with Eric 2026-11-19),
   `Collaborators` (→ EST Collaborators SRC, multi), `Num Attendees (Manual Override)`,
-  `Banner Image Override`, `Registration URL Override`, `Event Photos`.
+  `External registration URL` (link; where people register when the event isn't on
+  Eventbrite — set from plan once the non-Eventbrite publish path is built, see the
+  roadmap). Not carried over (decided with Eric 2026-11-22): `Banner Image Override`
+  (it only served the retired website embed; banner upload pushed to Eventbrite gets its
+  own plain `Banner image` column when that feature is designed) and `Event Photos`
+  (belongs to the after-event follow-up feature). The one legacy row using each stays
+  readable in `EST Events (legacy)`.
   (`Source` and `gCal Event ID` are needed by Part A/B, so they land first.)
 - **`Eventbrite Event` becomes a formula** keyed by the stored id:
   `[Events EVENTBRITE].Filter([Eventbrite Id] = thisRow.[Eventbrite Event ID]).First()`.
@@ -300,7 +308,7 @@ A script in `scripts/` (Node, like the venues backfill): **dry run by default**,
   repoint with a table swap: `Event Date (for Metrics)` (= Date), `Eventbrite Event All
   Orders`, `Eventbrite Event Num Tickets` and `Num Orders` (with the manual-override
   fallback), `Eventbrite Ticket Revenue`, `Num First Timers`, `First Timers EST`,
-  `Collab Event`, `Min Leadership Wave`, `Banner image`, `Event Discount Config`
+  `Collab Event`, `Min Leadership Wave`, `Event Discount Config`
   (reverse lookup), `Metrics Reporting Periods` (reverse lookup), `Cancelled?`
   (= Status is Cancelled).
 - The Pre-/Post-Event Slack Reminder buttons move to the planning table unchanged.

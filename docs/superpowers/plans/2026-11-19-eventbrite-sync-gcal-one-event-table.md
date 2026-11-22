@@ -84,9 +84,10 @@ WebCrypto), `node --test`, vanilla JS app (buildless).
   `lastPublishedAt:'c-VQaRCCKLzX'`, `lastPublishError:'c-rIhvH9m_Y5'`,
   `eventDescription:'c-ZJO5Ge_PyI'`, `programs:'c-tHwtj89ksi'`, `leads:'c-92mRz-1SYp'`,
   `volunteers:'c-8_uS1RK9Qx'`, `legacyRow:'c-sUpvHhlGlI'`, `createdBy:'c-ueS3RrH9ie'`;
-  and new columns, ids filled in after Step 1: `source`, `gcalEventId`,
-  `lastFromEb`, `additionalVenues`, `collaborators`, `attendeesOverride`,
-  `bannerOverride`, `registrationUrlOverride`, `eventPhotos`.
+  and new columns: `source:'c-XNXXPfY74v'`, `lastFromEb:'c-b02zbLiHgk'` (created
+  2026-11-22); `gcalEventId` (Phase B), `additionalVenues`, `collaborators`,
+  `attendeesOverride`, `externalRegistrationUrl` (Phase C) get their ids when those columns
+  are created. Banner Image Override and Event Photos are not carried over (spec §8.1).
 - Also `LEGACY_EVENTS_TABLE = 'grid-9TAt5vMMKH'` and `LEGACY_COLS` for the columns the
   backfill reads (ids in the survey §1: name `c-YcC1vx5Ung`, eventbriteEvent `c-LvlbW7Fk28`,
   venue `c-qnAUWGhhWe`, collaborators `c-v8SaE7WTNb`, cancelled `c-kZqi1huBiz`,
@@ -97,10 +98,10 @@ WebCrypto), `node --test`, vanilla JS app (buildless).
 
 - [ ] **Step 1: 🔒 Eric — add to `EST Planning Events SRC`** (by hand or via the API with OK):
   `Source` (select: Plan, Eventbrite, Backfill; default Plan), `gCal Event ID` (text),
-  `Last from Eventbrite` (text; Worker-written JSON `{at, fields}`), `Additional venues`
-  (relation → EST Venues SRC, multi), `Collaborators` (relation → EST Collaborators SRC,
-  multi), `Num Attendees (Manual Override)` (number), `Banner Image Override` (image),
-  `Registration URL Override` (link), `Event Photos` (file). Rename
+  `Last from Eventbrite` (text; Worker-written JSON `{at, fields}`) — **done 2026-11-22**.
+  Later phases add `gCal Event ID` (B) and `Additional venues` (relation → EST Venues SRC,
+  multi), `Collaborators` (relation → EST Collaborators SRC, multi),
+  `Num Attendees (Manual Override)` (number), `External registration URL` (link) (C). Rename
   `Linked EST Events SRC row` → `Legacy EST Events row`. Add `Removed from Eventbrite` to
   `Publish status`'s options. Add `Google Calendar` to the Publish Log `Target` options.
   Read back the new ids with `table_columns_read`.
@@ -320,7 +321,8 @@ upcoming events with their slots and claims, before Phase C grows the table.
     `description` = public summary, blank line, registration line, blank line,
     `Sign up to help: ${gatherBase}/#/event/${rowId}`; registration line =
     `Register: ${eventbriteUrl}` when `publishStatus==='Published'`, otherwise exactly
-    `Registration on Eventbrite coming soon`; `location` = the venue's address when
+    `Registration on Eventbrite coming soon`, except that an `externalRegistrationUrl` (when set
+    and not Published on Eventbrite) gives `Register: ${externalRegistrationUrl}`; `location` = the venue's address when
     `addressVisibility!=='Registrants only'`, else `area` (`'Nashville, TN'`).
   - `gcalPlan(ev, storedId, lastHash, todayIso) -> {op:'insert'|'patch'|'delete'|'none', body?, hash?}`:
     on calendar and no id → insert; on calendar, id, hash changed → patch; not on calendar
@@ -408,7 +410,8 @@ upcoming events with their slots and claims, before Phase C grows the table.
     others from legacy fields only. Mapping per spec §7.5: title without a trailing ` (M/D/YYYY)`;
     Date from `Event Date (for Metrics)`; Start/End time parts; Program(s), Leads, Volunteers,
     Collaborators; first Venue → Venue, the rest → Additional venues; Cancelled? → Status
-    `Cancelled` else `Approved`; Event Description; the four override/photo columns;
+    `Cancelled` else `Approved`; Event Description; Num Attendees (Manual Override);
+    Registration URL Override → External registration URL (banner override and photos are not carried over);
     gCal Event Id → gCal Event ID; Legacy EST Events row = the legacy row id; Source = `Backfill`.
   - `unmatchedPast`: org events with `date < todayIso` and no legacy row.
   - `duplicates`: two legacy rows sharing an Eventbrite id. Any duplicate → the script refuses `--apply`.
@@ -461,7 +464,7 @@ Each item: the exact change, who applies it (decided with Eric per step), and th
   - `Event Date (for Metrics)` → `thisRow.Date`
   - `Eventbrite Event All Orders` → `thisRow.[Eventbrite Event].[All Orders]`
   - `Eventbrite Event Num Tickets` / `Eventbrite Event Num Orders` → the legacy formulas (survey §1 rows 11, 14) with the table swapped
-  - `Eventbrite Ticket Revenue`, `Num First Timers`, `First Timers EST`, `Collab Event`, `Min Leadership Wave`, `Banner image`, `Event Discount Config`, `Metrics Reporting Periods` → the legacy formulas (survey §1 rows 37, 16, 17, 18, 19, 28, 41, 15), table swapped
+  - `Eventbrite Ticket Revenue`, `Num First Timers`, `First Timers EST`, `Collab Event`, `Min Leadership Wave`, `Event Discount Config`, `Metrics Reporting Periods` → the legacy formulas (survey §1 rows 37, 16, 17, 18, 19, 41, 15), table swapped
   - then every Appendix A row in order, each consumer's new formula written out, every
     `Cancelled? != true` filter replaced by `[Counts for Metrics]`, and A.5 as
     `[EST Events].Filter(Venue.Contains(thisRow) OR [Additional venues].Contains(thisRow))`.
