@@ -205,6 +205,9 @@ export function planFlowIn(rowEv, fields, venueMatch, nowIso) {
       if (!has('ebStatus')) { next.ebStatus = f.ebStatus || ''; adopted = true; continue; }
       // Plan never edits Eventbrite status except by pushing: always write.
       if (String(f.ebStatus || '') === String(snap.ebStatus || '')) continue;
+      // C1: a Cancelled row is plan-owned unless Eventbrite says canceled (a plan
+      // Cancel unpublishes the listing; its echo must not bring Status back).
+      if (r.status === 'cancelled' && f.ebStatus !== 'canceled') continue;
       cells.push(...statusCells(f.ebStatus));
       next.ebStatus = f.ebStatus || '';
       changed.push('publishState');
@@ -306,7 +309,7 @@ const snapChanged = (v) => { try { const p = JSON.parse(cellStr(v)); return (p &
 // listed: Eventbrite listing events; rows: id-keyed planning rows; today: YYYY-MM-DD.
 // A listed event needs work when no row holds it or its snapshot's ebChanged differs.
 // An upcoming row with an Eventbrite id the listing didn't return is checked too
-// (deleted on Eventbrite?), unless it is already marked removed.
+// (deleted on Eventbrite?), unless it is already marked removed or is Cancelled.
 export function sweepCandidates({ listed, rows, today }) {
   const byEb = new Map();
   for (const r of rows || []) {
@@ -325,6 +328,7 @@ export function sweepCandidates({ listed, rows, today }) {
     if (seen.has(id)) continue;
     if (cellStr(r.values[C.date]).slice(0, 10) < today) continue;
     if (cellStr(r.values[C.publishStatus]) === REMOVED_STATUS) continue;
+    if (cellStr(r.values[C.status]) === 'Cancelled') continue;   // plan-owned: a deleted listing changes nothing
     out.push({ ebId: id, body: null });
   }
   return out;

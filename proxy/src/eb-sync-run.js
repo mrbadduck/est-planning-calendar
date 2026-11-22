@@ -143,6 +143,10 @@ async function handle(env, c, ebId, via, ctx, log) {
     }
     const row = rowsWithId[0];
     if (cellStr(row.values[C.publishStatus]) === REMOVED_STATUS) return { action: 'unchanged', rowId: row.id };
+    if (cellStr(row.values[C.status]) === 'Cancelled') {   // C1: plan-owned; the sweep skips it after this
+      log({ rowId: row.id, action: 'removed', ok: true, status: ebStatus, message: 'Event deleted on Eventbrite; the row is Cancelled in plan, so nothing changed' });
+      return { action: 'unchanged', rowId: row.id };
+    }
     const put = await fetch(`${c.rowsUrl}/${encodeURIComponent(row.id)}`, { method: 'PUT', headers: c.auth, body: JSON.stringify({ row: { cells: removedCells() } }) });
     if (put.ok) await bustEventCaches(env);
     log({ rowId: row.id, action: 'removed', ok: put.ok, status: put.status, message: put.ok ? 'Event deleted on Eventbrite' : `Could not mark the row removed (Coda ${put.status})` });

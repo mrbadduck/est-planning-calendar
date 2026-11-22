@@ -48,7 +48,7 @@ import {
 } from './gather.js';
 import { buildRoster } from './roster.js';
 import { ebWebhook, runSweep } from './eb-sync-run.js';
-import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
 const ListingRules = globalThis.ListingRules;
@@ -753,7 +753,8 @@ export default {
           return r;
         };
         const action = isCancel ? 'cancel' : 'unpublish';
-        const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19: a just-created id may not be on the row yet
+        const pend = await readEbPending(env, rowId), { ebId } = resolveEbIds(V, pend);   // R19: a just-created id may not be on the row yet
+        const notePending = () => writeEbPending(env, rowId, mergeEbPending(pend, { ebId }));   // C1: the sync skips our own change
         const log = (rec) => logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action, ebId, ...rec });
         const ebMsg = (r) => String((r.body && (r.body.error_description || r.body.error)) || `HTTP ${r.status}`);
         const ebFail = async (r, what) => {
@@ -778,6 +779,7 @@ export default {
           const snap = ebEventSnapshot(g.body);
           if (snap.sold > 0) return blocked(snap.sold);
           if (snap.status !== 'draft') {   // already a private draft: just sync the row
+            await notePending();
             const u = await ebUnpublish(env, ebId);
             if (!u.ok) return ebFail(u, 'could not unpublish the Eventbrite listing');
           }
@@ -786,26 +788,28 @@ export default {
             { column: PLANNING_COLS.published, value: false },   // gather hides it (F17)
             { column: 'Last publish error', value: '' },
             { column: 'Edited by', value: [id.personId] },
+            ...snapshotStatusCells(V, 'draft'),
           ]);
           if (!w.ok) return pass(w, cors);
           await log({ ok: true, status: 200, ebUrl: eventbriteWebUrl(ebId), message: 'listing unpublished (back to private draft)' });
           return json({ ok: true, publishStatus: 'Draft', requestId: lastRequestId }, 200, cors);
         }
 
-        let ebOutcome = 'none';
+        let ebOutcome = 'none', ebNow = '';   // ebNow: Eventbrite's status after this, for the snapshot
         if (ebId) {
           if (!env.EVENTBRITE_TOKEN) return json({ error: 'eventbrite not configured' }, 500, cors);
           const g = await ebFetch(env, `/events/${ebId}/?expand=ticket_classes`);
-          if (ebGone(g)) ebOutcome = 'already gone';
+          if (ebGone(g)) { ebOutcome = 'already gone'; if (g.ok && g.body && g.body.status === 'canceled') ebNow = 'canceled'; }
           else if (!g.ok) return ebFail(g, 'could not read the Eventbrite listing');
           else {
             const snap = ebEventSnapshot(g.body);
             const plan = cancelPlan({ status: snap.status, sold: snap.sold });
             if (plan.action === 'blocked') return blocked(plan.registrants);
+            if (plan.action !== 'none') await notePending();
             if (plan.action === 'unpublish') {
               const u = await ebUnpublish(env, ebId);
               if (!u.ok) return ebFail(u, 'could not take down the Eventbrite listing');
-              ebOutcome = 'unpublished';
+              ebOutcome = 'unpublished'; ebNow = 'draft';
             } else if (plan.action === 'delete') {
               const d = await ebDelete(env, ebId);
               if (!d.ok && d.status !== 404) return ebFail(d, 'could not delete the Eventbrite draft');
@@ -818,7 +822,7 @@ export default {
           { column: PLANNING_COLS.published, value: false },
           { column: 'Edited by', value: [id.personId] },
         ];
-        if (ebId) cells.push({ column: 'Publish status', value: 'Cancelled' });
+        if (ebId) cells.push({ column: 'Publish status', value: 'Cancelled' }, ...snapshotStatusCells(V, ebNow));
         const w = await setRow(cells);
         if (!w.ok) return pass(w, cors);
         await log({ ok: true, status: 200, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });

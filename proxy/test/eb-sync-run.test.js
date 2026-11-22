@@ -284,3 +284,34 @@ test('a conflict keeps the publish guard armed: no Last EB push at on that row',
   assert.equal(cells.find((c) => c.column === C.start), undefined);
   assert.equal(cells.find((c) => c.column === C.lastEbPushAt), undefined, 'Last EB push at left as it was');
 });
+
+// ── Final fix C1 ──
+test('C1: plan cancel then event.unpublished leaves Status Cancelled', async () => {
+  const e = env();
+  const pushed = { title: 'Shabbat', date: '2027-03-13', start: '10:00', end: '11:00', capacity: 20, publicSummary: '', publicDescription: '',
+    venueName: '', addressVisibility: '', ticketClassId: 'tc', ebChanged: 'ch1', ebVenueId: '', ebStatus: 'live' };
+  on('GET', /\/events\/123\/\?expand/, res(200, ebEvent({ status: 'draft' }))); sc();
+  on('GET', /tables\/T\/rows\?/, res(200, { items: [{ id: 'i-1', values: { [C.eventbriteId]: '123' } }] }));
+  on('GET', /tables\/T\/rows\/i-1\?/, res(200, { id: 'i-1', values: { Title: 'Shabbat', Status: 'Cancelled', Date: '2027-03-13', Start: '10:00', End: '11:00',
+    Capacity: 20, 'Eventbrite Event ID': '123', 'Publish status': 'Cancelled', 'Last EB pushed values': JSON.stringify(pushed) } }));
+  on('PUT', /tables\/T\/rows\/i-1$/, res(202, { requestId: 'q' }));
+  on('POST', /tables\/LOG\/rows/, res(202, {}));
+  await syncEbEvent(e, '123', 'eventbrite');
+  for (const put of calls.filter((c) => c.method === 'PUT')) {
+    const cells = put.body.row.cells;
+    assert.equal(cells.find((c) => c.column === C.status), undefined, 'Status not written');
+    assert.equal(cells.find((c) => c.column === C.publishStatus), undefined, 'Publish status not written');
+  }
+});
+test('C1: Eventbrite 404 on a Cancelled row writes nothing and logs once', async () => {
+  const e = env();
+  on('GET', /\/events\/123\/\?expand/, res(404, { error: 'NOT_FOUND' }));
+  on('GET', /tables\/T\/rows\?/, res(200, { items: [{ id: 'i-1', values: { [C.eventbriteId]: '123', [C.status]: 'Cancelled', [C.publishStatus]: 'Cancelled' } }] }));
+  on('PUT', /tables\/T\/rows\/i-1$/, res(202, { requestId: 'q' }));
+  on('POST', /tables\/LOG\/rows/, res(202, {}));
+  const out = await syncEbEvent(e, '123', 'eventbrite');
+  assert.equal(out.action, 'unchanged');
+  assert.equal(calls.filter((c) => c.method === 'PUT').length, 0);
+  assert.equal(logs().length, 1); assert.equal(logs()[0].action, 'removed');
+  assert.match(logs()[0].message, /Cancelled/);
+});

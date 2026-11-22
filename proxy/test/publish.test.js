@@ -343,3 +343,15 @@ test('pushSnapshot: a genuinely different Eventbrite description is stored', () 
   const s = JSON.parse(pushSnapshot({ title: 'T', publicDescription: 'One\n\nTwo' }, { title: 'T', publicDescription: 'Changed', capacity: 5 }, '1'));
   assert.equal(s.publicDescription, 'Changed');
 });
+
+import { snapshotStatusCells } from '../src/publish.js';
+import { PLANNING_COLS as PC } from '../src/coda-columns.js';
+test('C1 snapshotStatusCells: the snapshot takes the status Eventbrite now holds', () => {
+  const V = { 'Last EB pushed values': JSON.stringify({ title: 'T', ebStatus: 'live', ebChanged: 'c' }) };
+  const cells = snapshotStatusCells(V, 'draft');
+  assert.equal(cells.length, 1); assert.equal(cells[0].column, PC.lastEbPushedValues);
+  assert.deepEqual(JSON.parse(cells[0].value), { title: 'T', ebStatus: 'draft', ebChanged: 'c' });
+  assert.deepEqual(snapshotStatusCells(V, ''), [], 'a deleted draft: left as is');
+  assert.deepEqual(snapshotStatusCells({}, 'draft'), [], 'no snapshot: nothing to update');
+  assert.deepEqual(snapshotStatusCells({ 'Last EB pushed values': 'nope' }, 'draft'), []);
+});

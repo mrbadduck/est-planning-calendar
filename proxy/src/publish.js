@@ -2,7 +2,7 @@
 import { normText } from './eventbrite.js';
 import '../../web/listing-readiness.js';   // globalThis.ListingRules (the app's shared rules)
 import '../../web/venue-address.js';       // globalThis.VenueAddress (the app's shared address rules)
-import { VENUE_COLS } from './coda-columns.js';
+import { VENUE_COLS, PLANNING_COLS } from './coda-columns.js';
 import { venueFromRow } from './venues.js';
 import { ebToFields, ebSnapshot } from './eb-sync.js';
 
@@ -183,6 +183,16 @@ export function cancelPlan({ status, sold } = {}) {
   if (status === 'live' || status === 'started') return { action: 'unpublish' };
   if (status === 'draft') return { action: 'delete' };
   return { action: 'none' };
+}
+
+// Cancel / unpublish (C1): the snapshot's ebStatus becomes what Eventbrite now holds,
+// so the sync doesn't read the route's own change as an Eventbrite edit. `V` is the
+// name-keyed row; a blank ebStatus (deleted draft) or no readable snapshot: no cell.
+export function snapshotStatusCells(V, ebStatus) {
+  if (!ebStatus) return [];
+  let p = null; try { p = JSON.parse((V || {})['Last EB pushed values']); } catch (_) {}
+  if (!p || typeof p !== 'object') return [];
+  return [{ column: PLANNING_COLS.lastEbPushedValues, value: JSON.stringify({ ...p, ebStatus }) }];
 }
 
 // Coda checkbox cell (simpleWithArrays) -> boolean.

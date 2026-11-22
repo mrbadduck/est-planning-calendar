@@ -330,3 +330,22 @@ test('sweepCandidates: changed or unknown listed events, plus upcoming rows miss
   assert.deepEqual(c.map((x) => x.ebId), ['2', '3', '5']);
   assert.equal(c[0].body.id, '2'); assert.equal(c[2].body, null);
 });
+
+// ── Final fix C1: a plan Cancel is never undone by the sync ───────────────
+test('C1 flow-in: a Cancelled row never gets Status Approved back from an unpublished listing', () => {
+  const f0 = liveF();
+  // The cancel route unpublished the listing; the snapshot still says live (not applied yet).
+  const r = planFlowIn(rowOf(f0, { status: 'cancelled' }), { ...f0, ebStatus: 'draft', changed: 'X2' }, matchVenue('77', venues), NOW);
+  assert.equal(cell(r.cells, C.status), undefined);
+  assert.equal(cell(r.cells, C.publishStatus), undefined);
+  assert.ok(!r.changed.includes('publishState'));
+  // Eventbrite saying canceled still flows in on a Cancelled row.
+  const c = planFlowIn(rowOf(f0, { status: 'cancelled' }), { ...f0, ebStatus: 'canceled' }, matchVenue('77', venues), NOW);
+  assert.ok(c.changed.includes('publishState'));
+  assert.equal(cell(c.cells, C.status).value, 'Cancelled');
+});
+test('C1 sweepCandidates: a Cancelled row missing from the listing is not checked again', () => {
+  const rows = [{ id: 'r1', values: { [C.eventbriteId]: '9', [C.date]: '2027-01-10', [C.status]: 'Cancelled',
+    [C.publishStatus]: 'Cancelled', [C.lastEbPushedValues]: '{}' } }];
+  assert.deepEqual(sweepCandidates({ listed: [], rows, today: '2026-11-22' }), []);
+});
