@@ -26,7 +26,7 @@ export function maskEndpoint(url) {
 }
 
 // Pure: KEY=value lines of a .dev.vars file. Quoted values keep everything inside the quotes;
-// unquoted values lose a trailing " # comment".
+// unquoted values lose a trailing " # comment" (a value that is only a comment is empty).
 export function parseDevVars(text) {
   const out = {};
   for (const line of String(text).split(/\r?\n/)) {
@@ -34,7 +34,7 @@ export function parseDevVars(text) {
     if (!m) continue;
     let v = m[2];
     const q = /^(["'])(.*?)\1/.exec(v);
-    v = q ? q[2] : v.replace(/\s+#.*$/, '').trim();
+    v = q ? q[2] : v.replace(/(^|\s+)#.*$/, '').trim();
     out[m[1]] = v;
   }
   return out;

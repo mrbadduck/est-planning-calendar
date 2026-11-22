@@ -42,3 +42,10 @@ test('parseDevVars strips inline comments from unquoted values, keeps quoted one
   assert.equal(v.D, 'has#hash');
   assert.equal(v['# c'], undefined);
 });
+
+test('parseDevVars: an empty value followed by a comment is empty', () => {
+  const v = parseDevVars('EB_WEBHOOK_SECRET=   # set me\nB=#only\nC=x #note\n');
+  assert.equal(v.EB_WEBHOOK_SECRET, '');
+  assert.equal(v.B, '');
+  assert.equal(v.C, 'x');
+});

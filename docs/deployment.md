@@ -132,13 +132,17 @@ The Worker imports and refreshes events from Eventbrite into the planning table.
   `EB_WEBHOOK_SECRET` is missing or a webhook to the Worker already exists. Tokens come from
   `proxy/.dev.vars` and are never printed; the path secret is masked. **Run the dry run first.**
   The create route (`POST /v3/organizations/{org}/webhooks/`) is unconfirmed: if `--apply` gets a
-  4xx, nothing was created (the script prints Eventbrite's `error_description`); the documented
+  4xx, nothing was created (the script prints Eventbrite's `error_description`); the manual
   fallback is `POST /v3/webhooks/` with the same body.
 - **Before going live**: the Coda select `Publish status` needs the option `Removed from Eventbrite`.
-- **Known limit**: the sweep reads at most 1,200 planning rows. Fix that before the backfill.
+- **Known limit**: the sweep reads at most 1,200 planning rows. Past that, a run does no imports
+  (rows past the cap would look unlinked and be duplicated); changes to the rows it read still flow
+  in, and the console and one Publish Log record say why. Fix that before the backfill.
 
 **Switch on:** merge (CI deploys with `EB_SYNC_MODE=off`), `wrangler secret put EB_WEBHOOK_SECRET`,
 run the script with `--apply`, set `EB_SYNC_MODE = "live"` in `proxy/wrangler.toml` and deploy.
+Then a **one-push smoke test**: push one event from plan, wait ~60 s, and check that its row's
+`Last from Eventbrite` stays empty and the listing markers show "matches Eventbrite".
 **Switch off in an emergency:** set `EB_SYNC_MODE = "off"` and redeploy. (Optionally delete the
 webhook in Eventbrite too; the Worker ignores it while off.)
 
