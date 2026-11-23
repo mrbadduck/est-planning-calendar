@@ -1,6 +1,6 @@
 /* transitions.js — lifecycle transitions (Propose/Approve/Reopen), Cancel, Delete, unpublish, and the Eventbrite-cancel bar (in the panel's #edBars).
-   Owns: transitionTo, cancelEvent, deleteEditor, unpublishEvent, _ebBlock, clearEbBlock, paintEbBlock
-   Reads: editing, activeSection (editor-tabs.js); state, todayStr (state.js); confirmLater, hasUnconfirmed (save.js; the flag goes with cancel/unpublish/delete)
+   Owns: TRANSITION_STEP, transitionTo, cancelEvent, deleteEditor, unpublishEvent, _ebBlock, clearEbBlock, paintEbBlock
+   Reads: editing, activeSection (editor-tabs.js); state, todayStr (state.js); confirmLater, hasUnconfirmed, lateFailMsg (save.js; the flag goes with cancel/unpublish/delete); PageRules (page-rules.js)
    Writes: _form, _busy, _busyLabel, _authRetry, _unconfirmed (save.js); _unsaved (state.js; delete)
    Loaded after: status-panel.js (file-map order; no load-time dependency) */
 
@@ -9,6 +9,7 @@
 // (openEditor → the event page) so its locks and the Status & next step panel reflect the new state. Works on the event it started
 // with — `editing` may close or change while it waits. Cancel is separate (it
 // tears down Eventbrite).
+const TRANSITION_STEP = { approved:'Approving', proposed:'Proposing', draft:'Reopening' };   // names a late failure
 async function transitionTo(status){
   const ev=editing;
   if(!ev || !ev.id || _busy.has(ev.id)) return;
@@ -26,10 +27,14 @@ async function transitionTo(status){
     const w=await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
     // Approve → Add to Eventbrite reads the Status through the overlay: wait for the
     // apply only when the write wasn't overlaid.
-    // A background failure reverts it like a failed wait does (below).
+    // A background failure reverts it like a failed wait does (below), unless a later
+    // transition has moved the event on since (PageRules.revertTransition).
     if(w && w.overlaid) confirmLater(w.requestId, ev.id, ()=>{
-      Object.assign(ev, prev); applyLocal(ev); markRecent(ev.id, {e:ev}); rerender();
-      toast('The change didn’t confirm. Check again in a minute.','err'); scheduleReconcile();
+      if(PageRules.revertTransition(ev, prev, status)){   // (moved on since: the later write decides, say nothing)
+        applyLocal(ev); markRecent(ev.id, {e:ev}); rerender();
+        toast(lateFailMsg(TRANSITION_STEP[status], ev.title),'err');
+      }
+      scheduleReconcile();
       if(editing===ev && !_busy.has(ev.id)) openEditor(ev, activeSection, 'none');
     });
     else await applied(w && w.requestId, ev.id);
@@ -68,7 +73,7 @@ async function cancelEvent(){
     await saveQueue.settle(ev.id).catch(()=>{});   // queued edits land first; one that fails is reported, not a reason to stop
     const res=await DB.cancelEventbrite(ev.id, hasUnconfirmed(ev.id));
     if(res && res.publishStatus) ev.publishStatus=res.publishStatus;
-    trackWorkerWrite(ev, res && res.requestId, res && res.overlaid); scheduleReconcile(); clearEbBlock(ev.id);
+    trackWorkerWrite(ev, res && res.requestId, res && res.overlaid, 'Cancelling'); scheduleReconcile(); clearEbBlock(ev.id);
     // The event is locked now, so a field edit that failed has nowhere to be retried.
     if(saveQueue.status(ev.id)==='error') dropFailedEdits(ev.id, 'Event cancelled, but your last change to it didn’t save');
     else toast('Event cancelled','ok');
@@ -126,7 +131,7 @@ async function unpublishEvent(){
     ev.publishStatus=(res && res.publishStatus) || 'Draft';
     clearEbBlock(id);
     applyLocal(ev); rerender();
-    trackWorkerWrite(ev, res && res.requestId, res && res.overlaid); scheduleReconcile();
+    trackWorkerWrite(ev, res && res.requestId, res && res.overlaid, 'Unpublishing'); scheduleReconcile();
     toast('Unpublished. It’s a private draft on Eventbrite again','ok');
     refreshEbStatus(ev);
   }catch(err){

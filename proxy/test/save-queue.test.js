@@ -284,6 +284,19 @@ test('tracker: has(id) while a tracked promise is unsettled, per event', async (
   c.resolve(); await tick();
   assert.equal(t.has('e2'), false);
   assert.equal(t.has(''), false);
+  assert.equal(t.size(), 0);
+});
+
+test('tracker: size() counts the events with anything unsettled (the leave guard)', async () => {
+  const t = globalThis.SaveQueue.tracker();
+  let r1, r2;
+  t.track('e1', new Promise(r => { r1 = r; })); t.track('e1', new Promise(r => { r2 = r; }));
+  t.track('e2', Promise.resolve());
+  assert.equal(t.size(), 2);
+  await tick();
+  assert.equal(t.size(), 1);
+  r1(); r2(); await tick();
+  assert.equal(t.size(), 0);
 });
 
 // An overlaid write resolved on the 202, then its background confirm failed: fail(token)
@@ -338,4 +351,23 @@ test('fail(token): nothing left to put back, or the edits were discarded → no 
   await q.discard('e2');                              // the event was deleted
   assert.equal(q.fail(w.calls[2].token, new Error('x')), false);
   assert.equal(q.status('e2'), 'idle');
+});
+
+test('fail(token, err, prepare): prepare hears only the columns put back, before the error is reported', async () => {
+  const w = tokenWriter(), seen = [];
+  const q = create({ write: w.write, onState: (id, st) => seen.push(st) });
+  q.stage('e1', [{ column: 'Title', value: 'A' }, { column: 'Capacity', value: 20 }]);
+  w.calls[0].resolve(); await tick();
+  q.stage('e1', [{ column: 'Title', value: 'B' }]);
+  w.calls[1].resolve(); await tick();              // Title written again and saved
+  const got = [];
+  assert.equal(q.fail(w.calls[0].token, new Error('x'), cols => { got.push(cols, seen.at(-1)); }), true);
+  assert.deepEqual(got, [['Capacity'], 'saved'], 'prepare runs before onState(error)');
+  assert.equal(seen.at(-1), 'error');
+  // nothing to put back: prepare is not called
+  let called = false;
+  q.stage('e2', [{ column: 'Title', value: 'A' }]); w.calls[2].resolve(); await tick();
+  q.stage('e2', [{ column: 'Title', value: 'B' }]); w.calls[3].resolve(); await tick();
+  assert.equal(q.fail(w.calls[2].token, new Error('x'), () => { called = true; }), false);
+  assert.equal(called, false);
 });

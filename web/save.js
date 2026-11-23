@@ -2,7 +2,7 @@
    The save model's rules live in: saveQueue (one write in flight per event), applied / pendingFor
    (Saved = overlaid or applied, D3, 0012), confirmLater, leaveForm, flushAutosave, dropFailedEdits, guardUnload.
    Owns: scheduleReconcile, _form, _busy, _busyLabel, _authRetry, formCells, _applying, _confirming, _slow,
-         _unconfirmed, CREATING_LABEL, lostChangeMsg, applied, confirmLater, hasUnconfirmed, reopenEdits, pendingFor, trackWorkerWrite, afterCreate, trackCreate,
+         _unconfirmed, CREATING_LABEL, lostChangeMsg, createdMsg, lateFailMsg, applied, confirmLater, hasUnconfirmed, reopenEdits, pendingFor, trackWorkerWrite, afterCreate, trackCreate,
          retryCreateConfirm, saveQueue, dropFailedEdits, retryFailedSave, guardUnload, paintSaveStatus,
          scheduleAutosave, autosaveEditor, leaveForm, flushAutosave, applyLocal
    Reads: editing, state (state.js, editor-tabs.js); _unsaved, _recent (state.js); _pushChecks (eventbrite.js)
@@ -72,11 +72,14 @@ function applied(requestId, eventId, opts={}){
 // copy over a read that missed the overlay and the event's actions go out flagged
 // unconfirmed (hasUnconfirmed); then its _recent hold is renewed. onFail(err): the
 // overlay or Coda gave up on it.
+// The leave guard stays on meanwhile (guardUnload).
 function confirmLater(requestId, id, onFail){
   if(!requestId) return;
   _confirming.track(id, applied(requestId, id, { counted:false, background:true })).then(
     ()=>{ const r=_recent.get(id); if(r){ const { until, ...rec }=r; markRecent(id, rec); } },
-    err=>{ console.warn('overlaid write not confirmed:', err); if(onFail) onFail(err); });
+    err=>{ console.warn('overlaid write not confirmed:', err); if(onFail) onFail(err); })
+    .finally(guardUnload);
+  guardUnload();
 }
 // An overlaid write to this event is still confirming: publish / cancel / unpublish /
 // delete tell the Worker (it refuses while it can't reach the overlay).
@@ -97,34 +100,45 @@ function pendingFor(id){
 // write went out — the values its cells replaced): put it back as a failed save, so
 // the pill offers the retry, leaving re-sends it and dropFailedEdits restores the
 // saved values when no editor is open. Nothing new to say beyond that path's own.
+// Only the fields behind the columns fail() put back are re-armed (a column written
+// again since keeps its newer value); before the error is reported, so
+// dropFailedEdits finds them.
 function reopenEdits(id, snap, token, err){
-  const cur=_unsaved.get(id), added=!cur && !!snap;
-  if(added){ _unsaved.set(id, snap); guardUnload(); }
-  else if(cur && snap) for(const k of Object.keys(snap.before)) if(!(k in cur.before)) cur.before[k]=snap.before[k];
-  if(!saveQueue.fail(token, err) && added){ _unsaved.delete(id); guardUnload(); }   // every column was written again since
+  saveQueue.fail(token, err, columns=>{
+    if(!snap) return;
+    const back=new Set(columns), base=formCells(snap.ev), before={};
+    for(const k of Object.keys(snap.before)){
+      const was=formCells(Object.assign({}, snap.ev, {[k]:snap.before[k]}));
+      if(SaveQueue.changedCells(base, was).some(c=>back.has(c.column))) before[k]=snap.before[k];
+    }
+    const cur=_unsaved.get(id);
+    if(!cur){ _unsaved.set(id, { ev:snap.ev, before }); guardUnload(); }
+    else for(const k of Object.keys(before)) if(!(k in cur.before)) cur.before[k]=before[k];
+  });
 }
 // A Worker write to this event's row (publish / cancel / unpublish, R19). Overlaid:
 // reads already return it, so it confirms in the background (confirmLater). Not
 // overlaid: Coda applies it 13–30 s later, so hold the primary at Saving…
 // (pendingFor counts it). Either way loadEvents keeps the local copy over stale
 // /rows reads (it holds _recent while _applying or _confirming counts the event).
-function trackWorkerWrite(ev, requestId, overlaid){
+// step ("Publishing", "Cancelling", "Unpublishing") names a late, background failure.
+function trackWorkerWrite(ev, requestId, overlaid, step){
   markRecent(ev.id, {e:ev});
   if(!requestId) return;
-  const fail=err=>{ console.warn('worker write not confirmed:', err); markRecent(ev.id, {e:ev}); toast('The change didn’t confirm. Check again in a minute.','err'); scheduleReconcile(); };
-  if(overlaid){ confirmLater(requestId, ev.id, fail); return; }
-  applied(requestId, ev.id).then(()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); }, fail);
+  const fail=msg=>err=>{ console.warn('worker write not confirmed:', err); markRecent(ev.id, {e:ev}); toast(msg(),'err'); scheduleReconcile(); };
+  if(overlaid){ confirmLater(requestId, ev.id, fail(()=>step ? lateFailMsg(step, ev.title) : 'The change didn’t confirm. Check again in a minute.')); return; }
+  applied(requestId, ev.id).then(()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); }, fail(()=>'The change didn’t confirm. Check again in a minute.'));
 }
 // Writes to a just-created row wait for its insert to apply (a failed confirm is
 // handled by _unconfirmed, not here).
 const afterCreate = id => Promise.resolve(_createApply.get(id)).catch(()=>{});
 // Track a new event's insert until Coda applies it (creates always wait, overlaid or
 // not): the panel's primary reads CREATING_LABEL while _createApply has it, then the
-// Created toast; unconfirmed → the pill offers a retry (Save failed — retry).
+// “<title>” created toast; unconfirmed → the pill offers a retry (Save failed — retry).
 function trackCreate(id, requestId){
   const p=applied(requestId, id);
   _createApply.set(id, p);
-  p.then(()=>{ _unconfirmed.delete(id); toast('Created','ok'); },
+  p.then(()=>{ _unconfirmed.delete(id); toast(createdMsg(titleOf(id)),'ok'); },
          err=>{ console.warn('create not confirmed:', err); _unconfirmed.set(id, requestId); })
    .finally(()=>{
      if(_createApply.get(id)===p) _createApply.delete(id);
@@ -137,7 +151,7 @@ function trackCreate(id, requestId){
 function retryCreateConfirm(id){
   const rid=_unconfirmed.get(id);
   if(rid==null || (_applying.get(id)||0) > 0) return;
-  applied(rid, id).then(()=>{ _unconfirmed.delete(id); }, ()=>{ scheduleReconcile(); })
+  applied(rid, id).then(()=>{ _unconfirmed.delete(id); toast(createdMsg(titleOf(id)),'ok'); }, ()=>{ scheduleReconcile(); })
     .finally(()=>{ if(editing && editing.id===id) paintSaveStatus(); });
 }
 const saveQueue = SaveQueue.create({
@@ -160,8 +174,12 @@ const saveQueue = SaveQueue.create({
     if(editing && editing.id===id) paintSaveStatus();
   },
 });
-// The one wording for an edit that didn't save and was put back.
+// The toasts that name an event: an edit that didn't save and was put back; a new
+// event's insert applied; a Worker write or transition whose background confirm failed.
 const lostChangeMsg = title => `Your last change to “${title || 'an event'}” didn’t save — open it and make the change again`;
+const createdMsg = title => title ? `“${title}” created` : 'Created';
+const lateFailMsg = (step, title) => `${step} “${title || 'an event'}” didn’t confirm — open it and try again`;
+const titleOf = id => (state.events.find(x=>x.id===id) || {}).title || '';
 // A save failed with no open editor to retry from: put back the fields the failed
 // edits changed (the rest — a create, a status change — did save), forget the
 // edits, and say so.
@@ -193,11 +211,11 @@ document.addEventListener('est:identity', ()=>{
 // beforeunload listener keeps some browsers from caching the page for Back.
 function onBeforeUnload(e){
   if(_form) autosaveEditor();
-  if(_unsaved.size || _busy.size){ e.preventDefault(); e.returnValue=''; }   // _busy: a delete/transition still waiting on Coda
+  if(_unsaved.size || _busy.size || _confirming.size()){ e.preventDefault(); e.returnValue=''; }   // _busy: a delete/transition still waiting on Coda; _confirming: an overlaid change still confirming
 }
 let _unloadGuarded=false;
 function guardUnload(){
-  const need=!!_form || _unsaved.size>0 || _busy.size>0;
+  const need=!!_form || _unsaved.size>0 || _busy.size>0 || _confirming.size()>0;
   if(need===_unloadGuarded) return;
   _unloadGuarded=need;
   if(need) window.addEventListener('beforeunload', onBeforeUnload); else window.removeEventListener('beforeunload', onBeforeUnload);

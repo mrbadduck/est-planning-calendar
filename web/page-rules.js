@@ -14,7 +14,11 @@
      from Eventbrite after the last push from plan (ev.lastFromEb, ev.lastEbPushAt);
      '' otherwise.
    needsApproval(ev) -> boolean
-     A planning event that is Proposed. */
+     A planning event that is Proposed.
+   revertTransition(ev, prev, setStatus) -> boolean
+     A transition's Status write never confirmed: put `prev` back into ev, but only
+     while ev.status is still the status that transition set — a later transition
+     is never undone. Returns whether it reverted. */
 (function (root) {
   const ALIASES = { notes: 'planning', attendance: 'attendees', publish: 'details', listing: 'details' };
   function sectionFromParam(id) {
@@ -64,5 +68,11 @@
 
   const needsApproval = ev => !!ev && ev.source === 'planning' && ev.status === 'proposed';
 
-  root.PageRules = { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval };
+  function revertTransition(ev, prev, setStatus) {
+    if (!ev || ev.status !== setStatus) return false;
+    Object.assign(ev, prev);
+    return true;
+  }
+
+  root.PageRules = { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval, revertTransition };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

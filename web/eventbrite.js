@@ -169,7 +169,7 @@ async function pushToEventbrite(act){
       // The Worker may have created the event (or written the row) before failing:
       // adopt its id so nothing re-creates it, and wait for that write to apply.
       if(err && err.eventbriteId && !ev.eventbriteId){ ev.eventbriteId=err.eventbriteId; applyLocal(ev); rerender(); }
-      if(err && (err.requestId || err.eventbriteId)) trackWorkerWrite(ev, err.requestId, err.overlaid);
+      if(err && (err.requestId || err.eventbriteId)) trackWorkerWrite(ev, err.requestId, err.overlaid, 'Publishing');
       if(err && err.status===409 && err.checks && err.checks.length){
         _pushChecks.set(id, { draftOnly: spec.draftOnly, checks: err.checks });
         toast(err.checks[0].message || err.message,'err');
@@ -199,7 +199,7 @@ async function pushToEventbrite(act){
     _pushChecks.delete(id); _ebConflict.delete(id); _conflictShown.delete(id); clearEbBlock(id);
     const st=_ebStatus.get(id); if(st) st.editedSincePush=false;
     applyLocal(ev); rerender();
-    trackWorkerWrite(ev, res.requestId, res.overlaid); scheduleReconcile();
+    trackWorkerWrite(ev, res.requestId, res.overlaid, 'Publishing'); scheduleReconcile();
     let msg=spec.ok;
     if(act==='update-listing' && prevPushed && ev.pushed){
       const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);

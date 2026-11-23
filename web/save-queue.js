@@ -111,14 +111,17 @@
     // Its cells go back as a failed write's do: columns written again since, or with a
     // newer value staged, are left out; with a write in flight they ride along with
     // it, otherwise the event reports 'error' (settle() re-sends them). Ignored once
-    // the edits were discarded. Returns whether anything was put back.
-    function fail(token, err) {
+    // the edits were discarded. prepare(columns), when something was put back, runs
+    // before the error is reported (the app re-arms its undo for those columns).
+    // Returns whether anything was put back.
+    function fail(token, err, prepare) {
       const r = token && recs.get(token.id);
       if (!r || token.epoch !== r.epoch) return false;
-      let back = 0;
+      const back = [];
       for (const [column, value] of token.batch)
-        if (r.sent.get(column) === token.seq && !r.pending.has(column)) { r.pending.set(column, value); back++; }
-      if (!back) return false;
+        if (r.sent.get(column) === token.seq && !r.pending.has(column)) { r.pending.set(column, value); back.push(column); }
+      if (!back.length) return false;
+      if (prepare) { try { prepare(back); } catch (e) { onError(e); } }
       if (r.inflight) { r.newer = true; return true; }
       r.error = err || new Error('save failed');
       emit(token.id, 'error', r.error);
@@ -134,15 +137,17 @@
   }
 
   // Promises in flight per event: track(id, p) counts p until it settles and passes
-  // its outcome through; has(id) / count(id) answer while any is unsettled. The app
+  // its outcome through; has(id) / count(id) answer while any is unsettled, size() how
+  // many events have one. The app
   // keeps the background confirms of overlaid writes in one (_confirming, save.js).
   function tracker() {
-    const n = new Map();   // id → unsettled count
+    const n = new Map();   // id → unsettled count (only ids with some)
     const done = id => { const k = (n.get(id) || 0) - 1; if (k > 0) n.set(id, k); else n.delete(id); };
     return {
       track(id, p) { n.set(id, (n.get(id) || 0) + 1); return Promise.resolve(p).finally(() => done(id)); },
       has: id => (n.get(id) || 0) > 0,
       count: id => n.get(id) || 0,
+      size: () => n.size,   // events with anything unsettled
     };
   }
 
