@@ -8,7 +8,8 @@
  * id <-> name map and column kinds, KV-cached for an hour) and overlayNames (relation
  * display names from the existing KV caches).
  */
-import { ebPendingKey, EB_PENDING_TTL } from './publish.js';
+import { ebPendingKey, EB_PENDING_TTL, venueRefItem } from './publish.js';
+import { slimPeopleRows } from './gather.js';
 import { mergeRows, isLive } from './overlay.js';
 import { PEOPLE_COLS } from './coda-columns.js';
 
@@ -145,6 +146,20 @@ export const VENUES_KV_KEY = 'ref-venues-v2';    // /ref/venues projection (venu
 export const refKvKey = (name) => (name === 'venues' ? VENUES_KV_KEY : `ref-${name}-v1`);
 // The /ref allowlist: the only tables /ref reads, and the relation targets overlayNames names.
 export const REF_TABLES = { programs: 'grid-g87NFbtqN8', people: 'grid-X316Eql8dE', venues: 'grid-foC40iAOaX', 'venue-types': 'grid-idEVRQX7SL' };
+// The builders behind the /ref/:name and People slim KV caches (worker.js /ref and peopleRows);
+// overlayNames refills a missing cache with the same one. Each throws on a failed read.
+// Venues are read by column id and projected (venueRefItem): no addresses in the cache (R12).
+export async function fetchRefItems(base, docId, auth, name) {
+  const isVenues = name === 'venues';
+  const out = await readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`, auth, { byId: isVenues });
+  if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
+  return isVenues ? out.items.map(venueRefItem) : out.items;
+}
+export async function fetchPeopleSlim(base, docId, auth) {
+  const out = await readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES.people}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
+  if (!out.ok) throw new Error(`people read failed (${out.resp.status})`);
+  return slimPeopleRows(out.items, PEOPLE_COLS);
+}
 const CACHE_OF_TABLE = { [REF_TABLES.people]: 'people', [REF_TABLES.programs]: 'programs', [REF_TABLES.venues]: 'venues', [REF_TABLES['venue-types']]: 'venueTypes' };
 
 export const overlayOn = (env) => env.OVERLAY_MODE === 'live' && !!env.OVERLAY;
@@ -249,11 +264,31 @@ export async function planningColMap(env, base, docId, tableId, auth) {
   return data;
 }
 
-// Relation display names from the caches the Worker already keeps (KV reads only). A cache
-// that isn't there gives an empty map: its relation cells read as stale (logged once).
-export async function overlayNames(env) {
+// Relation display names from the caches the Worker already keeps (KV). With `refill`
+// ({base, docId, auth}, planning reads) a missing cache (e.g. VENUES_KV_KEY just busted by a
+// venue write) is rebuilt with its route's own builder and put back in KV, stamped before the
+// read. Budget: at most one Coda read per missing cache per request (programs, venues, venue
+// types 1 page each; People up to 6, though auth has normally just filled it), and only when a
+// live entry needs merging. A cache still missing gives an empty map: its relation cells read
+// as stale (logged once), as before.
+export async function overlayNames(env, refill) {
   const read = async (key) => { try { const h = env.CACHE && await env.CACHE.get(key, 'json'); return h && Array.isArray(h.data) ? h.data : null; } catch (_) { return null; } };
-  const [people, programs, venues, venueTypes] = await Promise.all([PEOPLE_KV_KEY, refKvKey('programs'), VENUES_KV_KEY, refKvKey('venue-types')].map(read));
+  const fill = async (key, label, build) => {
+    const hit = await read(key);
+    if (hit || !refill) return hit;
+    try {
+      const at = Date.now(), data = await build();
+      if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify({ at, data })); } catch (_) {} }
+      return data;
+    } catch (e) { console.error(`overlay: refilling the ${label} names cache failed (${errText(e)})`); return null; }
+  };
+  const r = refill || {};
+  const [people, programs, venues, venueTypes] = await Promise.all([
+    fill(PEOPLE_KV_KEY, 'people', () => fetchPeopleSlim(r.base, r.docId, r.auth)),
+    fill(refKvKey('programs'), 'programs', () => fetchRefItems(r.base, r.docId, r.auth, 'programs')),
+    fill(VENUES_KV_KEY, 'venues', () => fetchRefItems(r.base, r.docId, r.auth, 'venues')),
+    fill(refKvKey('venue-types'), 'venueTypes', () => fetchRefItems(r.base, r.docId, r.auth, 'venue-types')),
+  ]);
   const missing = [];
   const byName = (items, label, nameOf) => {
     if (!items) { missing.push(label); return {}; }
@@ -283,5 +318,5 @@ export async function overlayRead(env, tableId, rows, { shape, snapshotAt, now, 
     try { const m = await planningColMap(env, planning.base, planning.docId, tableId, planning.auth); colMap = m; colKinds = colKinds || m.colKinds; }
     catch (e) { console.error(`overlay: column map for ${tableId} failed (${errText(e)}); rows unmerged`); return { rows, stale: ['*'] }; }
   }
-  return mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKinds, names: names || await overlayNames(env), tableId });
+  return mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKinds, names: names || await overlayNames(env, planning), tableId });
 }

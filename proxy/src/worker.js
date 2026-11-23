@@ -34,7 +34,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish, overlayStatus, planningColMap, passWrite, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish, overlayStatus, planningColMap, passWrite, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -45,12 +45,12 @@ import { venueFromRow, venueForEditor, createCells as venueCreateCells, updateCe
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, gatherSnapshot, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
-  slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
+  friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
 import { ebWebhook, runSweep } from './eb-sync-run.js';
 import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js';
-import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
+import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
 import { STILL_SAVING, mustWait, planningWrite, planningRowSetter, readPlanningRow, planningList } from './overlay-routes.js';   // planning reads/writes through the overlay
@@ -267,14 +267,8 @@ export default {
           try {
             // Venues are projected (venueRefItem) before caching: the Address column
             // holds private home addresses and /ref is unauthenticated (R12).
-            const isVenues = name === 'venues';
             const kvKey = refKvKey(name);
-            const fetchRef = async () => {
-              // Venues are read by column id (venueRefItem keys by VENUE_COLS).
-              const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth, { byId: isVenues });
-              if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
-              return isVenues ? out.items.map(venueRefItem) : out.items;
-            };
+            const fetchRef = () => fetchRefItems(base, docId, auth, name);   // venues by column id + venueRefItem (worker-io.js)
             if (fresh) {
               const at = Date.now(); items = await fetchRef();
               if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at, data: items })); } catch (_) {} }
@@ -1202,11 +1196,7 @@ const APPROVE_STATUSES = ['Tribal Council'];
 let _people = null, _peopleExp = 0;
 async function peopleRows(base, docId, auth, env, ctx, opts = {}) {
   if (!opts.force && _people && Date.now() < _peopleExp) return _people;
-  const fetchSlim = async () => {
-    const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
-    if (!out.ok) throw new Error(`people read failed (${out.resp.status})`);
-    return slimPeopleRows(out.items, PEOPLE_COLS);
-  };
+  const fetchSlim = () => fetchPeopleSlim(base, docId, auth);   // id-keyed slim People (worker-io.js)
   let rows;
   if (opts.force) {
     // Manual refresh: bypass BOTH caches, pull fresh from Coda, and rewrite KV so

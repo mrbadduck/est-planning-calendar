@@ -297,7 +297,8 @@ test('overlayRead planning: number and checkbox writes merge without marking the
     entry({ tableId: 'grid-plan', key: 'All day', keying: 'name', value: true, writtenAt: NOW - 900 }),
     entry({ tableId: 'grid-plan', key: 'Leads', keying: 'name', value: ['i-p1'], writtenAt: NOW - 800 }),
   ] }));
-  const env = { OVERLAY_MODE: 'live', OVERLAY: d.ns, CACHE: kvStub({ [PEOPLE_KV_KEY]: { at: 1, data: [{ id: 'i-p1', values: { [PEOPLE_COLS.fullName]: 'Leah Cohen' } }] } }) };
+  const env = { OVERLAY_MODE: 'live', OVERLAY: d.ns, CACHE: kvStub({ [PEOPLE_KV_KEY]: { at: 1, data: [{ id: 'i-p1', values: { [PEOPLE_COLS.fullName]: 'Leah Cohen' } }] },
+    [refKvKey('programs')]: { at: 1, data: [] }, [VENUES_KV_KEY]: { at: 1, data: [] }, [refKvKey('venue-types')]: { at: 1, data: [] } }) };   // all name caches warm: no refill
   await withFetch(colsResp, async (calls) => {
     const rows = [{ id: 'i-1', values: { [PLANNING_COLS.capacity]: 10, [PLANNING_COLS.allDay]: false } }];
     const out = await overlayRead(env, 'grid-plan', rows, { shape: 'id', snapshotAt: NOW, now: NOW, planning: { base: 'https://c', docId: 'D', auth: {} } });
@@ -320,4 +321,43 @@ test('overlayStatus: the DO state; null when off or on error', async () => {
     assert.equal(await overlayStatus({ OVERLAY_MODE: 'live', OVERLAY: doStub(() => { throw new Error('x'); }).ns }, 'a'), null);
     assert.equal(errs.length, 1);
   });
+});
+
+// ── a missing names cache refills (M3) ──
+test('overlayRead planning: a missing venues cache is refilled from Coda, and the Venue cell converts instead of going stale', async () => {
+  const d = doStub(() => ok({ entries: [entry({ tableId: 'grid-plan', key: 'Venue', keying: 'name', value: ['i-v1'] })] }));
+  const seeded = {
+    [PEOPLE_KV_KEY]: { at: 1, data: [{ id: 'i-p1', values: { [PEOPLE_COLS.fullName]: 'Leah Cohen' } }] },
+    [refKvKey('programs')]: { at: 1, data: [] }, [refKvKey('venue-types')]: { at: 1, data: [] },
+  };
+  const env = { OVERLAY_MODE: 'live', OVERLAY: d.ns, CACHE: kvStub(seeded) };   // no VENUES_KV_KEY: just busted by a venue write
+  const venues = (u) => (/\/columns/.test(u) ? colsResp() : /grid-foC40iAOaX\/rows/.test(u)
+    ? ok({ items: [{ id: 'i-v1', name: 'Community Hall', values: {} }] }) : new Response('{}', { status: 404 }));
+  await withFetch(venues, async (calls) => {
+    const rows = [{ id: 'i-1', values: { Venue: ['Old Place'] } }];
+    const out = await overlayRead(env, 'grid-plan', rows, { shape: 'name', snapshotAt: NOW, now: NOW, planning: { base: 'https://c', docId: 'D', auth: {} } });
+    assert.deepEqual(out.stale, []);
+    assert.deepEqual(out.rows[0].values.Venue, ['Community Hall']);
+    const vr = calls.filter((c) => /grid-foC40iAOaX\/rows/.test(c.u));
+    assert.equal(vr.length, 1, 'one Coda read for the missing cache');
+    assert.match(vr[0].u, /useColumnNames=false/, 'read by column id, as /ref/venues does');
+  });
+  const hit = await env.CACHE.get(VENUES_KV_KEY, 'json');
+  assert.equal(hit.data[0].name, 'Community Hall');
+  assert.equal('hasAddress' in hit.data[0], true, 'the /ref/venues projection (venueRefItem), never raw addresses');
+});
+
+test('overlayRead planning: a failed refill keeps today\'s stale cell and console line', async () => {
+  const d = doStub(() => ok({ entries: [entry({ tableId: 'grid-plan', key: 'Venue', keying: 'name', value: ['i-v1'] })] }));
+  const env = { OVERLAY_MODE: 'live', OVERLAY: d.ns, CACHE: kvStub({ [PEOPLE_KV_KEY]: { at: 1, data: [] }, [refKvKey('programs')]: { at: 1, data: [] }, [refKvKey('venue-types')]: { at: 1, data: [] } }) };
+  await quiet(async (errs) => {
+    await withFetch((u) => (/\/columns/.test(u) ? colsResp() : new Response('{}', { status: 500 })), async () => {
+      const out = await overlayRead(env, 'grid-plan', [{ id: 'i-1', values: { Venue: ['Old Place'] } }], { shape: 'name', snapshotAt: NOW, now: NOW, planning: { base: 'https://c', docId: 'D', auth: {} } });
+      assert.deepEqual(out.stale, ['i-1']);
+      assert.deepEqual(out.rows[0].values.Venue, ['Old Place']);
+    });
+    assert.ok(errs.some((x) => /venues/.test(x) && /500/.test(x)), errs.join('\n'));
+    assert.ok(errs.some((x) => /no KV names for venues/.test(x)), errs.join('\n'));
+  });
+  assert.equal(await env.CACHE.get(VENUES_KV_KEY), null, 'a failed read is never cached');
 });
