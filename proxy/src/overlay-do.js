@@ -21,6 +21,17 @@ export const ALARM_EVERY_MS = 5_000;
 export const POLLS_PER_ALARM = 10;
 
 const entryKey = (e) => `e:${e.tableId}:${e.rowId}:${e.key}:${e.writtenAt}`;
+// Why an entry can't be stored, or null. A bad writtenAt would never fail or age out.
+const nonEmpty = (v) => typeof v === 'string' && v !== '';
+export function entryProblem(e) {
+  if (!e || typeof e !== 'object') return 'not an object';
+  for (const f of ['tableId', 'rowId', 'requestId']) if (!nonEmpty(e[f])) return `${f} must be a non-empty string`;
+  if (typeof e.key !== 'string') return 'key must be a string';
+  if (!Number.isFinite(e.writtenAt)) return 'writtenAt must be a finite number';
+  if (!['set', 'insert', 'delete'].includes(e.op)) return 'op must be set|insert|delete';
+  if (!['name', 'id'].includes(e.keying)) return 'keying must be name|id';
+  return null;
+}
 const deleteAt = (x) => (x.state === 'applied' ? x.appliedAt : x.writtenAt) + KEEP_MS;
 
 export class OverlayCore {
@@ -28,11 +39,19 @@ export class OverlayCore {
     this.storage = storage; this.env = env; this.fetch = fetchFn; this.now = now;
   }
 
+  // The whole batch or nothing: {ok:false, error} when any entry is malformed.
   async record(entries) {
+    if (!Array.isArray(entries)) return { ok: false, error: 'entries must be an array' };
+    for (let i = 0; i < entries.length; i++) {
+      const why = entryProblem(entries[i]);
+      if (why) return { ok: false, error: `entry ${i}: ${why}` };
+    }
     for (const e of entries) {
-      await this.storage.put(entryKey(e), { ...e, state: 'pending', appliedAt: null });
-      const q = `q:${e.requestId}`;
-      if (!(await this.storage.get(q))) await this.storage.put(q, { state: 'pending', writtenAt: e.writtenAt, appliedAt: null });
+      const qk = `q:${e.requestId}`;
+      let q = await this.storage.get(qk);
+      if (!q) { q = { state: 'pending', writtenAt: e.writtenAt, appliedAt: null }; await this.storage.put(qk, q); }
+      // A requestId already applied or failed: its new entries inherit that, so none is stuck pending.
+      await this.storage.put(entryKey(e), { ...e, state: q.state, appliedAt: q.appliedAt });
     }
     if ((await this.storage.getAlarm()) == null) await this.storage.setAlarm(this.now() + ALARM_EVERY_MS);
     return { ok: true };
@@ -87,8 +106,15 @@ export class OverlayCore {
       }
     }
     let anyPending = false, earliest = Infinity;
-    for (const [k, x] of await this.storage.list({ prefix: '' })) {
+    const all = await this.storage.list({ prefix: '' });
+    for (const [k, stored] of all) {
       if (!k.startsWith('e:') && !k.startsWith('q:')) continue;
+      let x = stored;
+      if (k.startsWith('e:') && x.state === 'pending') {
+        // An entry whose q: record isn't pending (or is gone) can never resolve: age it out.
+        const q = all.get(`q:${x.requestId}`);
+        if (!q || q.state !== 'pending') x = { ...x, state: q ? q.state : 'failed', appliedAt: q ? q.appliedAt : null };
+      }
       const at = deleteAt(x);
       if (x.state !== 'pending' && now >= at) { await this.storage.delete(k); continue; }
       if (x.state === 'pending') anyPending = true;
@@ -116,14 +142,20 @@ export class WriteOverlay {
     }
     try {
       if (path === '/record') {
-        if (!Array.isArray(body && body.entries)) {
-          console.error('overlay: /record without an entries array');
-          return reply({ error: 'entries must be an array' }, 400);
+        const out = await this.core.record(body && body.entries);
+        if (!out.ok) {
+          console.error(`overlay: /record refused (${out.error})`);
+          return reply({ error: out.error }, 400);
         }
-        return reply(await this.core.record(body.entries));
+        return reply(out);
       }
-      if (path === '/read') return reply({ entries: await this.core.read(String(body && body.tableId)) });
-      return reply({ state: await this.core.status(String(body && body.requestId)) });
+      const field = path === '/read' ? 'tableId' : 'requestId';
+      if (!nonEmpty(body && body[field])) {
+        console.error(`overlay: ${path} without ${field}`);
+        return reply({ error: `${field} must be a non-empty string` }, 400);
+      }
+      if (path === '/read') return reply({ entries: await this.core.read(body.tableId) });
+      return reply({ state: await this.core.status(body.requestId) });
     } catch (e) {
       console.error(`overlay: ${path} failed (${String((e && e.message) || e)})`);
       return reply({ error: String((e && e.message) || e) }, 500);

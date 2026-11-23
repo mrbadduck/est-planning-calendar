@@ -249,3 +249,76 @@ test('worker.js still imports under node and exports WriteOverlay', async () => 
   assert.equal(mod.WriteOverlay, WriteOverlay);
   assert.equal(typeof mod.default.fetch, 'function');
 });
+
+test('record refuses the whole batch when any entry is malformed, and arms no alarm', async () => {
+  const bad = [
+    { writtenAt: 'soon' }, { writtenAt: NaN }, { writtenAt: undefined }, { tableId: '' }, { rowId: 7 },
+    { requestId: '' }, { key: undefined }, { op: 'upsert' }, { keying: 'label' },
+  ];
+  for (const b of bad) {
+    const { core, storage } = setup();
+    const out = await core.record([entry(), entry({ rowId: 'i-2', ...b })]);
+    assert.equal(out.ok, false, JSON.stringify(b)); assert.match(out.error, /^entry 1: /);
+    assert.equal(storage.m.size, 0, 'nothing stored'); assert.equal(storage.alarm, null, 'no alarm');
+  }
+  const { core } = setup();
+  assert.equal((await core.record([null])).ok, false);
+  assert.equal((await core.record('x')).ok, false);
+});
+
+test('WriteOverlay /record answers 400 with a console line on a malformed entry and arms no alarm', async () => {
+  const errs = []; const realErr = console.error; console.error = (...a) => errs.push(a.join(' '));
+  try {
+    const storage = storageStub();
+    const dobj = new WriteOverlay({ storage }, ENV);
+    const r = await dobj.fetch(new Request('https://overlay/record', { method: 'POST', body: JSON.stringify({ entries: [entry({ writtenAt: 'x' })] }) }));
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /writtenAt/);
+    assert.equal(storage.m.size, 0); assert.equal(storage.alarm, null);
+    assert.ok(errs.some((l) => l.includes('/record refused')));
+  } finally { console.error = realErr; }
+});
+
+test('WriteOverlay /read and /status without their field answer 400', async () => {
+  const errs = []; const realErr = console.error; console.error = (...a) => errs.push(a.join(' '));
+  try {
+    const dobj = new WriteOverlay({ storage: storageStub() }, ENV);
+    const post = (path, body) => dobj.fetch(new Request('https://overlay' + path, { method: 'POST', body: JSON.stringify(body) }));
+    for (const [p, b] of [['/read', {}], ['/read', { tableId: '' }], ['/status', {}], ['/status', { requestId: 5 }], ['/read', null]])
+      assert.equal((await post(p, b)).status, 400, p + ' ' + JSON.stringify(b));
+    assert.equal(errs.length, 5);
+  } finally { console.error = realErr; }
+});
+
+test('entries recorded for an applied or failed requestId inherit its state and age out', async () => {
+  const { core, coda, clock, storage, runAlarm } = setup();
+  await core.record([entry({ requestId: 'ok' }), entry({ requestId: 'bad', rowId: 'i-2' })]);
+  coda.completed.add('ok');
+  clock.t += 121_000;
+  await runAlarm();
+  const appliedAt = clock.t;
+  await core.record([entry({ requestId: 'ok', key: 'Date', writtenAt: clock.t }), entry({ requestId: 'bad', rowId: 'i-2', key: 'Date', writtenAt: clock.t })]);
+  const late = await core.read('grid-P');
+  assert.deepEqual(late.find((e) => e.requestId === 'ok' && e.key === 'Date').state, 'applied');
+  assert.equal(late.find((e) => e.requestId === 'ok' && e.key === 'Date').appliedAt, appliedAt);
+  assert.equal(late.find((e) => e.requestId === 'bad' && e.key === 'Date').state, 'failed');
+  clock.t += 6_000;
+  await runAlarm();
+  assert.notEqual(storage.alarm, clock.t + ALARM_EVERY_MS, 'nothing pending, so no 5 s re-arm');
+  clock.t = appliedAt + KEEP_MS + 1;
+  await runAlarm();
+  assert.equal(storage.m.size, 0); assert.equal(storage.alarm, null);
+});
+
+test('cleanup ages out a stray pending entry whose q: record is not pending or is gone', async () => {
+  const { core, clock, storage, runAlarm } = setup();
+  storage.m.set('q:done', { state: 'failed', writtenAt: 1_000_000, appliedAt: null });
+  storage.m.set('e:grid-P:i-1:Title:1000000', { ...entry({ requestId: 'done' }), state: 'pending', appliedAt: null });
+  storage.m.set('e:grid-P:i-3:Title:1000000', { ...entry({ requestId: 'orphan', rowId: 'i-3' }), state: 'pending', appliedAt: null });
+  await runAlarm();
+  assert.equal(storage.alarm, 1_000_000 + KEEP_MS, 'stray entries count as resolved: armed at their deletion');
+  clock.t = 1_000_000 + KEEP_MS;
+  await runAlarm();
+  assert.equal(storage.m.size, 0); assert.equal(storage.alarm, null);
+  void core;
+});
