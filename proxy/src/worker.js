@@ -21,6 +21,7 @@
  *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} | {requestId:null, unchanged:true} (same address: no write) — role-gated
  *   POST   /webhooks/eventbrite/:secret  Eventbrite webhook -> syncEbEvent in waitUntil (eb-sync-run.js); 404 on a wrong secret
  *   (cron) scheduled  Eventbrite sweep every 15 min (runSweep); both gated by EB_SYNC_MODE = off | live
+ *   (cron) GCAL_CRON  Google Calendar sweep (sweepGcal, gcal-run.js); publish/cancel/unpublish/delete call syncGcal in waitUntil. GCAL_MODE = off | shadow | live
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -33,7 +34,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, overlayOn, readAllRows, ebFetch, readEbPending, writeEbPending, logPublish, overlayStatus, planningColMap, passWrite, codaWrite, mergedRows, mergedRead, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -43,37 +44,23 @@ import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from '.
 import { venueFromRow, venueForEditor, createCells as venueCreateCells, updateCells as venueUpdateCells } from './venues.js';
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
-  claimCreateCells, claimOwnerId, slotCells, gatherSnapshot, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
-  slimPeopleRows, friendlyName, claimUpdateCells, splitName, normNeededQty,
+  claimCreateCells, claimOwnerId, slotCells, gatherSnapshot, pruneGatherRaw, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
+  friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
 import { ebWebhook, runSweep } from './eb-sync-run.js';
-import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
+import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js';
+import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
+import { STILL_SAVING, mustWait, planningWrite, planningRowSetter, readPlanningRow, planningList, readRowMerged, readClaimForWrite, gatherWrite, refVenues } from './overlay-routes.js';   // reads/writes through the overlay
+export { WriteOverlay } from './overlay-do.js';   // the write overlay Durable Object (binding OVERLAY)
 const ListingRules = globalThis.ListingRules;
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
 const REFERENCES_TABLE = 'grid-vg-fRbtoyr';   // Reference Calendars SRC (council-managed)
 
-// Resolve a column's CURRENT name from its stable id (cached per isolate) so the
-// app can read a value by id even after the column is renamed in Coda.
-const COL_NAME_CACHE = new Map();   // colId -> { name, exp }
-async function columnName(base, docId, tableId, colId, auth){
-  const hit = COL_NAME_CACHE.get(colId);
-  if (hit && hit.exp > Date.now()) return hit.name;
-  // List columns (limit high enough to cover all of them — the notes column was
-  // added last) and find ours by stable id. The list endpoint is the same family
-  // the /ref reads use; the single-column GET proved unreliable with this token.
-  const r = await fetch(`${base}/docs/${docId}/tables/${tableId}/columns?limit=200`, { headers: auth });
-  if (!r.ok) return null;
-  const j = await r.json();
-  const col = (j.items || []).find(c => c.id === colId);
-  const name = (col && col.name) || null;
-  if (name) COL_NAME_CACHE.set(colId, { name, exp: Date.now() + 5 * 60 * 1000 });
-  return name;
-}
 // --- KV stale-while-revalidate cache -----------------------------------------
 // Coda calls run 100s of ms with multi-second (observed: 60s) tails, and the
 // per-isolate memory caches evaporate whenever Cloudflare recycles an isolate.
@@ -83,24 +70,26 @@ async function columnName(base, docId, tableId, colId, auth){
 // older than `hard` or missing. Degrades to a direct fetch when the binding is
 // absent (tests, local dev without KV). fetcher() must THROW on failure so a
 // bad read never gets cached.
-async function swrGet(env, ctx, key, softMs, hardMs, fetcher) {
+// swrGetAt also returns the snapshot's `at` (the overlay merge is age-aware), stamped
+// before the fetch so a snapshot never looks newer than the read under it.
+async function swrGetAt(env, ctx, key, softMs, hardMs, fetcher) {
   const kv = env.CACHE;
-  if (!kv) return fetcher();
+  if (!kv) { const at = Date.now(); return { data: await fetcher(), at }; }
   let hit = null;
   try { hit = await kv.get(key, 'json'); } catch (_) {}
   const age = (hit && hit.at) ? Date.now() - hit.at : Infinity;
   if (age < hardMs) {
     if (age > softMs && ctx) ctx.waitUntil(swrFill(kv, key, fetcher));
-    return hit.data;
+    return { data: hit.data, at: hit.at };
   }
-  const data = await fetcher();
-  try { await kv.put(key, JSON.stringify({ at: Date.now(), data })); } catch (_) {}
-  return data;
+  const at = Date.now(), data = await fetcher();
+  try { await kv.put(key, JSON.stringify({ at, data })); } catch (_) {}
+  return { data, at };
 }
+const swrGet = async (...a) => (await swrGetAt(...a)).data;
 async function swrFill(kv, key, fetcher) {
-  try { await kv.put(key, JSON.stringify({ at: Date.now(), data: await fetcher() })); } catch (_) { /* keep serving stale */ }
+  try { const at = Date.now(); await kv.put(key, JSON.stringify({ at, data: await fetcher() })); } catch (_) { /* keep serving stale */ }
 }
-const VENUES_KV_KEY = 'ref-venues-v2';   // /ref/venues projection (venueRefItem); bump on a shape change
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -123,8 +112,9 @@ export default {
     const parts = url.pathname.split('/').filter(Boolean); // ['rows'] | ['rows', id]
 
     try {
-      // Has Coda applied a queued mutation? The app polls this so a save shows
-      // "Saved" only once the write is really visible. One Coda subrequest.
+      // Has Coda applied a queued mutation? The app polls this so a save shows "Saved" only
+      // once the write is really visible. The overlay DO first (one call, no Coda): failed =
+      // not applied within FAIL_AFTER_MS, the app's "not confirmed". A miss asks Coda (one more).
       if (parts[0] === 'mutation' && parts[1] && request.method === 'GET') {
         let id;
         try { id = await authIdentity(request, env, base, docId, auth, ctx); }
@@ -135,7 +125,9 @@ export default {
           return json({ error: st === 401 ? 'invalid token' : `could not check who you are (${String((e && e.message) || e)})` }, st, cors);
         }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
-        const r = await fetch(`${base}/mutationStatus/${encodeURIComponent(decodeURIComponent(parts[1]))}`, { headers: auth });
+        const reqId = decodeURIComponent(parts[1]), st = await overlayStatus(env, reqId);
+        if (st) return json(st === 'applied' ? { completed: true } : st === 'failed' ? { completed: false, failed: true } : { completed: false }, 200, cors);
+        const r = await fetch(`${base}/mutationStatus/${encodeURIComponent(reqId)}`, { headers: auth });
         let body = null;
         try { body = await r.json(); } catch (_) {}
         const out = mutationResult(r.status, body);
@@ -163,9 +155,10 @@ export default {
             // With an Eventbrite id, its listing goes first (F7: allowed with no
             // orders) — on an Eventbrite refusal the row stays.
             // Worst case: auth + row read + EB GET + EB DELETE + row DELETE + log (~8).
-            const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+            const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
             if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-            const V = (await one.json()).values || {};
+            if (mustWait(one, url.searchParams.get('unconfirmed') === '1')) return json({ error: STILL_SAVING }, 409, cors);
+            const V = one.values;
             const gate = deleteGate({ published: isPublishedCell(V['Published?']), status: V['Status'] || '' }, id);
             if (gate) return json({ error: gate.error }, gate.status, cors);
             const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19: a just-created id may not be on the row yet
@@ -187,10 +180,12 @@ export default {
                 }
               }
             }
-            const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
-            if (w.ok) { await bustEventCaches(env); if (env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} } }
+            const w = await planningWrite(env, { url: `${rowsUrl}/${encodeURIComponent(rowId)}`, method: 'DELETE', tableId, op: 'delete', rowId, auth });
+            if (w.ok && env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} }
+            // gCal: the row's calendar event goes too; the row is gone, so nothing is written to it.
+            if (w.ok && ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), status: 'deleted' }, rowGone: true }));
             await logPublish(env, base, docId, auth, { rowId: w.ok ? '' : rowId, actorId: id.personId, action: 'delete', ok: w.ok, status: w.status, ebId, message: w.ok ? `event deleted (eb: ${ebOutcome}; row ${rowId})` : `row delete failed (eb: ${ebOutcome})` });
-            return pass(w, cors);
+            return passWrite(w, cors);
           }
 
           if ((request.method === 'POST' && !rowId) || (request.method === 'PUT' && rowId)) {
@@ -210,9 +205,9 @@ export default {
               if (approving) { setCell(cells, 'Approved by', [id.personId]); setCell(cells, 'Approved at', today); }
             }
             const target = request.method === 'POST' ? rowsUrl : `${rowsUrl}/${encodeURIComponent(rowId)}`;
-            const w = await fetch(target, { method: request.method, headers: auth, body: JSON.stringify(body) });
-            if (w.ok) await bustEventCaches(env);   // next read must see this write, not the snapshot
-            return pass(w, cors);
+            // planningWrite busts on success: the bust refreshes the snapshot, the overlay covers the apply gap.
+            const w = await planningWrite(env, { url: target, method: request.method, body, tableId, op: request.method === 'POST' ? 'insert' : 'update', rowId, auth });
+            return passWrite(w, cors);
           }
           return json({ error: 'bad write request' }, 400, cors);
         }
@@ -222,19 +217,21 @@ export default {
             const out = await readAllRows(rowsUrl, auth);
             if (!out.ok) throw new Error(`rows read failed (${out.resp.status})`);
             // Anchor the notes URL to its stable column id, not its (renameable) name.
-            const nm = env.CODA_NOTES_COL_ID ? await columnName(base, docId, tableId, env.CODA_NOTES_COL_ID, auth) : null;
+            const nm = env.CODA_NOTES_COL_ID ? await planningColMap(env, base, docId, tableId, auth).then((m) => m.idToName[env.CODA_NOTES_COL_ID] || null,
+              (e) => { console.error(`rows: notes column map failed (${String((e && e.message) || e)}); notesDocUrl left out`); return null; }) : null;
             if (nm) for (const it of out.items) { it.notesDocUrl = (it.values || {})[nm] || null; }
             return out.items;
           };
           // ?fresh=1 (the notes-doc fast-poll) bypasses the snapshot but refills it.
           try {
+            const pl = { base, docId, tableId, auth };
             if (url.searchParams.get('fresh')) {
-              const items = await fetchRows();
-              if (env.CACHE) { try { await env.CACHE.put(ROWS_KV_KEY, JSON.stringify({ at: Date.now(), data: items })); } catch (_) {} }
-              return json({ items }, 200, cors);
+              const at = Date.now(), items = await fetchRows();   // stamped before the read: the merge is age-aware
+              if (env.CACHE) { try { await env.CACHE.put(ROWS_KV_KEY, JSON.stringify({ at, data: items })); } catch (_) {} }
+              return json({ items: await planningList(env, pl, items, at) }, 200, cors);
             }
-            const items = await swrGet(env, ctx, ROWS_KV_KEY, 30_000, 300_000, fetchRows);   // soft 30s / hard 5min
-            return json({ items }, 200, cors);
+            const snap = await swrGetAt(env, ctx, ROWS_KV_KEY, 30_000, 300_000, fetchRows);   // soft 30s / hard 5min
+            return json({ items: await planningList(env, pl, snap.data, snap.at) }, 200, cors);
           } catch (e) {
             return json({ error: String((e && e.message) || e) }, 502, cors);
           }
@@ -243,7 +240,7 @@ export default {
       if (parts[0] === 'ref' && request.method === 'GET') {
         // Read-only reference lists for the editor's relation pickers. Only the
         // allowlisted tables below are reachable — never arbitrary tables.
-        const REF = { programs: 'grid-g87NFbtqN8', people: 'grid-X316Eql8dE', venues: 'grid-foC40iAOaX', 'venue-types': 'grid-idEVRQX7SL' };
+        const REF = REF_TABLES;
         const name = parts[1];
         const refTable = REF[name];
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
@@ -252,7 +249,7 @@ export default {
         // caches, reads Coda and refills them — like /rows?fresh=1.
         const fresh = name === 'venues' && url.searchParams.get('fresh') === '1';
         const hit = REF_CACHE.get(name);
-        if (!fresh && hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
+        if (!fresh && hit && hit.exp > Date.now() && !(name === 'venues' && overlayOn(env))) return json({ items: hit.items }, 200, cors);   // venues: refVenues checks the overlay
         // People is ~1128 rows x ~50 cols — serve the pickers' {id, name, lead}
         // projection straight from the shared slim People snapshot (id-keyed, so
         // this read is rename-proof too). `lead` = write-authorized leadership:
@@ -270,17 +267,15 @@ export default {
           try {
             // Venues are projected (venueRefItem) before caching: the Address column
             // holds private home addresses and /ref is unauthenticated (R12).
-            const isVenues = name === 'venues';
-            const kvKey = isVenues ? VENUES_KV_KEY : `ref-${name}-v1`;
-            const fetchRef = async () => {
-              // Venues are read by column id (venueRefItem keys by VENUE_COLS).
-              const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth, { byId: isVenues });
-              if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
-              return isVenues ? out.items.map(venueRefItem) : out.items;
-            };
-            if (fresh) {
-              items = await fetchRef();
-              if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at: Date.now(), data: items })); } catch (_) {} }
+            const kvKey = refKvKey(name);
+            const fetchRef = () => fetchRefItems(base, docId, auth, name);   // venues by column id + venueRefItem (worker-io.js)
+            if (name === 'venues') {   // KV holds Coda's projection; the overlay is merged at serve time (refVenues)
+              items = await refVenues(env, { cached: fresh ? null : await swrGetAt(env, ctx, kvKey, 5 * 60_000, 24 * 3600_000, fetchRef),
+                readRaw: () => fetchRefItems(base, docId, auth, name, { raw: true }),
+                put: async (at, data) => { if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at, data })); } catch (_) {} } } });
+            } else if (fresh) {
+              const at = Date.now(); items = await fetchRef();
+              if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at, data: items })); } catch (_) {} }
             } else {
               items = await swrGet(env, ctx, kvKey, 5 * 60_000, 24 * 3600_000, fetchRef);   // soft 5min / hard 24h
             }
@@ -306,10 +301,10 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const venuesUrl = `${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`;
         // -> {venue} | {venue:null} (no such row) | {failed: Response} (Coda error: not a 404).
-        const readVenue = async () => {
-          const r = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}?useColumnNames=false&valueFormat=simpleWithArrays`, { headers: auth });
-          if (r.ok) return { venue: venueFromRow(await r.json()) };
-          return r.status === 404 ? { venue: null } : { failed: r };
+        const readVenue = async () => {   // through the overlay: a saved address reads back at once
+          const one = await readRowMerged(env, { base, docId, tableId: EB_VENUES_TABLE, auth, rowId: vRowId, query: 'useColumnNames=false&valueFormat=simpleWithArrays', shape: 'id', want: ['venueTypes'] });
+          if (one.ok) return { venue: venueFromRow(one.row) };
+          return one.status === 404 ? { venue: null } : { failed: one.resp };
         };
         const bustVenues = async () => { await swrBust(env, VENUES_KV_KEY); REF_CACHE.delete('venues'); };
 
@@ -325,20 +320,22 @@ export default {
 
         if (isPost) {
           // The duplicate check reads every venue (one read); the type must be a Venue Types row.
+          const vAt = Date.now();
           const [vr, tr] = await Promise.all([
             readAllRows(venuesUrl, auth, { byId: true }),
             readAllRows(`${base}/docs/${docId}/tables/${VENUE_TYPES_TABLE}/rows`, auth),
           ]);
           if (!vr.ok || !tr.ok) return json({ error: `could not read ${!vr.ok ? 'Venues' : 'Venue Types'} (Coda ${(!vr.ok ? vr : tr).resp.status})` }, 502, cors);
-          const out = venueCreateCells(body, { venues: vr.items.map(venueFromRow), types: tr.items.map(r => ({ id: r.id, name: r.name || '' })) });
+          const vItems = await mergedRows(env, EB_VENUES_TABLE, vr.items, vAt, { shape: 'id', want: ['venueTypes'] });   // sees venues added in the last ~28 s
+          const out = venueCreateCells(body, { venues: vItems.map(venueFromRow), types: tr.items.map(r => ({ id: r.id, name: r.name || '' })) });
           if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
-          const w = await fetch(venuesUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: out.cells }] }) });
-          if (!w.ok) return pass(w, cors);
-          let j = {}; try { j = await w.json(); } catch (_) {}
-          const newId = (j.addedRowIds || [])[0];
+          // Add venue still waits for the apply in the app (D9): an event must not point at a row Coda hasn't created.
+          const w = await codaWrite(env, { url: venuesUrl, method: 'POST', body: { rows: [{ cells: out.cells }] }, tableId: EB_VENUES_TABLE, op: 'insert', auth });
+          if (!w.ok) return pass(w.resp, cors);
+          const newId = w.addedRowIds[0];
           if (!newId) return json({ error: 'Coda did not return the new venue id' }, 502, cors);
           await bustVenues();
-          return json({ id: newId, requestId: j.requestId || null }, 200, cors);
+          return json({ id: newId, requestId: w.requestId, overlaid: w.overlaid }, 200, cors);
         }
 
         // isPut: change the address (and clear both cached Eventbrite venue ids).
@@ -347,10 +344,10 @@ export default {
         const out = venueUpdateCells(body, got.venue);
         if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
         if (out.unchanged) return json({ requestId: null, unchanged: true }, 200, cors);   // same address: no write, Eventbrite ids kept
-        const w = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: out.cells } }) });
-        if (!w.ok) return pass(w, cors);
+        const w = await codaWrite(env, { url: `${venuesUrl}/${encodeURIComponent(vRowId)}`, method: 'PUT', body: { row: { cells: out.cells } }, tableId: EB_VENUES_TABLE, op: 'update', rowId: vRowId, auth });
+        if (!w.ok) return pass(w.resp, cors);
         await bustVenues();
-        return json({ requestId: await codaRequestId(w) }, 200, cors);
+        return json({ requestId: w.requestId, overlaid: w.overlaid }, 200, cors);   // overlaid: Save address is saved now
       }
       if (parts[0] === 'references' && request.method === 'GET') {
         // Public reference calendars: read the config table, fetch + parse each
@@ -443,6 +440,12 @@ export default {
         // via the stored Eventbrite Event ID), venue, ticket class, structured-content
         // description, then publish — writing status/ids back to the row and appending
         // to the Publish Log at each significant step. Same write gate as row writes.
+        // Subrequest budget (free plan: 50 per invocation). Worst case, a publish that CREATES the
+        // event with cold name caches, counting each overlay DO call as one, is about 44: ~37 external
+        // (auth + people read, the row read, the Venues read, Eventbrite create / venue / ticket class /
+        // structured content / publish / snapshot reads, the Coda row writes, the Publish Log posts, KV
+        // pending notes, the gCal waitUntil sync) plus ~7 DO calls (the row read's overlay merge and one
+        // record() per setRow). Recount before adding a call to this route.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         if (!env.EVENTBRITE_TOKEN || !env.EVENTBRITE_ORG_ID) return json({ error: 'eventbrite not configured' }, 500, cors);
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
@@ -456,10 +459,10 @@ export default {
         const force = body.force === true;           // caller confirmed overwriting Eventbrite-side edits
 
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
-        const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const row = await one.json();
-        const V = row.values || {};
+        if (mustWait(one, body.unconfirmed === true)) return json({ error: STILL_SAVING }, 409, cors);   // body.unconfirmed: the app holds unconfirmed overlaid writes
+        const V = one.values;
         const ev = rowToListingEvent(V);
         // R19: our own earlier writes (event id, ticket class, push time) may not be
         // applied to the row yet: use the KV marker where the row is still blank, so
@@ -478,7 +481,7 @@ export default {
         // Venue record (one EST Venues SRC read, shared with ensureEbVenue below).
         let venueRow = null, venue = null;
         if (ev.venueName) {
-          let vr;
+          let vr; const vAt = Date.now();
           try { vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth, { byId: true }); }
           catch (err) {
             // A thrown fetch/json must still leave a Publish Log row, not a bare 502.
@@ -490,7 +493,8 @@ export default {
             return reject('venue', 502, msg, { error: msg });
           }
           // By column id; venueRow is a venueFromRow venue (structured + legacy address, EB ids).
-          const hit = vr.items.map(venueFromRow).find(v => v.name === String(ev.venueName)) || null;
+          const vItems = await mergedRows(env, EB_VENUES_TABLE, vr.items, vAt, { shape: 'id', want: ['venueTypes'] });   // a just-saved address
+          const hit = vItems.map(venueFromRow).find(v => v.name === String(ev.venueName)) || null;
           venueRow = hit;
           venue = hit ? { name: ev.venueName, type: hit.type, hasAddress: globalThis.VenueAddress.hasAddress(hit) }
                       : { name: ev.venueName, type: '', hasAddress: false };
@@ -508,14 +512,10 @@ export default {
 
         // Every row write records Coda's requestId: the response carries the last one
         // so the app shows Saved only once Coda has applied it (D3).
-        let lastRequestId = null;
+        // The bust (in planningWrite) refreshes the snapshot; the overlay covers the apply gap.
+        const rw = planningRowSetter(env, { rowsUrl, tableId, rowId, auth }), setRow = rw.set;
         let ebIdNow = ev.eventbriteId || '';   // set once the event exists on Eventbrite
-        const setRow = async (cells) => {
-          const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) { await bustEventCaches(env); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // publish write-backs must be visible to the next /rows read
-          return r;
-        };
-        const failBody = (extra) => ({ ...extra, requestId: lastRequestId, ...(ebIdNow ? { eventbriteId: ebIdNow } : {}) });
+        const failBody = (extra) => ({ ...extra, requestId: rw.requestId, overlaid: rw.overlaid, ...(ebIdNow ? { eventbriteId: ebIdNow } : {}) });
         const fail = async (action, r, httpStatus = 502) => {
           // Build the most specific message Eventbrite gives us. error_detail carries
           // the per-argument reasons that error_description flattens to an unhelpful
@@ -666,7 +666,10 @@ export default {
           await notePending({ ebId, tcId: ticketClassId, lastPushAt });   // the conflict guard's baseline until the row applies
           const okMsg = [draftOnly ? 'draft synced (not published)' : '', ticketNote].filter(Boolean).join(' · ');
           await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: draftOnly ? 'update' : 'publish', ok: true, status: pubStatus, ebId, ebUrl: eventbriteWebUrl(ebId), message: okMsg });
-          return json(publishSuccessBody({ ebId, url: eventbriteWebUrl(ebId), draftOnly, ticketNote, pushedJson, lastPushAt, requestId: lastRequestId }), 200, cors);
+          const gev = gcalEventFromRow(rowId, V);   // gCal: the event as just written (Coda applies it ~28 s later)
+          if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gev, addressVisibility: ev.addressVisibility,
+            venueAddress: venueRow ? venueRow.address : '', publishStatus: draftOnly ? 'Draft' : 'Published', eventbriteUrl: gev.eventbriteUrl || eventbriteWebUrl(ebId) } }));
+          return json({ ...publishSuccessBody({ ebId, url: eventbriteWebUrl(ebId), draftOnly, ticketNote, pushedJson, lastPushAt, requestId: rw.requestId }), overlaid: rw.overlaid }, 200, cors);
         } catch (err) {
           const msg = String((err && err.message) || err);
           try { await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]); } catch (_) {}
@@ -684,9 +687,9 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const rowId = url.searchParams.get('rowId');
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
-        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const V = (await one.json()).values || {};
+        const V = one.values;
         const ids = resolveEbIds(V, await readEbPending(env, rowId));   // R19
         const ebId = ids.ebId;
         if (!ebId) return json({ linked: false }, 200, cors);
@@ -709,9 +712,9 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const rowId = url.searchParams.get('rowId');
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
-        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const V = (await one.json()).values || {};
+        const V = one.values;
         const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19
         if (!ebId) return json({ linked: false }, 404, cors);
         const [evr, dr] = await Promise.all([
@@ -744,15 +747,13 @@ export default {
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
 
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
-        const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const V = (await one.json()).values || {};
-        let lastRequestId = null;   // Coda's id for the row write: the app waits on it (D3)
-        const setRow = async (cells) => {
-          const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) { await bustEventCaches(env); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // write-backs must be visible to the next /rows read
-          return r;
-        };
+        if (mustWait(one, body.unconfirmed === true)) return json({ error: STILL_SAVING }, 409, cors);   // body.unconfirmed: the app holds unconfirmed overlaid writes
+        const V = one.values;
+        // rw.requestId: Coda's id for the row write, the app waits on it (D3). The bust (in
+        // planningWrite) refreshes the snapshot; the overlay covers the apply gap.
+        const rw = planningRowSetter(env, { rowsUrl, tableId, rowId, auth }), setRow = rw.set;
         const action = isCancel ? 'cancel' : 'unpublish';
         const pend = await readEbPending(env, rowId), { ebId } = resolveEbIds(V, pend);   // R19: a just-created id may not be on the row yet
         const notePending = () => writeEbPending(env, rowId, mergeEbPending(pend, { ebId }));   // C1: the sync skips our own change
@@ -791,9 +792,10 @@ export default {
             { column: 'Edited by', value: [id.personId] },
             ...snapshotStatusCells(V, 'draft'),
           ]);
-          if (!w.ok) return pass(w, cors);
+          if (!w.ok) return pass(w.resp, cors);
           await log({ ok: true, status: 200, ebUrl: eventbriteWebUrl(ebId), message: 'listing unpublished (back to private draft)' });
-          return json({ ok: true, publishStatus: 'Draft', requestId: lastRequestId }, 200, cors);
+          if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), publishStatus: 'Draft' } }));
+          return json({ ok: true, publishStatus: 'Draft', requestId: rw.requestId, overlaid: rw.overlaid }, 200, cors);
         }
 
         let ebOutcome = 'none', ebNow = '';   // ebNow: Eventbrite's status after this, for the snapshot
@@ -825,9 +827,10 @@ export default {
         ];
         if (ebId) cells.push({ column: 'Publish status', value: 'Cancelled' }, ...snapshotStatusCells(V, ebNow));
         const w = await setRow(cells);
-        if (!w.ok) return pass(w, cors);
+        if (!w.ok) return pass(w.resp, cors);
         await log({ ok: true, status: 200, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
-        return json({ ok: true, publishStatus: ebId ? 'Cancelled' : '', eventbrite: ebOutcome, requestId: lastRequestId }, 200, cors);
+        if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), status: 'cancelled' } }));
+        return json({ ok: true, publishStatus: ebId ? 'Cancelled' : '', eventbrite: ebOutcome, requestId: rw.requestId, overlaid: rw.overlaid }, 200, cors);
       }
       if (parts[0] === 'notes-doc' && request.method === 'POST') {
         // Provision a Planning-Notes Google Doc by pushing the row's notes-doc
@@ -848,7 +851,9 @@ export default {
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
         const btnUrl = `${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}/buttons/${encodeURIComponent(buttonId)}`;
         const w = await fetch(btnUrl, { method: 'POST', headers: auth });
-        if (w.ok) await bustEventCaches(env);   // the button writes the doc URL into the row; the fast-poll must see it
+        // A Coda button: Coda writes the doc URL, so nothing is overlaid (a direct call by design).
+        // The bust refreshes the snapshot; the fast-poll's ?fresh=1 sees the URL once Coda applies it.
+        if (w.ok) await bustEventCaches(env);
         return pass(w, cors);
       }
 
@@ -863,40 +868,39 @@ export default {
         // the same rule Coda's Orders sync uses) + the Active Member? flag.
         // Emails ARE returned — this is plan-only (canWrite), never a member route;
         // gather's projection stays email-free. Live from Eventbrite, KV-cached per
-        // event (soft 60s / hard 5m; busted on claim writes); ?fresh=1 bypasses.
+        // event (soft 60s / hard 5m; busted after claim and slot writes); ?fresh=1 bypasses.
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         if (!env.EVENTBRITE_TOKEN) return json({ configured: false }, 200, cors);
         const rowId = decodeURIComponent(parts[1]);
-        const build = async () => {
-          const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+        // KV holds the raw rows (orders, this event's slots and their claims); the overlay is
+        // merged and buildRoster runs at serve time, so a write that later fails never lingers.
+        const fill = async () => {
+          const one = await readRowMerged(env, { base, docId, tableId, auth, rowId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', planning: { base, docId, auth } });
           if (!one.ok) throw new Error(`event not found (${one.status})`);
-          const ebId = plain(((await one.json()).values || {})[PLANNING_COLS.eventbriteId]) || '';
-          const [orders, sl, cl, people] = await Promise.all([
+          const ebId = plain((one.row.values || {})[PLANNING_COLS.eventbriteId]) || '';   // which orders to fetch
+          const [orders, sl, cl] = await Promise.all([
             ebId ? ebAllOrders(env, ebId) : [],
             gatherTablesOk ? readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }) : { ok: true, items: [] },
             gatherTablesOk ? readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }) : { ok: true, items: [] },
-            peopleRows(base, docId, auth, env, ctx),
           ]);
           if (!sl.ok) throw new Error(`slots read failed (${sl.resp.status})`);
-          const slots = sl.items.filter((s) => relId(s.values[SLOT_COLS.event]) === rowId);
-          const claimsBySlot = {};
-          for (const c of (cl.ok ? cl.items : [])) {
-            const sid = relId(c.values[CLAIM_COLS.slot]);
-            if (sid) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
-          }
-          const { rows, summary } = buildRoster({ orders, slots, claimsBySlot, people, cols: PEOPLE_COLS });
-          return { configured: true, ebLinked: !!ebId, fetchedAt: new Date().toISOString(), summary, rows };
+          const slots = sl.items.filter((s) => relId(s.values[SLOT_COLS.event]) === rowId), sids = new Set(slots.map((s) => s.id));
+          return { ebId, fetchedAt: new Date().toISOString(), orders, slots, claims: (cl.ok ? cl.items : []).filter((c) => sids.has(relId(c.values[CLAIM_COLS.slot]))) };
         };
         const key = rosterKvKey(rowId);
-        let data;
+        let snap;
         if (url.searchParams.get('fresh') === '1') {
-          data = await build();                                   // refresh button: bypass + rewrite the snapshot
-          if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify({ at: Date.now(), data })); } catch (_) {} }
-        } else {
-          data = await swrGet(env, ctx, key, 60_000, 300_000, build);
-        }
-        return json(data, 200, cors);
+          snap = { at: Date.now(), data: await fill() };            // refresh button: bypass + rewrite the snapshot
+          if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify(snap)); } catch (_) {} }
+        } else snap = await swrGetAt(env, ctx, key, 60_000, 300_000, fill);
+        const d = snap.data;
+        const [slots, claims, people] = await Promise.all([mergedRows(env, env.CODA_SLOTS_TABLE, d.slots, snap.at, { shape: 'rich', want: [] }),
+          mergedRows(env, env.CODA_CLAIMS_TABLE, d.claims, snap.at, { shape: 'rich', want: ['people'] }), peopleRows(base, docId, auth, env, ctx)]);
+        const claimsBySlot = {};
+        for (const c of claims) { const sid = relId(c.values[CLAIM_COLS.slot]); if (sid) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c); }
+        const { rows, summary } = buildRoster({ orders: d.orders, slots: slots.filter((s) => relId(s.values[SLOT_COLS.event]) === rowId), claimsBySlot, people, cols: PEOPLE_COLS });
+        return json({ configured: true, ebLinked: !!d.ebId, fetchedAt: d.fetchedAt, summary, rows }, 200, cors);
       }
 
       if (parts[0] === 'member' && parts[1] === 'me' && parts.length === 2 && request.method === 'GET') {
@@ -936,9 +940,9 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         const rowId = decodeURIComponent(parts[1]);
-        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+        const one = await readRowMerged(env, { base, docId, tableId, auth, rowId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', planning: { base, docId, auth } });
         if (!one.ok) return json({ error: 'not found' }, 404, cors);
-        const ebId = plain(((await one.json()).values || {})[PLANNING_COLS.eventbriteId]) || '';
+        const ebId = plain((one.row.values || {})[PLANNING_COLS.eventbriteId]) || '';
         if (!ebId) return json({ linked: false, registered: false }, 200, cors);
         const m = await resolveMember(who, base, docId, auth, env, ctx);
         const emails = new Set([String(who.email).toLowerCase(), ...(m.emails || [])]);
@@ -995,12 +999,11 @@ export default {
           memberId = p.personId;
         }
         const cells = claimCreateCells(input, memberId, CLAIM_COLS);
-        const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
-        if (!r.ok) return pass(r, cors);
+        // gatherWrite busts the gather snapshot once; the overlay covers the apply gap.
+        const w = await gatherWrite(env, ctx, { url: `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, method: 'POST', body: { rows: [{ cells }] }, tableId: env.CODA_CLAIMS_TABLE, op: 'insert', auth });
+        if (!w.ok) return pass(w.resp, cors);
         if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, input.slot));   // roster (plan Attendees) must see the new claim
-        await bustEventCachesNowAndAfterApply(env, ctx);   // gather snapshot, now and once Coda has applied
-        const j = await r.json();
-        return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
+        return json({ ok: true, id: w.addedRowIds[0] || null, overlaid: w.overlaid }, 200, cors);
       }
 
       if (parts[0] === 'claims' && parts[1] && parts.length === 2 && (request.method === 'DELETE' || request.method === 'PUT')) {
@@ -1016,17 +1019,19 @@ export default {
         if (!m.personId && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
         const claimId = decodeURIComponent(parts[1]);
         const claimsUrl = `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`;
-        const one = await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
-        if (!one.ok) return json({ error: 'not found' }, 404, cors);
-        const claimRow = await one.json();
-        const owner = claimOwnerId(claimRow, CLAIM_COLS);
-        if (!(owner && owner === m.personId) && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
-        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])));   // roster must see the change
-        const claimDone = async (r) => { if (r.ok) await bustEventCachesNowAndAfterApply(env, ctx); return r; };   // gather snapshot, only once Coda accepted
-        if (request.method === 'DELETE')
-          return pass(await claimDone(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth })), cors);
+        // Ownership is read through the overlay; a claim still being inserted answers 409 (readClaimForWrite).
+        const got = await readClaimForWrite(env, { base, docId, tableId: env.CODA_CLAIMS_TABLE, auth, claimId }, m);
+        if (!got.row) return json({ error: got.error }, got.status, cors);
+        const claimSlot = relId(got.row.values && got.row.values[CLAIM_COLS.slot]);
+        // gatherWrite busts the gather snapshot, only when Coda accepted (gatherWrite); then the roster, after the write.
+        const claimW = async (method, body) => {
+          const w = await gatherWrite(env, ctx, { url: `${claimsUrl}/${encodeURIComponent(claimId)}`, method, body, tableId: env.CODA_CLAIMS_TABLE, op: method === 'DELETE' ? 'delete' : 'update', rowId: claimId, auth });
+          if (w.ok && ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, claimSlot));
+          return w;
+        };
+        if (request.method === 'DELETE') return passWrite(await claimW('DELETE'), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
-        return pass(await claimDone(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: claimUpdateCells(body, CLAIM_COLS) } }) })), cors);
+        return passWrite(await claimW('PUT', { row: { cells: claimUpdateCells(body, CLAIM_COLS) } }), cors);
       }
 
       if (parts[0] === 'slots' && request.method === 'GET') {
@@ -1037,13 +1042,14 @@ export default {
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const eventId = url.searchParams.get('event');
+        const at = Date.now();
         const [out, cl] = await Promise.all([
           readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
           readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
         ]);
         if (!out.ok) return pass(out.resp, cors);
         const claimsBySlot = {};
-        for (const c of (cl.ok ? cl.items : [])) {
+        for (const c of (cl.ok ? await mergedRows(env, env.CODA_CLAIMS_TABLE, cl.items, at, { shape: 'rich', want: ['people'] }) : [])) {
           const sid = relId(c.values[CLAIM_COLS.slot]);
           if (!sid) continue;
           (claimsBySlot[sid] = claimsBySlot[sid] || []).push({
@@ -1054,7 +1060,7 @@ export default {
             qty: Number(plain(c.values[CLAIM_COLS.qty])) || 1,
           });
         }
-        let items = out.items.map((s) => ({
+        let items = (await mergedRows(env, env.CODA_SLOTS_TABLE, out.items, at, { shape: 'rich', want: [] })).map((s) => ({
           id: s.id, event: relId(s.values[SLOT_COLS.event]),
           kind: plain(s.values[SLOT_COLS.kind]) || '', label: plain(s.values[SLOT_COLS.label]) || '',
           neededQty: normNeededQty(s.values[SLOT_COLS.neededQty]),   // number, or null = no limit
@@ -1074,20 +1080,23 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const slotId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const slotsUrl = `${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`;
-        const busted = async (r) => { if (r.ok) await bustEventCachesNowAndAfterApply(env, ctx); return r; };   // gather snapshot must see the slot change
-        if (request.method === 'DELETE' && slotId)
-          return pass(await busted(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'DELETE', headers: auth })), cors);
+        // gatherWrite busts the gather snapshot (gatherWrite); the event's roster is busted after the
+        // write, its event read first (a pending delete would hide the slot afterwards).
+        const eid0 = slotId ? await slotEventId(env, base, docId, auth, slotId) : null;
+        const slotW = async (method, body, op, eid = eid0) => {
+          const w = await gatherWrite(env, ctx, { url: slotId ? `${slotsUrl}/${encodeURIComponent(slotId)}` : slotsUrl, method, body, tableId: env.CODA_SLOTS_TABLE, op, rowId: slotId, auth });
+          if (w.ok && eid && ctx) ctx.waitUntil(swrBust(env, rosterKvKey(eid)));
+          return w;
+        };
+        if (request.method === 'DELETE' && slotId) return passWrite(await slotW('DELETE', undefined, 'delete'), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         if (request.method === 'POST' && !slotId) {
           if (!body.event) return json({ error: 'event required' }, 400, cors);
-          const r = await fetch(slotsUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }) });
-          if (!r.ok) return pass(r, cors);
-          await bustEventCachesNowAndAfterApply(env, ctx);
-          const j = await r.json();
-          return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
+          const w = await slotW('POST', { rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }, 'insert', body.event);
+          if (!w.ok) return pass(w.resp, cors);
+          return json({ ok: true, id: w.addedRowIds[0] || null, overlaid: w.overlaid }, 200, cors);
         }
-        if (request.method === 'PUT' && slotId)
-          return pass(await busted(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: slotCells(body, SLOT_COLS) } }) })), cors);
+        if (request.method === 'PUT' && slotId) return passWrite(await slotW('PUT', { row: { cells: slotCells(body, SLOT_COLS) } }, 'update'), cors);
         return json({ error: 'bad slot request' }, 400, cors);
       }
 
@@ -1096,9 +1105,13 @@ export default {
       return json({ error: String((e && e.message) || e) }, 502, cors);
     }
   },
-  // Eventbrite sweep every 15 minutes ([triggers] in wrangler.toml); runSweep is a no-op unless EB_SYNC_MODE = live.
+  // Two crons ([triggers] in wrangler.toml), never in one invocation (50 outbound calls each).
+  // Each is a no-op while its mode is off; any other cron string runs nothing.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runSweep(env));
+    const cron = event && event.cron;
+    if (cron === EB_SWEEP_CRON) ctx.waitUntil(runSweep(env));
+    else if (cron === GCAL_CRON) ctx.waitUntil(sweepGcal(env));
+    else console.error('scheduled', JSON.stringify({ unknownCron: cron }));
   },
 };
 
@@ -1198,20 +1211,15 @@ const APPROVE_STATUSES = ['Tribal Council'];
 // (L2, cross-isolate SWR) — the 1128-row x 6-page Coda read was the dominant
 // cost on sign-in and every authed request.
 let _people = null, _peopleExp = 0;
-const PEOPLE_KV_KEY = 'people-slim-v3';   // v3: + Active Member? (bump on any slim-shape change)
 async function peopleRows(base, docId, auth, env, ctx, opts = {}) {
   if (!opts.force && _people && Date.now() < _peopleExp) return _people;
-  const fetchSlim = async () => {
-    const out = await readAllRows(`${base}/docs/${docId}/tables/${PEOPLE_TABLE}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
-    if (!out.ok) throw new Error(`people read failed (${out.resp.status})`);
-    return slimPeopleRows(out.items, PEOPLE_COLS);
-  };
+  const fetchSlim = () => fetchPeopleSlim(base, docId, auth);   // id-keyed slim People (worker-io.js)
   let rows;
   if (opts.force) {
     // Manual refresh: bypass BOTH caches, pull fresh from Coda, and rewrite KV so
     // every isolate converges on the next read (their short L1 expires in ~60s).
-    rows = await fetchSlim();
-    if (env.CACHE) { try { await env.CACHE.put(PEOPLE_KV_KEY, JSON.stringify({ at: Date.now(), data: rows })); } catch (_) {} }
+    const at = Date.now(); rows = await fetchSlim();
+    if (env.CACHE) { try { await env.CACHE.put(PEOPLE_KV_KEY, JSON.stringify({ at, data: rows })); } catch (_) {} }
   } else {
     try { rows = await swrGet(env, ctx, PEOPLE_KV_KEY, 300_000, 1_800_000, fetchSlim); }   // soft 5min / hard 30min
     catch (_) { return _people || []; }                // read failed: last isolate copy, never cache the failure
@@ -1315,7 +1323,7 @@ async function ebAttendeeEmailHashes(env, ctx, ebId) {
 // KV key for one event's lead-facing roster snapshot. Raw registrant emails live
 // in this value — KV is server-side only, the same trust boundary as the Coda +
 // Eventbrite tokens; it never feeds a member route.
-const rosterKvKey = (rowId) => `roster-v1:${rowId}`;
+const rosterKvKey = (rowId) => `roster-v2:${rowId}`;   // v2: raw rows, merged at serve time
 // Every ACTIVE order for an event, attendees expanded (one attendee = one
 // ticket), all pages. Quiet logging: order bodies carry registrant PII.
 async function ebAllOrders(env, ebId) {
@@ -1333,13 +1341,17 @@ async function ebAllOrders(env, ebId) {
 // A claim changed under `slotId`: drop that slot's EVENT roster snapshot so the
 // next lead read sees it. Best-effort and off the response path (ctx.waitUntil).
 async function bustRosterForSlot(env, base, docId, auth, slotId) {
-  if (!env.CACHE || !slotId || !env.CODA_SLOTS_TABLE) return;
+  if (!env.CACHE) return;
+  const eid = await slotEventId(env, base, docId, auth, slotId);
+  if (eid) await swrBust(env, rosterKvKey(eid));
+}
+// The event a slot belongs to (a slot just added too), or null; a failed read is logged.
+async function slotEventId(env, base, docId, auth, slotId) {
+  if (!slotId || !env.CODA_SLOTS_TABLE) return null;
   try {
-    const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows/${encodeURIComponent(slotId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
-    if (!r.ok) return;
-    const eid = relId(((await r.json()).values || {})[SLOT_COLS.event]);
-    if (eid) await swrBust(env, rosterKvKey(eid));
-  } catch (_) {}
+    const one = await readRowMerged(env, { base, docId, tableId: env.CODA_SLOTS_TABLE, auth, rowId: slotId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', want: [], insertAware: true });
+    return one.ok ? relId((one.row.values || {})[SLOT_COLS.event]) : null;
+  } catch (e) { console.error(`roster: slot ${slotId} read failed (${String((e && e.message) || e)}); its roster isn't busted`); return null; }
 }
 // Open signup: match the verified email, else create a self-onboarded People row.
 // Patches the new row into both cache layers so it's matchable immediately after.
@@ -1385,23 +1397,25 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
   const callerName = (caller && caller.name) || '';
   const callerId = (caller && caller.personId) || null;
   const today = new Date().toISOString().slice(0, 10);
+  // KV holds the raw rich rows (GATHER_KV_KEY); the overlay is merged before gatherSnapshot groups them.
   const fetchSnap = async () => {
     const [ev, sl, cl] = await Promise.all([tableId, env.CODA_SLOTS_TABLE, env.CODA_CLAIMS_TABLE].map((t) =>
       readAllRows(`${base}/docs/${docId}/tables/${t}/rows`, auth, { rich: true })));
     for (const x of [ev, sl, cl]) if (!x.ok) throw Object.assign(new Error(`gather read failed (${x.resp.status})`), { resp: x.resp });
-    return gatherSnapshot(ev.items, sl.items, cl.items, new Date().toISOString().slice(0, 10));
+    return pruneGatherRaw(ev.items, sl.items, cl.items, today);   // keeps the KV value small (gather.js)
   };
-  let snap;
-  try { snap = await swrGet(env, opts.ctx, GATHER_KV_KEY, 30_000, 300_000, fetchSnap); }   // soft 30s / hard 5min
+  let raw;
+  try { raw = await swrGetAt(env, opts.ctx, GATHER_KV_KEY, 30_000, 300_000, fetchSnap); }   // soft 30s / hard 5min
   catch (e) { return { error: e.resp || new Response(JSON.stringify({ error: String(e.message || e) }), { status: 502 }) }; }
-  const { events, slotsByEvent, claimsBySlot } = snap;
+  const g = await gatherRows(env, base, docId, tableId, auth, raw.data, raw.at);
+  const { events, slotsByEvent, claimsBySlot } = gatherSnapshot(g.events, g.slots, g.claims, today);
   // Members see published+upcoming only. Write-authorized callers (leads/council)
   // ALSO see approved-but-unpublished rows, flagged `preview` for the tag in gather.
   let rows = events.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, today)
     || (opts.previewer && isApprovedUpcoming(r, PLANNING_COLS, today)));
   if (opts.onlyId) rows = rows.filter((r) => r.id === opts.onlyId);
   const items = rows.map((r) => projectEventForMember(r, slotsByEvent[r.id] || [], claimsBySlot, callerName, {
-    includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf, anonymous: !!opts.anonymous,
+    includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf, anonymous: !!opts.anonymous, pendingClaims: g.pendingClaims,
     preview: !!opts.previewer && !isPublishedUpcoming(r, PLANNING_COLS, today),
   }));
   items.sort((a, b) => String(a.date || a.windowStart || '').localeCompare(String(b.date || b.windowStart || '')));
@@ -1411,15 +1425,17 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
 // The caller's own claims across all events (My sign-ups). Filters claims by Member
 // ROW ID (rich read), then joins slot -> event for labels. Never name-based.
 async function buildMyClaims(base, docId, tableId, env, auth, personId) {
-  const [cl, sl, ev] = await Promise.all([
+  const at = Date.now();
+  const [cl0, sl, ev] = await Promise.all([
     readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
     readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
     readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true }),
   ]);
-  if (!cl.ok) return [];
-  const slotById = new Map((sl.ok ? sl.items : []).map((s) => [s.id, s]));
-  const eventById = new Map((ev.ok ? ev.items : []).map((e) => [e.id, e]));
-  return cl.items
+  if (!cl0.ok) return [];
+  const g = await gatherRows(env, base, docId, tableId, auth, { events: ev.ok ? ev.items : [], slots: sl.ok ? sl.items : [], claims: cl0.items }, at);
+  const slotById = new Map(g.slots.map((s) => [s.id, s]));
+  const eventById = new Map(g.events.map((e) => [e.id, e]));
+  return g.claims
     .filter((c) => claimOwnerId(c, CLAIM_COLS) === personId)
     .map((c) => {
       const slot = slotById.get(relId(c.values[CLAIM_COLS.slot]));
@@ -1436,6 +1452,17 @@ async function buildMyClaims(base, docId, tableId, env, auth, personId) {
       };
     })
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+}
+
+// The three gather lists (raw rich rows read at `at`) with the overlay merged. pendingClaims:
+// claim ids the overlay added that Coda hasn't applied yet (gather shows the caller's as Saving…).
+async function gatherRows(env, base, docId, tableId, auth, raw, at) {
+  const [events, slots, claims] = await Promise.all([
+    mergedRows(env, tableId, raw.events, at, { shape: 'rich', planning: { base, docId, auth } }),
+    mergedRows(env, env.CODA_SLOTS_TABLE, raw.slots, at, { shape: 'rich', want: [] }),
+    mergedRead(env, env.CODA_CLAIMS_TABLE, raw.claims, at, { shape: 'rich', want: ['people'] }),
+  ]);
+  return { events, slots, claims: claims.rows, pendingClaims: new Set(claims.pendingInserts) };
 }
 
 // --- Eventbrite v3 I/O client -------------------------------------------------
@@ -1467,6 +1494,7 @@ const ebDelete = (env, id) => ebFetch(env, `/events/${id}/`, 'DELETE');         
 //     venue_id on the event.
 // Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
 const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
+const EB_SWEEP_CRON = '*/15 * * * *';         // the Eventbrite sweep's cron in wrangler.toml
 const VENUE_TYPES_TABLE = 'grid-idEVRQX7SL';  // Venue Types (the Venue Type lookup's table)
 async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibility, ebId, isCreate) {
   if (!name) {
@@ -1504,10 +1532,11 @@ async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibil
     if (!r.ok) return { error: r };
     venueId = r.body.id;
     if (found) {
-      try {
-        await fetch(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`,
-          { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: [{ column: cacheCol, value: venueId }] } }) });
-      } catch (_) { /* caching the id back is best-effort; still use it below */ }
+      try {   // overlaid, so a second publish within ~28 s reuses this Eventbrite venue
+        const w = await codaWrite(env, { url: `${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`, method: 'PUT',
+          body: { row: { cells: [{ column: cacheCol, value: venueId }] } }, tableId: EB_VENUES_TABLE, op: 'update', rowId: found.id, auth });
+        if (!w.ok) console.error(`ensureEbVenue: caching Eventbrite venue ${venueId} on ${found.id} failed (Coda ${w.status})`);
+      } catch (e) { console.error(`ensureEbVenue: caching Eventbrite venue ${venueId} failed (${String((e && e.message) || e)})`); }   // best-effort; still use it below
     }
   }
   const u = await ebUpdateEvent(env, ebId, { event: { venue_id: venueId } });

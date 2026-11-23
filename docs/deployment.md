@@ -146,6 +146,135 @@ Then a **one-push smoke test**: push one event from plan, wait ~60 s, and check 
 **Switch off in an emergency:** set `EB_SYNC_MODE = "off"` and redeploy. (Optionally delete the
 webhook in Eventbrite too; the Worker ignores it while off.)
 
+## Google Calendar sync (Worker, 15-minute sweep)
+
+The Worker puts every approved, dated event on the *East Side Tribe Events* calendar and keeps
+it current (decision 0010). It ships **off**.
+
+**1. Service account** (EST-owned, not a personal login):
+1. In Google Cloud (an EST-owned project), enable the Google Calendar API.
+2. Create a service account (for example `est-planning-gcal`), then add a JSON key and download it.
+3. In Google Calendar, open *East Side Tribe Events* > Settings and sharing > Share with specific
+   people, add the service account's email, and give it **Make changes to events**.
+4. From the same page, copy the **Calendar ID**.
+
+**2. Secret and var:**
+- `cd proxy && npx wrangler secret put GOOGLE_SA_KEY` (paste the whole JSON key).
+- `GCAL_CALENDAR_ID` in `proxy/wrangler.toml` = the Calendar ID. Unset counts as `off`.
+
+**3. `GCAL_MODE`** (`proxy/wrangler.toml`):
+- `off` (default): nothing happens.
+- `shadow`: the Worker works out each add, update and remove and records it in the Publish Log
+  (Target `gCal`). It never calls Google Calendar.
+- `live`: it calls Google Calendar.
+
+**Cron:** `3,18,33,48 * * * *`, its own invocation, at most 15 changes per run. A row's error is
+logged to the Publish Log once a day per action and status; the Worker console gets every one.
+
+**Preconditions** (all before step 1 of the cutover):
+- Phase A is live: `EB_SYNC_MODE=live`, and its import has caught up, so every upcoming EST
+  Eventbrite event has a planning row. Check this; the link script and the Worker only know
+  events that have a planning row.
+- Publish Log options: add `gCal` to Target (it should already exist) and `gcal-insert`,
+  `gcal-update`, `gcal-delete`, `gcal-shadow`, `gcal-sweep`, `gcal-sync` to Action. Optional: Coda stores an
+  unknown select value as plain text.
+- The service account and `GOOGLE_SA_KEY` are set up (above).
+
+**Legacy events with no planning row.** OneTable potlucks, retreats and 50+ dinners made by the
+gCal button or Freshen Up are on the calendar but not in plan. They stay as they are until Phase
+C's backfill brings them into plan. Don't recreate them by hand in plan before then: that would
+put a second copy on the calendar. The link script's dry run lists the upcoming ones as
+"Frozen until Phase C".
+
+**Cutover order** (plan Task 13):
+1. Merge with `GCAL_MODE=off`.
+2. **Link existing calendar events** so the Worker updates them rather than adding second ones.
+   Run `node scripts/link-gcal-ids.mjs` (dry run, GET only), read the tables, then
+   `node scripts/link-gcal-ids.mjs --apply`. For rows dated yesterday or later with a blank
+   `gCal Event ID`, it copies the event id from `EST Events SRC` or the Events EVENTBRITE sync
+   table (matched by Eventbrite id), or from the planning row's own `gCal Event` lookup, using
+   only Events GCAL rows on the *East Side Tribe Events* calendar. It refuses `--apply` while two
+   sources disagree. Unmatched rows are listed for Eric to link by hand, or the Worker inserts
+   them. Token from `proxy/.dev.vars`, never printed. Coda applies writes ~28 s later.
+3. `GCAL_MODE=shadow` for a week. Each day, compare the Publish Log `gCal` rows with what the
+   Zap and the rule did. What to expect:
+   - "Would update" for every linked row, every day: expected. Shadow never stores a hash, so it
+     can't tell an unchanged event from a changed one. Its log is de-duplicated per day.
+   - "Would add" for an event the Zap already put on the calendar (one published during the
+     shadow week): the row needs re-linking (step 4 does it), not a sign of drift.
+4. **In one sitting**, in this order:
+   1. Turn off the Zapier Zap "New Event EB→GCal" and delete its Eventbrite webhook.
+   2. Turn off the Coda rule "Daily Event Freshen Up".
+   3. **Re-run the link script**: dry run, read it, then `--apply`. This links the events the Zap
+      made during the shadow week.
+   4. Wait ~30 s for Coda to apply the writes (re-run the dry run: 0 to link).
+   5. Set `GCAL_MODE=live` and redeploy.
+   6. Let one sweep run (`3,18,33,48` past the hour).
+   7. Check: the Publish Log `gCal` rows for that run are updates, not adds, for linked events;
+      no errors. Delete the 4 orphan calendar events from the audit by hand.
+5. Next day: every approved upcoming event in plan has exactly one calendar event.
+
+**Switch off in an emergency:** `GCAL_MODE = "off"` and redeploy.
+
+## Write overlay (Durable Object, decision 0012)
+
+The Worker remembers its own Coda writes until Coda applies them, and merges them into its
+reads. It ships **off**; turning it on is a deliberate step.
+
+- **Binding and migration** (`proxy/wrangler.toml`): `[[durable_objects.bindings]]`
+  `name = "OVERLAY"`, `class_name = "WriteOverlay"` (exported from `src/worker.js`, defined in
+  `src/overlay-do.js`), and `[[migrations]] tag = "v1"`, `new_sqlite_classes = ["WriteOverlay"]`.
+  The first deploy with this creates the class; it makes no call to it while the switch is off.
+- **Var `OVERLAY_MODE`**: `off` (default) means no Durable Object call: writes answer
+  `overlaid: false`, reads are unchanged, `/mutation` asks Coda, and saves wait ~28 s as
+  before. `live` turns the overlay on.
+- **Migration tags and #40/#41.** Neither #40 (Eventbrite sync) nor #41 (Google Calendar)
+  declares a `[[migrations]]` block (checked 2026-11-23), so `v1` is the Worker's first tag.
+  Tags apply in order and an applied tag is never edited: whichever PR lands first, any later
+  Durable Object change adds the next tag (`v2`, `v3`, …) after the ones already deployed,
+  and a branch that also adds a tag renumbers on rebase.
+- **Free-plan limits (verify before the flip, from Cloudflare's current pricing page):**
+  SQLite-backed Durable Objects are on the Workers Free plan; about 100,000 Durable Object
+  requests a day, 13,000 GB-s of duration a day, 5 GB of stored data, and daily caps on rows
+  read and written (about 5 million and 100,000). EST's volume (one record call per write,
+  one read call per read, an alarm every 5 s only while something is pending) is far below
+  these. **Also verify** whether a Durable Object call counts toward the 50 subrequests an
+  invocation allows; until then, count each as one (the sync-runner follow-up in
+  `docs/roadmap.md` depends on the answer).
+
+**Before the flip** (Eric, after merge):
+1. `cd proxy && npx wrangler deploy --dry-run`: the bundle builds and the binding and
+   migration are listed.
+2. The read-only `/columns` check: every planning column the app or the Worker writes is a
+   plain (non-calculated) column, and its relations point at People, Programs, Venues or
+   Venue Types, the tables whose names the merge knows. **Done 2026-11-23** (read-only).
+   Repeat it if columns change in Coda before the flip.
+3. Set `OVERLAY_MODE = "live"` in `proxy/wrangler.toml` in a small PR; CI deploys it on merge.
+4. Make one edit by hand in plan. The button says **Saving…** for about a second, not half a
+   minute. Watch the Worker logs (`npx wrangler tail`): no `overlay:` lines (the overlay
+   logs only problems), and `GET /mutation/<requestId>` answering `completed: true` within
+   ~30 s. Check the Publish Log has no new error rows.
+5. Once `live` has held for a while, the "after the flip" help PR: tighten
+   `web/help/guide.md` (saves usually take a moment) and add the whats-new lines (plan
+   `2026-11-23-write-through-overlay.md`, Deferred), including PR B's: *[[Save address]]
+   now saves at once; adding a venue still takes about half a minute.* (It is held back
+   until the flip because with `OVERLAY_MODE` off Save address still waits.)
+
+**Switch off in an emergency:** set `OVERLAY_MODE = "off"` and redeploy. Nothing is lost:
+every write went to Coda first; the overlay only held copies.
+
+**Rollback (remove the class):** a plain revert can't remove a Durable Object class. First
+set `OVERLAY_MODE = "off"` and deploy. Then, in one commit, remove the `[[durable_objects.bindings]]` block, the
+`export { WriteOverlay } from './overlay-do.js';` line in `src/worker.js` (a deleted class
+can't still be exported), and add a migration that deletes the class (this also deletes its
+stored entries, which are copies), and deploy:
+
+    [[migrations]]
+    tag = "v2"
+    deleted_classes = ["WriteOverlay"]
+
+Keep the `v1` block above it. Use the next unused tag if `v2` is taken by then.
+
 ## Secrets checklist
 
 - Superhuman Docs token: **Worker secret only** (`CODA_API_TOKEN`) — never committed,
@@ -155,6 +284,7 @@ webhook in Eventbrite too; the Worker ignores it while off.)
   ship in the app / Worker var (public); the **allowlist** and the read+write Coda
   token live in the Worker.
 - `EB_WEBHOOK_SECRET`: Worker secret (see Eventbrite sync above).
+- `GOOGLE_SA_KEY`: Worker secret, the calendar service account's JSON key (see Google Calendar sync above).
 - `CLOUDFLARE_API_TOKEN`: GitHub repo secret (for CI proxy deploys only).
 - The legacy optional `APP_KEY` shared-secret path is superseded by the phased model
   above and is not used for the standalone deploy.

@@ -1,11 +1,11 @@
 /* save.js — the save model: on-blur autosave, the saveQueue wiring, optimistic local copies, the save pill, leaveForm, the unload guard.
    The save model's rules live in: saveQueue (one write in flight per event), applied / pendingFor
-   (Saved = applied, D3), leaveForm, flushAutosave, dropFailedEdits, guardUnload.
-   Owns: scheduleReconcile, _form, _busy, _busyLabel, _authRetry, formCells, _applying, _slow,
-         _unconfirmed, applied, pendingFor, trackWorkerWrite, afterCreate, trackCreate,
+   (Saved = overlaid or applied, D3, 0012), confirmLater, leaveForm, flushAutosave, dropFailedEdits, guardUnload.
+   Owns: scheduleReconcile, _form, _busy, _busyLabel, _authRetry, formCells, _applying, _confirming, _slow,
+         _unconfirmed, CREATING_LABEL, lostChangeMsg, createdMsg, lateFailMsg, applied, confirmLater, hasUnconfirmed, reopenEdits, pendingFor, trackWorkerWrite, afterCreate, trackCreate,
          retryCreateConfirm, saveQueue, dropFailedEdits, retryFailedSave, guardUnload, paintSaveStatus,
          scheduleAutosave, autosaveEditor, leaveForm, flushAutosave, applyLocal
-   Reads: editing, state (state.js, editor-tabs.js); _unsaved (state.js); _pushChecks (eventbrite.js)
+   Reads: editing, state (state.js, editor-tabs.js); _unsaved, _recent (state.js); _pushChecks (eventbrite.js)
    Writes: _unsaved (state.js; set/delete); _pushChecks (eventbrite.js; delete); state.events (applyLocal)
    Loaded after: ui.js (file-map order; the est:identity listener keeps its place before those in later files) */
 
@@ -35,17 +35,24 @@ const _busyLabel=new Map();   // event id → what its panel button says meanwhi
 const _authRetry=new Set();   // event ids whose save hit an expired session — sent again after sign-in
 const sameVal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const formCells = f => eventToCodaCells(f).filter(c => c.column!=='Status');
-// Honest saves (D3): "Saved" means Coda has APPLIED a write, not just accepted it
-// (202). applied() polls the Worker's /mutation route via CodaApplied.waitApplied.
-// The queue's write awaits it, so saveQueue.status(id)==='saving' covers the apply
-// time of edits; _applying counts only applies started outside the queue (create,
-// transitions). pendingFor(id) is the one answer the pill and panel read.
+// Honest saves (D3, 0012): "Saved" means Coda accepted a write AND the Worker's
+// overlay holds it (overlaid: every read through the Worker returns it), or, when
+// it isn't overlaid, that Coda has APPLIED it. applied() polls the Worker's
+// /mutation route via CodaApplied.waitApplied. An overlaid write's confirm runs in
+// the background (confirmLater, counted in _confirming, never in pendingFor); if it
+// fails, its edits go back to the queue's error state (reopenEdits: Save failed —
+// retry, or put back with a toast when no editor is open). Otherwise the queue's write awaits
+// the apply, so saveQueue.status(id)==='saving' covers it; _applying counts only
+// applies started outside the queue (create, transitions that weren't overlaid).
+// pendingFor(id) is the one answer the pill and panel read.
 const _applying=new Map();    // event id → applies in flight outside the queue
+const _confirming=SaveQueue.tracker();   // event id → background confirms of overlaid writes (hasUnconfirmed)
+const CREATING_LABEL='Creating… (about half a minute)';   // the panel's primary while a new event's insert applies
 const _slow=new Set();        // event ids whose apply has passed CodaApplied's slow mark
 const _createApply=new Map(); // new event id → its insert's apply promise (later writes wait on it)
 const _unconfirmed=new Map(); // new event id → requestId of an insert Coda never confirmed (pill: Save failed — retry)
 function applied(requestId, eventId, opts={}){
-  const counted = opts.counted!==false;
+  const counted = opts.counted!==false, background = opts.background===true;   // background: no slow mark (nothing on screen waits on it)
   if(counted) _applying.set(eventId, (_applying.get(eventId)||0)+1);
   const repaint=()=>{ if(editing && editing.id===eventId) paintSaveStatus(); };
   repaint();
@@ -53,43 +60,91 @@ function applied(requestId, eventId, opts={}){
     fetchStatus: rid => DB.mutationStatus(rid),
     sleep: ms => new Promise(r => setTimeout(r, ms)),
     now: () => Date.now(),
-    onSlow: () => { _slow.add(eventId); if(editing && editing.id===eventId) setSaveStatus('slow'); },
+    onSlow: background ? null : () => { _slow.add(eventId); if(editing && editing.id===eventId) setSaveStatus('slow'); },
   }).finally(()=>{
     if(counted){ const n=(_applying.get(eventId)||0)-1; if(n>0) _applying.set(eventId, n); else _applying.delete(eventId); }
-    if(!((_applying.get(eventId)||0) > 0)) _slow.delete(eventId);   // the next write gets its own slow mark
+    if(!background && !((_applying.get(eventId)||0) > 0)) _slow.delete(eventId);   // the next write gets its own slow mark
     repaint();
   });
 }
-// Anything for this event queued, in flight, or written but not yet applied by Coda.
-// A bare debounce timer doesn't count: the panel's primary must not turn into
-// Saving… under a click, and every push/transition flushes the form and waits on
-// this before it acts (settledForPush, transitionTo), so nothing goes out early.
+// An overlaid write confirms in the background: the queue (or transition) moves on
+// at once. Counted in _confirming until it settles, so loadEvents keeps the local
+// copy over a read that missed the overlay and the event's actions go out flagged
+// unconfirmed (hasUnconfirmed); then its _recent hold is renewed. onFail(err): the
+// overlay or Coda gave up on it.
+// The leave guard doesn't wait for it (guardUnload): the write is saved. Accepted
+// cost (0012): if Coda never applies it and the tab is closed, nobody is told.
+function confirmLater(requestId, id, onFail){
+  if(!requestId) return;
+  _confirming.track(id, applied(requestId, id, { counted:false, background:true })).then(
+    ()=>{ const r=_recent.get(id); if(r){ const { until, ...rec }=r; markRecent(id, rec); } },
+    err=>{ console.warn('overlaid write not confirmed:', err); if(onFail) onFail(err); });
+}
+// An overlaid write to this event is still confirming: publish / cancel / unpublish /
+// delete tell the Worker (it refuses while it can't reach the overlay).
+const hasUnconfirmed = id => !!id && _confirming.has(id);
+// Anything for this event queued, in flight, or written (not overlaid) but not yet
+// applied by Coda. Background confirms of overlaid writes don't count: the request
+// returning is enough. A bare debounce timer doesn't count either: the panel's
+// primary must not turn into Saving… under a click, and every push/transition
+// flushes the form and waits on this before it acts (settledForPush, transitionTo),
+// so nothing goes out early.
 function pendingFor(id){
   if(!id) return false;
   return saveQueue.status(id)==='saving'
     || (_applying.get(id)||0) > 0
     || _unconfirmed.has(id);
 }
-// A Worker write to this event's row (publish / cancel / unpublish, R19): Coda applies
-// it 13–30 s later, so hold the primary at Saving… (pendingFor counts it) and keep the
-// local copy over stale /rows reads (loadEvents holds _recent while it applies).
-function trackWorkerWrite(ev, requestId){
+// An overlaid edit whose confirm failed (token: the queue's, snap: _unsaved as the
+// write went out — the values its cells replaced): put it back as a failed save, so
+// the pill offers the retry, leaving re-sends it and dropFailedEdits restores the
+// saved values when no editor is open. Nothing new to say beyond that path's own.
+// Only the fields behind the columns fail() put back are re-armed (a column written
+// again since keeps its newer value); before the error is reported, so
+// dropFailedEdits finds them.
+function reopenEdits(id, snap, token, err){
+  saveQueue.fail(token, err, columns=>{
+    if(!snap) return;
+    const back=new Set(columns), base=formCells(snap.ev), before={};
+    for(const k of Object.keys(snap.before)){
+      const was=formCells(Object.assign({}, snap.ev, {[k]:snap.before[k]}));
+      if(SaveQueue.changedCells(base, was).some(c=>back.has(c.column))) before[k]=snap.before[k];
+    }
+    const cur=_unsaved.get(id);
+    if(!cur){ _unsaved.set(id, { ev:snap.ev, before }); guardUnload(); }
+    else for(const k of Object.keys(before)) if(!(k in cur.before)) cur.before[k]=before[k];
+  });
+}
+// A Worker write to this event's row (publish / cancel / unpublish, R19). Overlaid:
+// reads already return it, so it confirms in the background (confirmLater). Not
+// overlaid: Coda applies it 13–30 s later, so hold the primary at Saving…
+// (pendingFor counts it). Either way loadEvents keeps the local copy over stale
+// /rows reads (it holds _recent while _applying or _confirming counts the event).
+// step ("Publishing", "Adding {title} to Eventbrite", "Cancelling", …: PUSH_ACTS, transitions.js)
+// names a late, background failure; the Eventbrite side already happened, so the
+// toast says check it again rather than try again.
+function trackWorkerWrite(ev, requestId, overlaid, step){
   markRecent(ev.id, {e:ev});
   if(!requestId) return;
-  applied(requestId, ev.id).then(
-    ()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); },
-    err=>{ console.warn('worker write not confirmed:', err); markRecent(ev.id, {e:ev}); toast('Coda didn’t confirm the change. Check again in a minute.','err'); scheduleReconcile(); });
+  const fail=msg=>err=>{ console.warn('worker write not confirmed:', err); markRecent(ev.id, {e:ev}); toast(msg(),'err'); scheduleReconcile(); };
+  if(overlaid){ confirmLater(requestId, ev.id, fail(()=>step ? lateFailMsg(step, ev.title, { workerWrite:true }) : 'The change didn’t confirm. Check again in a minute.')); return; }
+  applied(requestId, ev.id).then(()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); }, fail(()=>step ? lateFailMsg(step, ev.title, { workerWrite:true }) : 'The change didn’t confirm. Check again in a minute.'));
 }
 // Writes to a just-created row wait for its insert to apply (a failed confirm is
 // handled by _unconfirmed, not here).
 const afterCreate = id => Promise.resolve(_createApply.get(id)).catch(()=>{});
-// Track a new event's insert until Coda applies it; unconfirmed → the pill offers a retry.
+// Track a new event's insert until Coda applies it (creates always wait, overlaid or
+// not): the panel's primary reads CREATING_LABEL while _createApply has it, then the
+// “<title>” created toast; unconfirmed → the pill offers a retry (Save failed — retry).
 function trackCreate(id, requestId){
   const p=applied(requestId, id);
   _createApply.set(id, p);
-  p.then(()=>{ _unconfirmed.delete(id); },
+  p.then(()=>{ _unconfirmed.delete(id); toast(createdMsg(titleOf(id)),'ok'); },
          err=>{ console.warn('create not confirmed:', err); _unconfirmed.set(id, requestId); })
-   .finally(()=>{ if(_createApply.get(id)===p) _createApply.delete(id); if(editing && editing.id===id) paintSaveStatus(); });
+   .finally(()=>{
+     if(_createApply.get(id)===p) _createApply.delete(id);
+     if(editing && editing.id===id) paintSaveStatus();
+   });
 }
 // The pill's retry for an unconfirmed create: never re-POST (that would duplicate the
 // row) — poll the same requestId once more; if that fails too, pull server truth and
@@ -97,11 +152,18 @@ function trackCreate(id, requestId){
 function retryCreateConfirm(id){
   const rid=_unconfirmed.get(id);
   if(rid==null || (_applying.get(id)||0) > 0) return;
-  applied(rid, id).then(()=>{ _unconfirmed.delete(id); }, ()=>{ scheduleReconcile(); })
+  applied(rid, id).then(()=>{ _unconfirmed.delete(id); toast(createdMsg(titleOf(id)),'ok'); }, ()=>{ scheduleReconcile(); })
     .finally(()=>{ if(editing && editing.id===id) paintSaveStatus(); });
 }
 const saveQueue = SaveQueue.create({
-  write: (id, cells) => afterCreate(id).then(() => DB.update(id, cells)).then(r => applied(r && r.requestId, id, { counted:false })),
+  // Overlaid: saved on the 202, the confirm runs in the background (a failure reopens
+  // the edits: reopenEdits). Not overlaid: wait for the apply.
+  write: (id, cells, token) => {
+    const u=_unsaved.get(id), snap=u && { ev:u.ev, before:Object.assign({}, u.before) };   // the values these cells replace
+    return afterCreate(id).then(() => DB.update(id, cells)).then(r => r && r.overlaid
+      ? confirmLater(r.requestId, id, err => reopenEdits(id, snap, token, err))
+      : applied(r && r.requestId, id, { counted:false }));
+  },
   onState(id, st, err){
     if(st==='saved'){ const u=_unsaved.get(id); _unsaved.delete(id); guardUnload(); if(u) markRecent(id, {e:u.ev}); scheduleReconcile(); }
     if(st==='error'){
@@ -113,11 +175,17 @@ const saveQueue = SaveQueue.create({
     if(editing && editing.id===id) paintSaveStatus();
   },
 });
+// The toasts that name an event: an edit that didn't save and was put back; a new
+// event's insert applied; a Worker write or transition whose background confirm failed.
+const lostChangeMsg = title => `Your last change to “${title || 'an event'}” didn’t save — open it and make the change again`;
+const createdMsg = title => title ? `“${title}” created` : 'Created';
+const lateFailMsg = PageRules.lateFailMsg;   // (step, title, {workerWrite}) — page-rules.js, node-tested
+const titleOf = id => (state.events.find(x=>x.id===id) || {}).title || '';
 // A save failed with no open editor to retry from: put back the fields the failed
 // edits changed (the rest — a create, a status change — did save), forget the
 // edits, and say so.
 function dropFailedEdits(id, msg){
-  const u=_unsaved.get(id), title=(u && u.ev.title) || 'an event';
+  const u=_unsaved.get(id);
   saveQueue.discard(id);
   _unsaved.delete(id); _authRetry.delete(id); guardUnload();
   if(u){
@@ -125,7 +193,7 @@ function dropFailedEdits(id, msg){
     markRecent(id, {e:u.ev});   // keep guarding what did save against Coda's list lag
   }
   scheduleReconcile();
-  toast(msg || `Your last change to “${title}” didn’t save — open it and make the change again`,'err');
+  toast(msg || lostChangeMsg(u && u.ev.title),'err');
 }
 // A failed save gets one more try when its editor goes; if that fails too, the
 // edits are dropped with a toast (onState → dropFailedEdits). An expired session
@@ -144,7 +212,7 @@ document.addEventListener('est:identity', ()=>{
 // beforeunload listener keeps some browsers from caching the page for Back.
 function onBeforeUnload(e){
   if(_form) autosaveEditor();
-  if(_unsaved.size || _busy.size){ e.preventDefault(); e.returnValue=''; }   // _busy: a delete/transition still waiting on Coda
+  if(_unsaved.size || _busy.size){ e.preventDefault(); e.returnValue=''; }   // _busy: a delete/transition still waiting on Coda. An overlaid change still confirming (_confirming) is saved: no prompt (0012)
 }
 let _unloadGuarded=false;
 function guardUnload(){
@@ -208,7 +276,8 @@ function leaveForm(){
   if(id) retryFailedSave(id);
 }
 // Write everything in the open form now; rejects if that fails. Publishing needs
-// this first — the Worker builds the listing from what Coda has.
+// this first — the Worker builds the listing from the row it reads (Coda's, with
+// overlaid writes merged in), so every edit must have reached it.
 async function flushAutosave(){
   if(!editing || !editing.id) return;
   autosaveEditor();

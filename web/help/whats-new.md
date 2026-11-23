@@ -5,7 +5,14 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-11-23
+- **Adding a venue doesn't hold you up.** After **Add venue**, the window closes at once and the venue shows on your event with *Adding venue… this takes about half a minute*. You can keep working on the event meanwhile; the venue's address and clearing it wait until it's created, then **Venue added** shows.
+- **A new event says how long it takes.** After **Create**, the next-step button says **Creating… (about half a minute)** until the event is created, then a message says so. You can keep adding details meanwhile.
+- **Clearer messages when something doesn't confirm.** In the rare case a step that looked done doesn't confirm, the message names the step and the event. It tells you to open the event and try again, or, for adding to Eventbrite, updating, publishing, cancelling or unpublishing, to check it again in a minute. On a computer, if you close or reload the page while a change is still saving, your browser asks first.
+
 ## 2026-11-22
+- **Deleting an event takes it off the Google Calendar.** **Delete event** now removes the calendar entry too. And if an event's Eventbrite listing is taken down, its calendar entry stops saying *Registration on Eventbrite coming soon*.
+- **Approved events go on the Google Calendar by themselves.** Every approved event with a date appears on East Side Tribe's calendar, whether or not it's on Eventbrite. **Publish**, **Cancel event…** and **Unpublish (back to private)** update it right away; other changes, including ones that came from Eventbrite, take up to about 15 minutes. It says *Registration on Eventbrite coming soon* until you publish, then shows the Eventbrite link. A cancelled event leaves the calendar, and events whose date has passed are left as they are. If an event's address is **Registrants only**, the calendar shows just the city and state. See [Events on the Google Calendar](#google-calendar).
 - **Events made on Eventbrite now show up here.** If someone creates an event directly on Eventbrite, it appears in the calendar and in gather within about 10 to 25 minutes, marked **Imported from Eventbrite** where the person who made it would be.
 - **Changes made on Eventbrite come through.** Edit a title, date, time, capacity, description, venue or status on Eventbrite and the event here usually follows within a minute or so (up to about 25 minutes right after you update the listing from here). **Status & next step** says **Updated from Eventbrite** and lists what changed. If you changed the same thing here and haven't updated the listing yet, your version stays and you get the usual notice that someone changed the listing on Eventbrite since your last update. The summary and tickets are never copied from Eventbrite, and neither is **Address on listing**, except that when the venue itself changes on Eventbrite, that venue's own setting comes with it.
 

@@ -63,7 +63,8 @@ function initTypeahead(container, opts){
    editable field with a clear ✕ that returns to select mode) — other-mode still
    shows an event's stored Venue (other). State lives on container.dataset.venueId /
    the visible other input. container.pickVenue(id) selects a venue from outside
-   (a just-added one) and fires onChange like a pick. */
+   (a just-added one) and fires onChange like a pick; pendVenue(name)/unpendVenue() show
+   and drop a venue still being added (nothing fires). */
 function initVenuePicker(container, ev, opts){
   opts = opts || {};
   const input = container.querySelector('.ta-input');
@@ -107,6 +108,16 @@ function initVenuePicker(container, ev, opts){
   else if(ev.venueOther) enterOther(ev.venueOther);
   else showSelect();
   container.pickVenue = id => { const v=VENUES.find(x=>x.id===id); if(v) selectVenue(v); return !!v; };
+  // A venue being added (venue-form.js): shown as picked, with a spinner and no ×, while
+  // the picker's state (dataset.venueId, the other text) stays as it was, so nothing
+  // fires and a save meanwhile writes the event's Venue as it stands.
+  container.pendVenue = name => {
+    container.unpendVenue(); container.classList.add('venue-pending'); menu.hidden=true;
+    const chip=document.createElement('span'); chip.className='ta-chip venue-pick venue-pend';
+    chip.innerHTML=`<span class="ndoc-spin" aria-hidden="true"></span>${esc(name)}`;
+    container.insertBefore(chip, container.firstChild);
+  };
+  container.unpendVenue = () => { container.classList.remove('venue-pending'); container.querySelectorAll('.venue-pend').forEach(c=>c.remove()); };
   ready = true;   // initial state set — subsequent changes are user edits
   if(disabled){ if(!container.dataset.venueId && otherWrap.hidden){ /* empty: leave disabled input */ } return; }
   if(otherInput) container.querySelector('.venue-clear').addEventListener('click', showSelect);

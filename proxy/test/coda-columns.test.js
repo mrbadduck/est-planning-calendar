@@ -20,6 +20,10 @@ test('Source and Last from Eventbrite columns are mapped by id', () => {
   assert.equal(PLANNING_COLS.lastFromEb, 'c-b02zbLiHgk');
 });
 
+test('gCal Event ID column is mapped by id', () => {
+  assert.equal(PLANNING_COLS.gcalEventId, 'c-4eceDYOmPM');
+});
+
 test('existing planning columns and the legacy table are mapped', () => {
   for (const k of ['capacity', 'publishStatus', 'ticketClassId', 'lastPublishedAt', 'lastPublishError',
     'eventDescription', 'programs', 'leads', 'volunteers', 'legacyRow', 'createdBy']) {

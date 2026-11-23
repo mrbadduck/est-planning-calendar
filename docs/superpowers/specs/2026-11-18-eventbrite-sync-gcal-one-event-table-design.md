@@ -377,7 +377,8 @@ Glossary: `Source`, imported event, flow-in, legacy EST Events row.
 
 ## 10. Constraints the builder must hold
 - Coda applies writes ~28 s after accepting them (0008): no read-after-write without
-  the KV marker or a wait.
+  the KV marker or a wait. (Since decision 0012 the Worker's app routes read their own
+  writes through the write overlay; the sync runners still don't, so this holds for them.)
 - Every Worker route that changes planning rows busts `ROWS_KV_KEY`.
 - New code references Coda columns by id (`coda-columns.js`).
 - `web/*.js` ≤ 800 lines; `worker.js` is 1,591 lines already, so new Worker code goes in

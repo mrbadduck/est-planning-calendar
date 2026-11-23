@@ -9,11 +9,18 @@ still open. Settled decisions are in `docs/decisions/`.
   Leaders sign in with Firebase (Google + email magic-link) and create, edit, approve and
   publish planning events that persist to `EST Planning Events SRC`, with
   server-verified identity, role gating and person attribution.
-- **Publish flow (PR #35, Nov 2026, not yet merged):** footer wizard, honest saves (D3),
-  Details/Planning split, Free tickets, Preview at every stage.
+- **Publish flow (PR #35, merged 2026-11-18):** footer wizard, honest saves (D3; amended
+  by the write overlay, 0012), Details/Planning split, Free tickets, Preview at every stage.
+- **Write-through overlay, PR A (Nov 2026, ships with `OVERLAY_MODE = "off"`):** a Durable
+  Object remembers the Worker's own Coda writes until Coda applies them, and the planning
+  routes read through it (decision 0012). Once Eric flips it to `live`, a lead's edit saves
+  as soon as its request returns and Approve → Add to Eventbrite doesn't wait; a new event
+  still takes about half a minute and says so. PR B (Nov 2026) puts gather, slots, claims,
+  the roster and venues on it too: gather shows a sign-up at once, and Save address saves at
+  once (Add venue still waits). Flip checklist: `docs/deployment.md`.
 - **Registrant comms v1 (Sep 2026):** Attendees roster + copy/mailto.
-- **gather** (member sign-up app): code-complete, all 5 slices (Aug 2026); site not
-  created yet — see `docs/gather-deploy-runbook.md`.
+- **gather** (member sign-up app): all 5 slices (Aug 2026); live at
+  `https://gather.eastsidetribe.org` (Nov 2026) — see `docs/gather-deploy-runbook.md`.
 
 ## History of the phases
 
@@ -83,6 +90,16 @@ App live at `plan.eastsidetribe.org` (Netlify) → Worker
 14. **After-event follow-up** (Eric, 2026-11-22): leads answer a few questions about the
     event, record attendee feedback and reactions, and upload photos.
 
+
+**Next:**
+
+- **Sync runners read through the overlay, and the markers retire** (follow-up to 0012).
+  `eb-sync-run.js` and `gcal-run.js` read and write through `overlayRead` / `codaWrite`, and
+  `ebpending:`, `eb-row:importing` and the calendar tombstones go, with `SWEEP_MAX_EVENTS`
+  and the call-budget comments revisited in the same step. First verify whether Durable
+  Object calls count toward the 50 subrequests a free-plan invocation allows, and record the
+  answer in `docs/deployment.md`. Until then, `scripts/check.sh` rule 7 allowlists both
+  runners.
 
 ## Open decisions
 

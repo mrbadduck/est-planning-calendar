@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../../web/page-rules.js';
 
-const { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval } = globalThis.PageRules;
+const { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval, revertTransition, lateFailMsg } = globalThis.PageRules;
 
 test('sectionFromParam maps aliases and passes other ids through', () => {
   assert.equal(sectionFromParam('notes'), 'planning');
@@ -73,4 +73,30 @@ test('updatedFromEbLine names the fields that came in from Eventbrite and when',
   assert.equal(updatedFromEbLine({ lastFromEb: null }, fmtDate), '');
   assert.equal(updatedFromEbLine({ lastFromEb: { at, fields: ['publishState', 'venue', 'title', 'date', 'end', 'publicDescription'] } }, fmtDate)
     .split(' · ')[0], 'Updated from Eventbrite: Status on Eventbrite, Venue, Title, Date, End time, Description');
+});
+
+test('revertTransition puts prev back only while the event still has the status this transition set', () => {
+  const ev = { status: 'approved', approvedBy: 'Dana', approvedAt: '2026-11-23', title: 'Shabbat' };
+  const prev = { status: 'proposed', approvedBy: '', approvedAt: '' };
+  assert.equal(revertTransition(ev, prev, 'approved'), true);
+  assert.deepEqual(ev, { status: 'proposed', approvedBy: '', approvedAt: '', title: 'Shabbat' });
+  // a later transition (Reopen) moved it on: never undo that one
+  const later = { status: 'draft', approvedBy: 'Dana' };
+  assert.equal(revertTransition(later, prev, 'approved'), false);
+  assert.deepEqual(later, { status: 'draft', approvedBy: 'Dana' });
+  assert.equal(revertTransition(null, prev, 'approved'), false);
+});
+
+test('lateFailMsg: no step gives the generic message, never throws', () => {
+  assert.equal(lateFailMsg(undefined, 'Shabbat'), 'The change didn’t confirm. Check again in a minute.');
+});
+
+test('lateFailMsg: the step holds the title or leads it; Worker writes say check it again', () => {
+  assert.equal(lateFailMsg('Approving', 'Shabbat'), 'Approving “Shabbat” didn’t confirm — open it and try again');
+  assert.equal(lateFailMsg('Adding {title} to Eventbrite', 'Shabbat', { workerWrite: true }),
+    'Adding “Shabbat” to Eventbrite didn’t confirm — check it again in a minute');
+  assert.equal(lateFailMsg('Updating the draft of', 'Shabbat', { workerWrite: true }),
+    'Updating the draft of “Shabbat” didn’t confirm — check it again in a minute');
+  assert.equal(lateFailMsg('Cancelling', '', { workerWrite: true }),
+    'Cancelling “an event” didn’t confirm — check it again in a minute');
 });
