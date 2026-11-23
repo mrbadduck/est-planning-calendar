@@ -62,7 +62,7 @@ export function renderPlan(plan) {
   return lines.join('\n');
 }
 
-// The PUT for one row: only the gCal Event ID cell.
+// The PUT for one row (one write per row, not batched): only the gCal Event ID cell.
 export function buildWrite(rowId, gcalEventId) {
   return { url: `${BASE}/docs/${DOC}/tables/${PLANNING_TABLE}/rows/${encodeURIComponent(rowId)}`, body: { row: { cells: [{ column: P.gcalEventId, value: gcalEventId }] } } };
 }
@@ -87,16 +87,37 @@ const rowsOf = (token, table) => pages(token, `${BASE}/docs/${DOC}/tables/${tabl
 const columnsOf = (token, table) => pages(token, `${BASE}/docs/${DOC}/tables/${table}/columns?limit=200`);
 const findCol = (cols, re) => (cols.find((c) => re.test(c.name)) || {}).id;
 
+// Rich cells (valueFormat=rich): text may be fenced in triple backticks; a reference is
+// {rowId, name, ...} or an array of them. Never match on a name.
+const plain = (v) => str(Array.isArray(v) ? v[0] : v).replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
+const refIds = (v) => (Array.isArray(v) ? v : v == null || v === '' ? [] : [v]).flatMap((x) => (x && typeof x === 'object' && x.rowId ? [String(x.rowId)] : []));
+
+/**
+ * Pure. ebRows, gcRows: id-keyed rich rows. cols = {ebId, lookup, gcId} column ids.
+ * The lookup's referenced Events GCAL rows are found by row id. A lookup that references
+ * several rows yields one entry per row, so planLinks sees two ids and reports a conflict.
+ */
+export function resolveSyncRows(ebRows, gcRows, cols) {
+  const eventIdByRow = new Map((gcRows || []).map((r) => [r.id, plain(r.values[cols.gcId])]));
+  const out = [];
+  for (const r of ebRows || []) {
+    const ebId = plain(r.values[cols.ebId]);
+    for (const ref of refIds(r.values[cols.lookup])) out.push({ ebId, gcalEventId: eventIdByRow.get(ref) || '' });
+  }
+  return out;
+}
+
 // The sync tables' column ids are not recorded in the repo: find them by name at run time and print them.
+// A missing column is a hard failure (decision 0007), never a silent skip.
 async function readSyncTable(token, log) {
   const [ebCols, gcCols] = await Promise.all([columnsOf(token, EB_SYNC_TABLE), columnsOf(token, GCAL_SYNC_TABLE)]);
-  const ebId = findCol(ebCols, /^(eventbrite )?(event )?id$/i), lookup = findCol(ebCols, /^gcal event$/i);
-  const gcId = findCol(gcCols, /^(gcal |google )?(event )?id$/i);
-  log(`Events EVENTBRITE: Eventbrite id = ${ebId}, gCal Event = ${lookup}; Events GCAL: event id = ${gcId}`);
-  if (!ebId || !lookup || !gcId) { log('could not find all three columns; skipping the Events EVENTBRITE source'); return []; }
-  const [ebRows, gcRows] = await Promise.all([rowsOf(token, EB_SYNC_TABLE), rowsOf(token, GCAL_SYNC_TABLE)]);
-  const byName = new Map(gcRows.map((r) => [str(r.name), str(r.values[gcId])]));
-  return ebRows.map((r) => ({ ebId: str(r.values[ebId]), gcalEventId: byName.get(str(r.values[lookup])) || '' }));
+  const cols = { ebId: findCol(ebCols, /^(eventbrite )?(event )?id$/i), lookup: findCol(ebCols, /^gcal event$/i), gcId: findCol(gcCols, /^(gcal |google )?(event )?id$/i) };
+  log(`Events EVENTBRITE: Eventbrite id = ${cols.ebId}, gCal Event = ${cols.lookup}; Events GCAL: event id = ${cols.gcId}`);
+  const missing = Object.entries(cols).filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) throw new Error(`Could not find the sync-table column(s) ${missing.join(', ')} by name; refusing to continue (dry run or --apply).`);
+  const rich = (t) => pages(token, `${BASE}/docs/${DOC}/tables/${t}/rows?useColumnNames=false&valueFormat=rich&limit=200`);
+  const [ebRows, gcRows] = await Promise.all([rich(EB_SYNC_TABLE), rich(GCAL_SYNC_TABLE)]);
+  return resolveSyncRows(ebRows, gcRows, cols);
 }
 
 async function main() {

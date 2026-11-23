@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planLinks } from '../../scripts/link-gcal-ids.mjs';
+import { planLinks, resolveSyncRows } from '../../scripts/link-gcal-ids.mjs';
 
 const TODAY = '2026-11-22';
 const p = (rowId, ebId, date, extra = {}) => ({ rowId, title: `T ${rowId}`, date, ebId, gcalEventId: '', ...extra });
@@ -48,4 +48,29 @@ test('skips rows with an id already, no Eventbrite id, or a date before yesterda
   const r = planLinks({ planning, legacy, ebSync: [], todayIso: TODAY });
   assert.deepEqual(r.links.map((l) => l.rowId), ['i-5']);
   assert.deepEqual(r.unmatched, []);
+});
+
+const COLS = { ebId: 'c-eb', lookup: 'c-look', gcId: 'c-gid' };
+const ref = (rowId, name) => ({ '@type': 'StructuredValue', additionalType: 'row', rowId, name });
+const gc = (id, name, eventId) => ({ id, name, values: { [COLS.gcId]: '```' + eventId + '```' } });
+
+test('resolveSyncRows resolves by row id, even when two calendar rows share a name', () => {
+  const gcRows = [gc('i-a', 'Shabbat', 'evA'), gc('i-b', 'Shabbat', 'evB')];
+  const ebRows = [{ id: 'i-1', values: { [COLS.ebId]: '111', [COLS.lookup]: ref('i-b', 'Shabbat') } }];
+  assert.deepEqual(resolveSyncRows(ebRows, gcRows, COLS), [{ ebId: '111', gcalEventId: 'evB' }]);
+});
+
+test('a lookup referencing several calendar rows becomes a conflict', () => {
+  const gcRows = [gc('i-a', 'X', 'evA'), gc('i-b', 'X', 'evB')];
+  const ebRows = [{ id: 'i-1', values: { [COLS.ebId]: '111', [COLS.lookup]: [ref('i-a', 'X'), ref('i-b', 'X')] } }];
+  const ebSync = resolveSyncRows(ebRows, gcRows, COLS);
+  assert.equal(ebSync.length, 2);
+  const r = planLinks({ planning: [p('i-1', '111', '2026-12-01')], legacy: [], ebSync, todayIso: TODAY });
+  assert.deepEqual(r.links, []);
+  assert.deepEqual(r.conflicts, [{ rowId: 'i-1', ids: ['evA', 'evB'] }]);
+});
+
+test('an empty lookup or an unknown reference gives no id', () => {
+  const ebRows = [{ id: 'i-1', values: { [COLS.ebId]: '111', [COLS.lookup]: '' } }, { id: 'i-2', values: { [COLS.ebId]: '222', [COLS.lookup]: ref('i-zz', 'N') } }];
+  assert.deepEqual(resolveSyncRows(ebRows, [], COLS), [{ ebId: '222', gcalEventId: '' }]);
 });

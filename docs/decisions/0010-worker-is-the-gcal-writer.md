@@ -31,10 +31,11 @@ to it once the cutover is done.
   A run makes at most 15 changes and stops early when it would pass the 50 outbound calls
   a free-plan invocation allows. A cursor resumes the next run where this one stopped.
   A lead's Publish, Cancel or Unpublish updates its row right away; the sweep catches the rest.
+- **Delete tombstone.** After a delete the Worker remembers it for 15 minutes (Coda applies writes late, so the row may still read as approved) and does not re-insert unless the row changed afterwards or a lead acted on it.
 - **Modes (`GCAL_MODE`).** `off` does nothing (default; also when `GCAL_CALENDAR_ID` is
   unset). `shadow` works out every change and records it in the Publish Log (target
   `Google Calendar`) without calling Google. `live` calls Google. Shadow runs for a week so
-  the Worker's plan can be compared with what the Zap and the rule did.
+  the Worker's plan can be compared with what the Zap and the rule did. Shadow logging is de-duplicated: a row's op and body are logged once per day, not on every sweep.
 
 ## Consequences
 
