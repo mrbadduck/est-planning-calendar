@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { publishLogCells, logPublishMany, readAllRows, bustEventCaches, bustEventCachesNowAndAfterApply, ROWS_KV_KEY, GATHER_KV_KEY } from '../src/worker-io.js';
+import { publishLogCells, logPublishMany, readAllRows, bustEventCaches, ROWS_KV_KEY, GATHER_KV_KEY } from '../src/worker-io.js';
 
 const cell = (cells, col) => cells.find((c) => c.column === col).value;
 
@@ -29,16 +29,6 @@ test('bustEventCaches deletes the rows and gather snapshots', async () => {
   await bustEventCaches({ CACHE: { delete: async (k) => { gone.push(k); } } });
   assert.deepEqual(gone.sort(), [GATHER_KV_KEY, ROWS_KV_KEY].sort());
   await bustEventCaches({});   // no binding: no throw
-});
-
-test('bustEventCachesNowAndAfterApply busts both keys now and again after the delay', async () => {
-  const gone = []; const pending = [];
-  const env = { CACHE: { delete: async (k) => { gone.push(k); } } };
-  await bustEventCachesNowAndAfterApply(env, { waitUntil: (p) => pending.push(p) }, 0);
-  assert.equal(gone.length, 2);   // immediate bust
-  await Promise.all(pending);
-  assert.deepEqual(gone.slice().sort(), [GATHER_KV_KEY, GATHER_KV_KEY, ROWS_KV_KEY, ROWS_KV_KEY].sort());
-  assert.equal(pending.length, 1);
 });
 
 test('logPublishMany: every record in one Publish Log insert; nothing to log, no call', async () => {

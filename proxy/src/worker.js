@@ -34,7 +34,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish, overlayStatus, planningColMap, passWrite, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, logPublish, overlayStatus, planningColMap, passWrite, codaWrite, mergedRows, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -53,7 +53,7 @@ import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js'
 import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
-import { STILL_SAVING, mustWait, planningWrite, planningRowSetter, readPlanningRow, planningList } from './overlay-routes.js';   // planning reads/writes through the overlay
+import { STILL_SAVING, mustWait, planningWrite, planningRowSetter, readPlanningRow, planningList, readRowMerged, readClaimForWrite, gatherWrite } from './overlay-routes.js';   // reads/writes through the overlay
 export { WriteOverlay } from './overlay-do.js';   // the write overlay Durable Object (binding OVERLAY)
 const ListingRules = globalThis.ListingRules;
 
@@ -268,7 +268,7 @@ export default {
             // Venues are projected (venueRefItem) before caching: the Address column
             // holds private home addresses and /ref is unauthenticated (R12).
             const kvKey = refKvKey(name);
-            const fetchRef = () => fetchRefItems(base, docId, auth, name);   // venues by column id + venueRefItem (worker-io.js)
+            const fetchRef = () => fetchRefItems(base, docId, auth, name, env);   // venues by column id, overlay merged, + venueRefItem (worker-io.js)
             if (fresh) {
               const at = Date.now(); items = await fetchRef();
               if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at, data: items })); } catch (_) {} }
@@ -297,10 +297,10 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const venuesUrl = `${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`;
         // -> {venue} | {venue:null} (no such row) | {failed: Response} (Coda error: not a 404).
-        const readVenue = async () => {
-          const r = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}?useColumnNames=false&valueFormat=simpleWithArrays`, { headers: auth });
-          if (r.ok) return { venue: venueFromRow(await r.json()) };
-          return r.status === 404 ? { venue: null } : { failed: r };
+        const readVenue = async () => {   // through the overlay: a saved address reads back at once
+          const one = await readRowMerged(env, { base, docId, tableId: EB_VENUES_TABLE, auth, rowId: vRowId, query: 'useColumnNames=false&valueFormat=simpleWithArrays', shape: 'id', want: ['venueTypes'] });
+          if (one.ok) return { venue: venueFromRow(one.row) };
+          return one.status === 404 ? { venue: null } : { failed: one.resp };
         };
         const bustVenues = async () => { await swrBust(env, VENUES_KV_KEY); REF_CACHE.delete('venues'); };
 
@@ -316,20 +316,22 @@ export default {
 
         if (isPost) {
           // The duplicate check reads every venue (one read); the type must be a Venue Types row.
+          const vAt = Date.now();
           const [vr, tr] = await Promise.all([
             readAllRows(venuesUrl, auth, { byId: true }),
             readAllRows(`${base}/docs/${docId}/tables/${VENUE_TYPES_TABLE}/rows`, auth),
           ]);
           if (!vr.ok || !tr.ok) return json({ error: `could not read ${!vr.ok ? 'Venues' : 'Venue Types'} (Coda ${(!vr.ok ? vr : tr).resp.status})` }, 502, cors);
-          const out = venueCreateCells(body, { venues: vr.items.map(venueFromRow), types: tr.items.map(r => ({ id: r.id, name: r.name || '' })) });
+          const vItems = await mergedRows(env, EB_VENUES_TABLE, vr.items, vAt, { shape: 'id', want: ['venueTypes'] });   // sees venues added in the last ~28 s
+          const out = venueCreateCells(body, { venues: vItems.map(venueFromRow), types: tr.items.map(r => ({ id: r.id, name: r.name || '' })) });
           if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
-          const w = await fetch(venuesUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: out.cells }] }) });
-          if (!w.ok) return pass(w, cors);
-          let j = {}; try { j = await w.json(); } catch (_) {}
-          const newId = (j.addedRowIds || [])[0];
+          // Add venue still waits for the apply in the app (D9): an event must not point at a row Coda hasn't created.
+          const w = await codaWrite(env, { url: venuesUrl, method: 'POST', body: { rows: [{ cells: out.cells }] }, tableId: EB_VENUES_TABLE, op: 'insert', auth });
+          if (!w.ok) return pass(w.resp, cors);
+          const newId = w.addedRowIds[0];
           if (!newId) return json({ error: 'Coda did not return the new venue id' }, 502, cors);
           await bustVenues();
-          return json({ id: newId, requestId: j.requestId || null }, 200, cors);
+          return json({ id: newId, requestId: w.requestId, overlaid: w.overlaid }, 200, cors);
         }
 
         // isPut: change the address (and clear both cached Eventbrite venue ids).
@@ -338,10 +340,10 @@ export default {
         const out = venueUpdateCells(body, got.venue);
         if (out.error) return json({ error: out.error, ...(out.errors ? { errors: out.errors } : {}) }, out.status, cors);
         if (out.unchanged) return json({ requestId: null, unchanged: true }, 200, cors);   // same address: no write, Eventbrite ids kept
-        const w = await fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: out.cells } }) });
-        if (!w.ok) return pass(w, cors);
+        const w = await codaWrite(env, { url: `${venuesUrl}/${encodeURIComponent(vRowId)}`, method: 'PUT', body: { row: { cells: out.cells } }, tableId: EB_VENUES_TABLE, op: 'update', rowId: vRowId, auth });
+        if (!w.ok) return pass(w.resp, cors);
         await bustVenues();
-        return json({ requestId: await codaRequestId(w) }, 200, cors);
+        return json({ requestId: w.requestId, overlaid: w.overlaid }, 200, cors);   // overlaid: Save address is saved now
       }
       if (parts[0] === 'references' && request.method === 'GET') {
         // Public reference calendars: read the config table, fetch + parse each
@@ -475,7 +477,7 @@ export default {
         // Venue record (one EST Venues SRC read, shared with ensureEbVenue below).
         let venueRow = null, venue = null;
         if (ev.venueName) {
-          let vr;
+          let vr; const vAt = Date.now();
           try { vr = await readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`, auth, { byId: true }); }
           catch (err) {
             // A thrown fetch/json must still leave a Publish Log row, not a bare 502.
@@ -487,7 +489,8 @@ export default {
             return reject('venue', 502, msg, { error: msg });
           }
           // By column id; venueRow is a venueFromRow venue (structured + legacy address, EB ids).
-          const hit = vr.items.map(venueFromRow).find(v => v.name === String(ev.venueName)) || null;
+          const vItems = await mergedRows(env, EB_VENUES_TABLE, vr.items, vAt, { shape: 'id', want: ['venueTypes'] });   // a just-saved address
+          const hit = vItems.map(venueFromRow).find(v => v.name === String(ev.venueName)) || null;
           venueRow = hit;
           venue = hit ? { name: ev.venueName, type: hit.type, hasAddress: globalThis.VenueAddress.hasAddress(hit) }
                       : { name: ev.venueName, type: '', hasAddress: false };
@@ -867,9 +870,10 @@ export default {
         if (!env.EVENTBRITE_TOKEN) return json({ configured: false }, 200, cors);
         const rowId = decodeURIComponent(parts[1]);
         const build = async () => {
-          const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+          const one = await readRowMerged(env, { base, docId, tableId, auth, rowId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', planning: { base, docId, auth } });
           if (!one.ok) throw new Error(`event not found (${one.status})`);
-          const ebId = plain(((await one.json()).values || {})[PLANNING_COLS.eventbriteId]) || '';
+          const ebId = plain((one.row.values || {})[PLANNING_COLS.eventbriteId]) || '';
+          const at = Date.now();   // the slots and claims snapshot, merged before buildRoster
           const [orders, sl, cl, people] = await Promise.all([
             ebId ? ebAllOrders(env, ebId) : [],
             gatherTablesOk ? readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }) : { ok: true, items: [] },
@@ -877,9 +881,9 @@ export default {
             peopleRows(base, docId, auth, env, ctx),
           ]);
           if (!sl.ok) throw new Error(`slots read failed (${sl.resp.status})`);
-          const slots = sl.items.filter((s) => relId(s.values[SLOT_COLS.event]) === rowId);
+          const slots = (await mergedRows(env, env.CODA_SLOTS_TABLE, sl.items, at, { shape: 'rich', want: [] })).filter((s) => relId(s.values[SLOT_COLS.event]) === rowId);
           const claimsBySlot = {};
-          for (const c of (cl.ok ? cl.items : [])) {
+          for (const c of (cl.ok ? await mergedRows(env, env.CODA_CLAIMS_TABLE, cl.items, at, { shape: 'rich', want: ['people'] }) : [])) {
             const sid = relId(c.values[CLAIM_COLS.slot]);
             if (sid) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
           }
@@ -934,9 +938,9 @@ export default {
         let who; try { who = await memberAuth(request, env); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!who) return json({ error: 'sign in' }, 401, cors);
         const rowId = decodeURIComponent(parts[1]);
-        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
+        const one = await readRowMerged(env, { base, docId, tableId, auth, rowId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', planning: { base, docId, auth } });
         if (!one.ok) return json({ error: 'not found' }, 404, cors);
-        const ebId = plain(((await one.json()).values || {})[PLANNING_COLS.eventbriteId]) || '';
+        const ebId = plain((one.row.values || {})[PLANNING_COLS.eventbriteId]) || '';
         if (!ebId) return json({ linked: false, registered: false }, 200, cors);
         const m = await resolveMember(who, base, docId, auth, env, ctx);
         const emails = new Set([String(who.email).toLowerCase(), ...(m.emails || [])]);
@@ -993,12 +997,11 @@ export default {
           memberId = p.personId;
         }
         const cells = claimCreateCells(input, memberId, CLAIM_COLS);
-        const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells }] }) });
-        if (!r.ok) return pass(r, cors);
+        // gatherWrite busts the gather snapshot once; the overlay covers the apply gap.
+        const w = await gatherWrite(env, { url: `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, method: 'POST', body: { rows: [{ cells }] }, tableId: env.CODA_CLAIMS_TABLE, op: 'insert', auth });
+        if (!w.ok) return pass(w.resp, cors);
         if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, input.slot));   // roster (plan Attendees) must see the new claim
-        await bustEventCachesNowAndAfterApply(env, ctx);   // gather snapshot, now and once Coda has applied
-        const j = await r.json();
-        return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
+        return json({ ok: true, id: w.addedRowIds[0] || null, overlaid: w.overlaid }, 200, cors);
       }
 
       if (parts[0] === 'claims' && parts[1] && parts.length === 2 && (request.method === 'DELETE' || request.method === 'PUT')) {
@@ -1014,17 +1017,16 @@ export default {
         if (!m.personId && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
         const claimId = decodeURIComponent(parts[1]);
         const claimsUrl = `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`;
-        const one = await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
-        if (!one.ok) return json({ error: 'not found' }, 404, cors);
-        const claimRow = await one.json();
-        const owner = claimOwnerId(claimRow, CLAIM_COLS);
-        if (!(owner && owner === m.personId) && !m.canWrite) return json({ error: 'not your claim' }, 403, cors);
+        // Ownership is read through the overlay; a claim still being inserted answers 409 (readClaimForWrite).
+        const got = await readClaimForWrite(env, { base, docId, tableId: env.CODA_CLAIMS_TABLE, auth, claimId }, m);
+        if (!got.row) return json({ error: got.error }, got.status, cors);
+        const claimRow = got.row;
         if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])));   // roster must see the change
-        const claimDone = async (r) => { if (r.ok) await bustEventCachesNowAndAfterApply(env, ctx); return r; };   // gather snapshot, only once Coda accepted
-        if (request.method === 'DELETE')
-          return pass(await claimDone(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'DELETE', headers: auth })), cors);
+        // gatherWrite busts the gather snapshot once, only when Coda accepted; the overlay covers the apply gap.
+        const claimW = (method, body) => gatherWrite(env, { url: `${claimsUrl}/${encodeURIComponent(claimId)}`, method, body, tableId: env.CODA_CLAIMS_TABLE, op: method === 'DELETE' ? 'delete' : 'update', rowId: claimId, auth });
+        if (request.method === 'DELETE') return passWrite(await claimW('DELETE'), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
-        return pass(await claimDone(await fetch(`${claimsUrl}/${encodeURIComponent(claimId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: claimUpdateCells(body, CLAIM_COLS) } }) })), cors);
+        return passWrite(await claimW('PUT', { row: { cells: claimUpdateCells(body, CLAIM_COLS) } }), cors);
       }
 
       if (parts[0] === 'slots' && request.method === 'GET') {
@@ -1035,13 +1037,14 @@ export default {
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const eventId = url.searchParams.get('event');
+        const at = Date.now();
         const [out, cl] = await Promise.all([
           readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
           readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
         ]);
         if (!out.ok) return pass(out.resp, cors);
         const claimsBySlot = {};
-        for (const c of (cl.ok ? cl.items : [])) {
+        for (const c of (cl.ok ? await mergedRows(env, env.CODA_CLAIMS_TABLE, cl.items, at, { shape: 'rich', want: ['people'] }) : [])) {
           const sid = relId(c.values[CLAIM_COLS.slot]);
           if (!sid) continue;
           (claimsBySlot[sid] = claimsBySlot[sid] || []).push({
@@ -1052,7 +1055,7 @@ export default {
             qty: Number(plain(c.values[CLAIM_COLS.qty])) || 1,
           });
         }
-        let items = out.items.map((s) => ({
+        let items = (await mergedRows(env, env.CODA_SLOTS_TABLE, out.items, at, { shape: 'rich', want: [] })).map((s) => ({
           id: s.id, event: relId(s.values[SLOT_COLS.event]),
           kind: plain(s.values[SLOT_COLS.kind]) || '', label: plain(s.values[SLOT_COLS.label]) || '',
           neededQty: normNeededQty(s.values[SLOT_COLS.neededQty]),   // number, or null = no limit
@@ -1072,20 +1075,17 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const slotId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const slotsUrl = `${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`;
-        const busted = async (r) => { if (r.ok) await bustEventCachesNowAndAfterApply(env, ctx); return r; };   // gather snapshot must see the slot change
-        if (request.method === 'DELETE' && slotId)
-          return pass(await busted(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'DELETE', headers: auth })), cors);
+        // gatherWrite busts the gather snapshot once; the overlay covers the apply gap.
+        const slotW = (method, body, op) => gatherWrite(env, { url: slotId ? `${slotsUrl}/${encodeURIComponent(slotId)}` : slotsUrl, method, body, tableId: env.CODA_SLOTS_TABLE, op, rowId: slotId, auth });
+        if (request.method === 'DELETE' && slotId) return passWrite(await slotW('DELETE', undefined, 'delete'), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         if (request.method === 'POST' && !slotId) {
           if (!body.event) return json({ error: 'event required' }, 400, cors);
-          const r = await fetch(slotsUrl, { method: 'POST', headers: auth, body: JSON.stringify({ rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }) });
-          if (!r.ok) return pass(r, cors);
-          await bustEventCachesNowAndAfterApply(env, ctx);
-          const j = await r.json();
-          return json({ ok: true, id: (j.addedRowIds && j.addedRowIds[0]) || null }, 200, cors);
+          const w = await slotW('POST', { rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }, 'insert');
+          if (!w.ok) return pass(w.resp, cors);
+          return json({ ok: true, id: w.addedRowIds[0] || null, overlaid: w.overlaid }, 200, cors);
         }
-        if (request.method === 'PUT' && slotId)
-          return pass(await busted(await fetch(`${slotsUrl}/${encodeURIComponent(slotId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: slotCells(body, SLOT_COLS) } }) })), cors);
+        if (request.method === 'PUT' && slotId) return passWrite(await slotW('PUT', { row: { cells: slotCells(body, SLOT_COLS) } }, 'update'), cors);
         return json({ error: 'bad slot request' }, 400, cors);
       }
 
@@ -1332,9 +1332,9 @@ async function ebAllOrders(env, ebId) {
 async function bustRosterForSlot(env, base, docId, auth, slotId) {
   if (!env.CACHE || !slotId || !env.CODA_SLOTS_TABLE) return;
   try {
-    const r = await fetch(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows/${encodeURIComponent(slotId)}?useColumnNames=false&valueFormat=rich`, { headers: auth });
-    if (!r.ok) return;
-    const eid = relId(((await r.json()).values || {})[SLOT_COLS.event]);
+    const one = await readRowMerged(env, { base, docId, tableId: env.CODA_SLOTS_TABLE, auth, rowId: slotId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', want: [], insertAware: true });   // a slot just added too
+    if (!one.ok) return;
+    const eid = relId((one.row.values || {})[SLOT_COLS.event]);
     if (eid) await swrBust(env, rosterKvKey(eid));
   } catch (_) {}
 }
@@ -1382,16 +1382,18 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
   const callerName = (caller && caller.name) || '';
   const callerId = (caller && caller.personId) || null;
   const today = new Date().toISOString().slice(0, 10);
+  // KV holds the raw rich rows (GATHER_KV_KEY); the overlay is merged before gatherSnapshot groups them.
   const fetchSnap = async () => {
     const [ev, sl, cl] = await Promise.all([tableId, env.CODA_SLOTS_TABLE, env.CODA_CLAIMS_TABLE].map((t) =>
       readAllRows(`${base}/docs/${docId}/tables/${t}/rows`, auth, { rich: true })));
     for (const x of [ev, sl, cl]) if (!x.ok) throw Object.assign(new Error(`gather read failed (${x.resp.status})`), { resp: x.resp });
-    return gatherSnapshot(ev.items, sl.items, cl.items, new Date().toISOString().slice(0, 10));
+    return { events: ev.items, slots: sl.items, claims: cl.items };
   };
-  let snap;
-  try { snap = await swrGet(env, opts.ctx, GATHER_KV_KEY, 30_000, 300_000, fetchSnap); }   // soft 30s / hard 5min
+  let raw;
+  try { raw = await swrGetAt(env, opts.ctx, GATHER_KV_KEY, 30_000, 300_000, fetchSnap); }   // soft 30s / hard 5min
   catch (e) { return { error: e.resp || new Response(JSON.stringify({ error: String(e.message || e) }), { status: 502 }) }; }
-  const { events, slotsByEvent, claimsBySlot } = snap;
+  const g = await gatherRows(env, base, docId, tableId, auth, raw.data, raw.at);
+  const { events, slotsByEvent, claimsBySlot } = gatherSnapshot(g.events, g.slots, g.claims, today);
   // Members see published+upcoming only. Write-authorized callers (leads/council)
   // ALSO see approved-but-unpublished rows, flagged `preview` for the tag in gather.
   let rows = events.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, today)
@@ -1408,15 +1410,17 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
 // The caller's own claims across all events (My sign-ups). Filters claims by Member
 // ROW ID (rich read), then joins slot -> event for labels. Never name-based.
 async function buildMyClaims(base, docId, tableId, env, auth, personId) {
-  const [cl, sl, ev] = await Promise.all([
+  const at = Date.now();
+  const [cl0, sl, ev] = await Promise.all([
     readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }),
     readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }),
     readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true }),
   ]);
-  if (!cl.ok) return [];
-  const slotById = new Map((sl.ok ? sl.items : []).map((s) => [s.id, s]));
-  const eventById = new Map((ev.ok ? ev.items : []).map((e) => [e.id, e]));
-  return cl.items
+  if (!cl0.ok) return [];
+  const g = await gatherRows(env, base, docId, tableId, auth, { events: ev.ok ? ev.items : [], slots: sl.ok ? sl.items : [], claims: cl0.items }, at);
+  const slotById = new Map(g.slots.map((s) => [s.id, s]));
+  const eventById = new Map(g.events.map((e) => [e.id, e]));
+  return g.claims
     .filter((c) => claimOwnerId(c, CLAIM_COLS) === personId)
     .map((c) => {
       const slot = slotById.get(relId(c.values[CLAIM_COLS.slot]));
@@ -1433,6 +1437,16 @@ async function buildMyClaims(base, docId, tableId, env, auth, personId) {
       };
     })
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+}
+
+// The three gather lists (raw rich rows read at `at`) with the overlay merged.
+async function gatherRows(env, base, docId, tableId, auth, raw, at) {
+  const [events, slots, claims] = await Promise.all([
+    mergedRows(env, tableId, raw.events, at, { shape: 'rich', planning: { base, docId, auth } }),
+    mergedRows(env, env.CODA_SLOTS_TABLE, raw.slots, at, { shape: 'rich', want: [] }),
+    mergedRows(env, env.CODA_CLAIMS_TABLE, raw.claims, at, { shape: 'rich', want: ['people'] }),
+  ]);
+  return { events, slots, claims };
 }
 
 // --- Eventbrite v3 I/O client -------------------------------------------------
@@ -1502,10 +1516,11 @@ async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibil
     if (!r.ok) return { error: r };
     venueId = r.body.id;
     if (found) {
-      try {
-        await fetch(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`,
-          { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells: [{ column: cacheCol, value: venueId }] } }) });
-      } catch (_) { /* caching the id back is best-effort; still use it below */ }
+      try {   // overlaid, so a second publish within ~28 s reuses this Eventbrite venue
+        const w = await codaWrite(env, { url: `${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`, method: 'PUT',
+          body: { row: { cells: [{ column: cacheCol, value: venueId }] } }, tableId: EB_VENUES_TABLE, op: 'update', rowId: found.id, auth });
+        if (!w.ok) console.error(`ensureEbVenue: caching Eventbrite venue ${venueId} on ${found.id} failed (Coda ${w.status})`);
+      } catch (e) { console.error(`ensureEbVenue: caching Eventbrite venue ${venueId} failed (${String((e && e.message) || e)})`); }   // best-effort; still use it below
     }
   }
   const u = await ebUpdateEvent(env, ebId, { event: { venue_id: venueId } });

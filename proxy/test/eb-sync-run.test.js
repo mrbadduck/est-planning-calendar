@@ -139,7 +139,7 @@ test('two rows with the id: error logged, nothing written', async () => {
   assert.equal(logs()[0].result, 'error');
 });
 test('flow-in: PUTs the changed cells on the row, busts caches, logs flow-in', async () => {
-  const kv = kvStub({ 'rows-v1': '{}', 'gather-events-v1': '{}' });
+  const kv = kvStub({ 'rows-v1': '{}', 'gather-snap-v2': '{}' });
   const e = env({ CACHE: kv });
   const pushed = { title: 'Shabbat', date: '2027-03-13', start: '10:00', end: '11:00', capacity: 20, publicSummary: '', publicDescription: '',
     venueName: '', addressVisibility: '', ticketClassId: 'tc', ebChanged: 'ch1', ebVenueId: '', ebStatus: 'live' };
@@ -155,7 +155,7 @@ test('flow-in: PUTs the changed cells on the row, busts caches, logs flow-in', a
   const put = calls.find((c) => c.method === 'PUT');
   assert.equal(put.body.row.cells.find((c) => c.column === C.start).value, '18:00');
   assert.equal(put.body.row.cells.find((c) => c.column === C.lastEbPushAt).value, 'ch2', 'the next push sees no Eventbrite edit');
-  assert.equal(kv.m.has('rows-v1'), false); assert.equal(kv.m.has('gather-events-v1'), false);
+  assert.equal(kv.m.has('rows-v1'), false); assert.equal(kv.m.has('gather-snap-v2'), false);
   assert.equal(logs()[0].action, 'flow-in');
 });
 test('Eventbrite 404: row marked Removed from Eventbrite, logged removed', async () => {

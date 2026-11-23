@@ -345,3 +345,168 @@ test('codaWrite names an addedRowIds count mismatch', async () => {
   assert.ok(errs.some((x) => /addedRowIds count mismatch/.test(x)), errs.join('\n'));
   codaRoute = null;
 });
+
+// ── Task 7 (PR B): gather, slots, claims, the roster and venues read their own writes ─────
+const io = await import('../src/worker-io.js');
+const { PLANNING_COLS: PC, SLOT_COLS: SC, CLAIM_COLS: CC, VENUE_COLS: VC } = await import('../src/coda-columns.js');
+const GT = { CODA_SLOTS_TABLE: 'grid-slots', CODA_CLAIMS_TABLE: 'grid-claims' };
+const VEN = REF_TABLES.venues;
+const fenced = (s) => '```' + s + '```';
+// A stubbed Coda with the planning, slots, claims and venues tables, rich and by id; never applies.
+function gatherCoda() {
+  const t = {
+    'grid-plan': new Map([
+      ['i-prop', { id: 'i-prop', values: { [PC.title]: fenced('Proposed one'), [PC.status]: fenced('Proposed'), [PC.date]: '2099-01-01T00:00:00.000-06:00', [PC.published]: false } }],
+      ['i-pub', { id: 'i-pub', values: { [PC.title]: fenced('Potluck'), [PC.status]: fenced('Approved'), [PC.date]: '2099-02-01T00:00:00.000-06:00', [PC.published]: true } }],
+    ]),
+    'grid-slots': new Map([['i-slot', { id: 'i-slot', values: { [SC.event]: [{ rowId: 'i-pub', name: 'Potluck' }], [SC.label]: fenced('Mains'), [SC.kind]: fenced('Potluck') } }]]),
+    'grid-claims': new Map([['i-old', { id: 'i-old', values: { [CC.slot]: [{ rowId: 'i-slot', name: 'Mains' }], [CC.member]: [{ rowId: 'i-mem', name: 'i-mem' }], [CC.qty]: 1 } }]]),
+    [VEN]: new Map([['i-v', { id: 'i-v', name: 'Hall', values: { [VC.name]: 'Hall', [VC.type]: 'Hall' } }]]),
+    [REF_TABLES['venue-types']]: new Map([['i-type', { id: 'i-type', name: 'Hall', values: {} }]]),
+  };
+  const PCOLS = [{ id: PC.status, name: 'Status', format: { type: 'select' } }, { id: PC.title, name: 'Title', format: { type: 'text' } }];
+  const writes = [];
+  let n = 0;
+  const route = async (u, init) => {
+    const m = init.method || 'GET';
+    if (/\/tables\/grid-plan\/columns/.test(u)) return res(200, { items: PCOLS });
+    const hit = /\/tables\/([^/]+)\/rows(?:\/([^/?]+))?/.exec(u);
+    if (!hit || !t[hit[1]]) return undefined;
+    const rows = t[hit[1]], id = hit[2] && decodeURIComponent(hit[2]);
+    if (m === 'GET' && id) { const r = rows.get(id); return r ? res(200, r) : res(404, { message: 'nope' }); }
+    if (m === 'GET') return res(200, { items: [...rows.values()] });
+    writes.push({ m, table: hit[1], id, body: init.body && JSON.parse(init.body) });
+    if (m === 'POST') return res(202, { requestId: `req-${++n}`, addedRowIds: [`i-new${n}`] });
+    if (id && !rows.has(id)) return res(404, { message: 'nope' });
+    return res(202, { requestId: `req-${++n}`, id });
+  };
+  return { t, writes, route };
+}
+const gLive = (o = {}) => live({ ...GT, ...o });
+const slotOf = (ev, id = 'i-slot') => (ev.slots || []).find((s) => s.id === id);
+
+test('gather: the KV key is gather-snap-v2; an old gather-events-v1 value is never read', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  assert.equal(io.GATHER_KV_KEY, 'gather-snap-v2');
+  const { e } = gLive();
+  const gets = []; const get0 = e.CACHE.get; e.CACHE.get = async (k, ty) => { gets.push(k); return get0(k, ty); };
+  await e.CACHE.put('gather-events-v1', JSON.stringify({ at: Date.now(), data: { events: [{ id: 'i-ghost', values: {} }], slotsByEvent: {}, claimsBySlot: {} } }));
+  const out = await call(e, 'GET', '/events', { email: 'mem@x.org' });
+  assert.equal(out.status, 200);
+  assert.deepEqual(out.body.items.map((x) => x.id), ['i-pub']);
+  assert.equal(gets.includes('gather-events-v1'), false);
+  const snap = JSON.parse(await e.CACHE.get('gather-snap-v2'));
+  assert.deepEqual(Object.keys(snap.data).sort(), ['claims', 'events', 'slots'], 'raw rows, not the grouped snapshot');
+  codaRoute = null;
+});
+
+test('gather: an event Approved only in the overlay appears in the list', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { d, e } = gLive();
+  let out = await call(e, 'GET', '/events', { email: 'lead@x.org' });
+  assert.deepEqual(out.body.items.map((x) => x.id), ['i-pub'], 'Proposed: not listed yet (snapshot now cached)');
+  await d.core.record([{ tableId: 'grid-plan', rowId: 'i-prop', key: 'Status', keying: 'name', value: 'Approved', op: 'set', requestId: 'req-a', writtenAt: Date.now() }]);
+  out = await call(e, 'GET', '/events', { email: 'lead@x.org' });
+  assert.deepEqual(out.body.items.map((x) => x.id).sort(), ['i-prop', 'i-pub']);
+  codaRoute = null;
+});
+
+test('gather: a claim inserted only in the overlay appears under its slot; My sign-ups and the roster count it', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { e } = gLive({ EVENTBRITE_TOKEN: 'eb' });
+  const w = await call(e, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot', qty: 2 } });
+  assert.equal(w.status, 200); assert.deepEqual(w.body, { ok: true, id: 'i-new1', overlaid: true });
+  const ev = await call(e, 'GET', '/events/i-pub', { email: 'mem@x.org' });
+  assert.deepEqual(slotOf(ev.body).claims.map((x) => x.claimId).filter(Boolean).sort(), ['i-new1', 'i-old']);
+  const my = await call(e, 'GET', '/me/claims', { email: 'mem@x.org' });
+  assert.deepEqual(my.body.items.map((x) => x.claimId).sort(), ['i-new1', 'i-old']);
+  assert.equal(my.body.items.find((x) => x.claimId === 'i-new1').qty, 2);
+  const ro = await call(e, 'GET', '/roster/i-pub', { email: 'lead@x.org' });
+  assert.equal(ro.status, 200);
+  assert.equal(ro.body.rows[0].claims.length, 2, 'the roster counts the pending claim');
+  const sl = await call(e, 'GET', '/slots?event=i-pub', { email: 'lead@x.org' });
+  assert.deepEqual(sl.body.items[0].claims.map((x) => x.id).sort(), ['i-new1', 'i-old']);
+  codaRoute = null;
+});
+
+test('gather: a slot inserted only in the overlay appears under its event', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { e } = gLive();
+  const w = await call(e, 'POST', '/slots', { body: { event: 'i-pub', label: 'Drinks', kind: 'Potluck' } });
+  assert.deepEqual(w.body, { ok: true, id: 'i-new1', overlaid: true });
+  const ev = await call(e, 'GET', '/events/i-pub', { email: 'mem@x.org' });
+  assert.ok(slotOf(ev.body, 'i-new1'), JSON.stringify(ev.body.slots));
+  assert.equal(slotOf(ev.body, 'i-new1').label, 'Drinks');
+  const put1 = await call(e, 'PUT', '/slots/i-slot', { body: { label: 'Big mains' } });
+  assert.equal(put1.body.overlaid, true);
+  const del = await call(e, 'DELETE', '/slots/i-slot');
+  assert.equal(del.body.overlaid, true);
+  codaRoute = null;
+});
+
+const STILL_SAVING_CLAIM = 'Your sign-up is still being saved. Try again in a few seconds.';
+test('/claims/:id on the caller\'s pending insert answers 409; on a claim Coda has, it proceeds', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { e } = gLive();
+  await call(e, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot' } });
+  for (const method of ['DELETE', 'PUT']) {
+    const out = await call(e, method, '/claims/i-new1', { email: 'mem@x.org', body: method === 'PUT' ? { qty: 3 } : undefined });
+    assert.equal(out.status, 409, method); assert.deepEqual(out.body, { error: STILL_SAVING_CLAIM }, method);
+  }
+  const lead = await call(e, 'DELETE', '/claims/i-new1', { email: 'lead@x.org' });
+  assert.equal(lead.status, 409, 'a canWrite caller too');
+  assert.equal(c.writes.filter((x) => x.table === 'grid-claims' && x.m !== 'POST').length, 0, 'nothing sent to Coda');
+  const ok = await call(e, 'DELETE', '/claims/i-old', { email: 'mem@x.org' });
+  assert.equal(ok.status, 202); assert.equal(ok.body.overlaid, true);
+  assert.equal((await call(e, 'DELETE', '/claims/i-nope', { email: 'mem@x.org' })).status, 404);
+  codaRoute = null;
+});
+
+test('a claim write busts the event caches once, with no delayed second bust', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  assert.equal('bustEventCachesNowAndAfterApply' in io, false);
+  const { e } = gLive();
+  const gone = []; const del0 = e.CACHE.delete; e.CACHE.delete = async (k) => { gone.push(k); return del0(k); };
+  const long = []; const st0 = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { if (ms >= 20_000) long.push(ms); return st0(fn, ms, ...a); };
+  try { await call(e, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot' } }); }
+  finally { globalThis.setTimeout = st0; }
+  assert.equal(gone.filter((k) => k === io.GATHER_KV_KEY).length, 1);
+  assert.deepEqual(long, []);
+  codaRoute = null;
+});
+
+test('/venues PUT answers overlaid:true and /ref/venues shows the new address before Coda applies it', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { e } = gLive();
+  let ref = await call(e, 'GET', '/ref/venues?fresh=1');
+  assert.equal(ref.body.items.find((x) => x.id === 'i-v').hasAddress, false);
+  const w = await call(e, 'PUT', '/venues/i-v', { body: { street: '1 Main St', city: 'Nashville', state: 'TN', zip: '37206' } });
+  assert.equal(w.status, 200); assert.equal(w.body.overlaid, true); assert.equal(w.body.requestId, 'req-1');
+  ref = await call(e, 'GET', '/ref/venues');
+  assert.equal(ref.body.items.find((x) => x.id === 'i-v').hasAddress, true);
+  const one = await call(e, 'GET', '/venues/i-v');
+  assert.equal(one.body.street, '1 Main St');
+  const addr = { street: '2 Side St', city: 'Nashville', state: 'TN', zip: '37206' };
+  const add = await call(e, 'POST', '/venues', { body: { name: 'Annex', typeId: 'i-type', ...addr } });
+  assert.equal(add.status, 200); assert.equal(add.body.overlaid, true); assert.equal(add.body.requestId, 'req-2');
+  const again = await call(e, 'POST', '/venues', { body: { name: 'annex', typeId: 'i-type', ...addr } });
+  assert.equal(again.status, 409, 'the duplicate check sees the venue Coda has not applied yet');
+  assert.equal(again.body.error, 'A venue called Annex already exists');
+  codaRoute = null;
+});
+
+test('PR B with OVERLAY_MODE=off: writes answer overlaid:false and the DO is never called', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const d = overlayDO();
+  const e = env({ ALLOW_WRITES: 'true', OVERLAY_MODE: 'off', OVERLAY: d.ns, ...GT });
+  const w = await call(e, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot' } });
+  assert.deepEqual(w.body, { ok: true, id: 'i-new1', overlaid: false });
+  const ev = await call(e, 'GET', '/events/i-pub', { email: 'mem@x.org' });
+  assert.deepEqual(slotOf(ev.body).claims.map((x) => x.claimId).filter(Boolean), ['i-old']);
+  assert.equal((await call(e, 'DELETE', '/claims/i-new1', { email: 'mem@x.org' })).status, 404, 'as today: Coda has no such claim');
+  const v = await call(e, 'PUT', '/venues/i-v', { body: { street: '1 Main St', city: 'Nashville', state: 'TN', zip: '37206' } });
+  assert.equal(v.body.overlaid, false);
+  assert.equal(d.calls.length, 0);
+  codaRoute = null;
+});

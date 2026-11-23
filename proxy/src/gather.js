@@ -319,9 +319,9 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
   };
 }
 
-// Gather's cached snapshot: only the upcoming published/approved planning rows, their
-// slots and those slots' claims, rich cells kept as read (so projectEventForMember is
-// unchanged). Plain objects keyed by row id so it survives JSON in KV.
+// Gather's snapshot: only the upcoming published/approved planning rows, their slots and
+// those slots' claims, rich cells kept as read (so projectEventForMember is unchanged).
+// Built per request from the raw rows in KV (GATHER_KV_KEY) once the overlay is merged in.
 export function gatherSnapshot(eventRows, slotRows, claimRows, todayIso) {
   const events = eventRows.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, todayIso) || isApprovedUpcoming(r, PLANNING_COLS, todayIso));
   const keep = new Set(events.map((r) => r.id));
