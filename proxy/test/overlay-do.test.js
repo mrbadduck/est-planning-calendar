@@ -70,6 +70,13 @@ test('record leaves an alarm that is already sooner than now + 5 s alone', async
   assert.equal(storage.alarm, clock.t + 1_000);
 });
 
+test('record re-sets an overdue alarm (one that should already have run) to now + 5 s', async () => {
+  const { core, storage, clock } = setup();
+  storage.alarm = clock.t - 60_000;                   // seen locally: an alarm left in the past never fired again
+  await core.record([entry()]);
+  assert.equal(storage.alarm, clock.t + ALARM_EVERY_MS);
+});
+
 test('record pulls a far-off cleanup alarm forward so a new write is polled in 5 s', async () => {
   const { core, coda, clock, storage, runAlarm } = setup();
   await core.record([entry()]);

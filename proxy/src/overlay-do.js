@@ -55,7 +55,8 @@ export class OverlayCore {
     }
     // Pull the alarm forward: after an apply it sits at a far-off cleanup time, and a new write must be polled in seconds.
     const a = await this.storage.getAlarm(), soon = this.now() + ALARM_EVERY_MS;
-    if (a == null || a > soon) await this.storage.setAlarm(soon);
+    // An overdue alarm (a < now) is re-set too: never trust one that should already have run.
+    if (a == null || a > soon || a < this.now()) await this.storage.setAlarm(soon);
     return { ok: true };
   }
 
