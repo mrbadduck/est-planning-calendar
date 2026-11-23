@@ -1,5 +1,6 @@
 /* venue-form.js — the Where block's venue address line, and the venue dialog (#venueDialog): add a venue, fix a venue's address.
-   Owns: venueSlotsHTML, wireVenueForm, paintVenueAddr, openVenueAdd, openVenueAddress, openVenueFormFor, closeVenueForm, dismissVenueDialog;
+   Owns: venueSlotsHTML, wireVenueForm, paintVenueAddr, openVenueAdd, openVenueAddress, openVenueFormFor, closeVenueForm, dismissVenueDialog,
+         _vAdding (a venue being added, shown via the picker's pendVenue/unpendVenue, pickers.js);
          the dialog's Esc (capture phase), focus-trap and scrim listeners
    Reads: VENUES, VENUE_TYPES, DB, cacheSet, setVenues, refreshVenues (data.js); VenueAddress (venue-address.js); CodaApplied (coda-applied.js);
           editing (editor-tabs.js); esc (util.js); toast (ui.js; call time); renderStatusPanel (status-panel.js; call time);
@@ -17,11 +18,19 @@
      address, or the venueAddress readiness link; Name and Venue type read-only).
      Esc, Cancel and a scrim click close it, except while a write waits for Coda (busy);
      Tab stays inside it; focus goes back to whatever opened it.
-   A write waits until Coda has applied it (D3) before the app uses the new row or
-   says the address changed: an event must never point at a venue row Coda hasn't
-   applied. /ref/venues is busted before Coda applies, so the local VENUES list is
-   updated here at once, then refreshVenues re-reads /ref/venues?fresh=1 in the
-   background (the write has applied by then) and refills the Worker's caches.
+   Add venue: once the Worker returns the new venue's id the dialog closes and the venue
+   shows as the event's pick with a spinner (_vAdding: the picker's pendVenue chip, and
+   "Adding venue… this takes about half a minute" with Edit address disabled on the
+   address line; no Clear). The event's Venue cell is written only once Coda has applied
+   the insert (D3, 0012 D9: an event must never point at a venue row Coda hasn't
+   created, and the Worker's name caches don't know it yet); then the picker picks it
+   (autosave). Still waiting at 60 s: "Still adding — this is taking longer than usual".
+   Never confirmed: a toast, and the chip goes. Save
+   address is saved once the Worker's overlay holds it (overlaid: every Worker read
+   returns the new address): it closes at once and confirms in the background; not
+   overlaid (OVERLAY_MODE off, or the overlay down), it waits for the apply as before.
+   The local VENUES list is updated here at once, then refreshVenues re-reads
+   /ref/venues?fresh=1 in the background and refills the Worker's caches.
    A PUT with the address already saved comes back {unchanged:true}: no wait. Read-only, locked and signed-out views get
    neither container's controls and fetch nothing. */
 const _vaddr=new Map();   // venue id → { status:'loading'|'ok'|'err', v:{id,name,type,street,unit,city,state,zip,address} }
@@ -29,6 +38,8 @@ let _vctx=null;           // { ev, editable } for the Where block on screen
 let _vf=null;             // the open form: { mode, venueId, ev, busy, detached } (detached: its dialog was taken down mid-write)
 let _vdOpener=null;       // the element focused when the dialog opened: focus goes back to it
 let _vfPendingAdd=null;   // an add whose row Coda never confirmed: { key, name, id, requestId } — retried by polling, never re-POSTed
+let _vAdding=null;        // an add waiting for Coda to apply it, shown on its event: { ev, id, name, slow }
+const VADD_SLOW_MS=60000;
 const VF_DEFAULTS={ city:'Nashville', state:'TN' };
 const venueTypeName = id => (VENUE_TYPES.find(t=>t.id===id)||{}).name || '';
 const venueHome = typeName => typeName==='Home';   // only a private home may have no address
@@ -46,6 +57,7 @@ function wireVenueForm(ev, editable, box){
   const addrEl=group && group.querySelector('#venueAddr');
   _vctx={ ev, editable:!!editable, group, box, addrEl };
   if(_vf && (_vf.ev!==ev || !editable)) dismissVenueDialog();
+  paintVenuePending();
   if(!addrEl) return;
   if(addrEl._vfWired){ paintVenueAddr(); return; }
   addrEl._vfWired=true;
@@ -78,6 +90,11 @@ function paintVenueAddr(){
   const el=_vctx && _vctx.addrEl; if(!el || !el.isConnected) return;
   const id=pickedVenueId();
   if(_vf && _vf.mode==='address' && !_vf.busy && _vf.venueId!==id) closeVenueForm();   // a different venue now
+  if(vfEditable() && addingHere()){
+    const t=_vAdding.slow ? 'Still adding — this is taking longer than usual' : 'Adding venue… this takes about half a minute';
+    paintInner(el, `<span class="ndoc-spin" aria-hidden="true"></span> <span class="vaddr-txt">${esc(t)}</span> <button type="button" class="lnk" disabled>Edit address</button>`);
+    return;
+  }
   if(!vfEditable() || !id){ paintInner(el, ''); return; }
   const ent=_vaddr.get(id) || fetchVenueAddr(id);
   let h;
@@ -89,6 +106,14 @@ function paintVenueAddr(){
       : `<span class="vaddr-txt none">No street address yet</span> <button type="button" class="lnk" data-vact="edit">Add address</button>`;
   }
   paintInner(el, h);
+}
+
+// The add waiting for Coda belongs to the event on screen.
+const addingHere = () => !!(_vAdding && _vctx && _vctx.ev===_vAdding.ev);
+// The picker's chip for it (pendVenue), or none.
+function paintVenuePending(){
+  const box=_vctx && _vctx.box; if(!box || !box.pendVenue) return;
+  if(addingHere() && _vctx.editable) box.pendVenue(_vAdding.name); else box.unpendVenue();
 }
 
 /* ---- the dialog ---- */
@@ -110,7 +135,7 @@ function venueFormHTML(mode, v){
     + `</div>`
     + (v.legacy ? `<span class="hint">Saved now as: ${esc(v.legacy)}</span>` : '')
     + (add ? '' : `<span class="hint">This changes the address for every event at this venue.</span>`)
-    + `<span class="hint err" data-err="form" role="alert"></span><span class="hint" data-vf-slow aria-live="polite"></span></fieldset></div>`
+    + `<span class="hint err" data-err="form" role="alert"></span></fieldset></div>`
     + `<div class="mfoot vd-foot"><span class="push"></span><button type="button" class="btn" data-vact="cancel">Cancel</button><button type="button" class="btn primary" data-vact="submit">${add?'Add venue':'Save address'}</button></div>`;
 }
 // Focusable controls inside the dialog (a disabled fieldset's fields don't count).
@@ -139,6 +164,7 @@ function vfBusyNote(){
 }
 function openVenueAdd(name){
   if(!vfEditable() || vfBusyNote()) return null;
+  if(_vAdding){ toast('Still adding the last venue…'); return null; }
   const sel=_vctx.group.querySelector('#f_vtype');
   return showVenueForm('add', '', Object.assign({ name:String(name||'').trim(), typeId:(sel && sel.value)||'', street:'', unit:'', zip:'' }, VF_DEFAULTS));
 }
@@ -213,7 +239,7 @@ function vfErrors(errs, formMsg){
 // the dialog itself so Tab and Esc stay inside it.
 function vfBusy(on, label){
   const el=vfEl(); if(!el) return;
-  const fs=el.querySelector('fieldset'), btn=el.querySelector('[data-vact="submit"]'), cancel=el.querySelector('[data-vact="cancel"]'), slow=el.querySelector('[data-vf-slow]');
+  const fs=el.querySelector('fieldset'), btn=el.querySelector('[data-vact="submit"]'), cancel=el.querySelector('[data-vact="cancel"]');
   if(fs) fs.disabled=on;
   if(cancel) cancel.disabled=on;
   el.setAttribute('aria-busy', String(!!on));
@@ -223,7 +249,6 @@ function vfBusy(on, label){
     else if(btn.dataset.label) btn.textContent=btn.dataset.label;
   }
   if(on) el.focus({ preventScroll:true });
-  if(slow && !on) slow.textContent='';
 }
 // Wait for Coda to apply a venue write (the same poller as event saves, D3).
 function venueApplied(requestId){
@@ -231,8 +256,18 @@ function venueApplied(requestId){
     fetchStatus: rid => DB.mutationStatus(rid),
     sleep: ms => new Promise(r => setTimeout(r, ms)),
     now: () => Date.now(),
-    onSlow: () => { const el=vfEl(), s=el && el.querySelector('[data-vf-slow]'); if(s) s.textContent='Coda is slow right now. This can take a minute.'; },
   });
+}
+// An overlaid Save address confirms in the background (no slow note: the dialog has closed).
+// A failure is never silent: the console line, the app's existing late-failure toast, and the
+// address line and VENUES re-read from what Coda holds (the local copy assumed it saved).
+function venueConfirmLater(requestId, id){
+  CodaApplied.waitApplied(requestId, { fetchStatus: rid => DB.mutationStatus(rid), sleep: ms => new Promise(r => setTimeout(r, ms)), now: () => Date.now() })
+    .catch(err => {
+      console.warn('overlaid address save not confirmed:', err);
+      toast('The change didn’t confirm. Check again in a minute.','err');
+      _vaddr.delete(id); paintVenueAddr(); refreshVenues();
+    });
 }
 // The dialog this write came from is still showing (not taken down by leaving the page or the create form).
 const vfOnScreen = f => { const el=vfEl(); return _vf===f && !f.detached && !!(el && el.querySelector('fieldset')); };
@@ -258,32 +293,49 @@ async function submitAdd(f){
   if(Object.keys(errs).length){ vfErrors(errs); return; }
   vfErrors(null); f.busy=true; vfBusy(true, 'Adding venue…');
   const body=Object.assign({ name, typeId }, addr), key=JSON.stringify(body);
+  let p;
   try{
-    let p=_vfPendingAdd && _vfPendingAdd.key===key ? _vfPendingAdd : null;   // the same add again: poll, don't insert twice
+    p=_vfPendingAdd && _vfPendingAdd.key===key ? _vfPendingAdd : null;   // the same add again: poll, don't insert twice
     if(!p){ const r=await DB.createVenue(body); p=_vfPendingAdd={ key, name, id:r && r.id, requestId:(r && r.requestId)||'' }; }
     if(!p.id) throw new Error('The Worker didn’t return the new venue');
-    try{ await venueApplied(p.requestId); }
-    catch(_){ const e=new Error('Coda didn’t confirm the new venue yet. Try Add venue again in a minute.'); e.unconfirmed=true; throw e; }
-    _vfPendingAdd=null;
-    const v={ id:p.id, name, type:typeName, closed:false, hasAddress:VenueAddress.hasAddress(addr) };
-    setVenues(VENUES.filter(x=>x.id!==v.id).concat([v])); cacheSet('venues', VENUES);
-    refreshVenues(v.id);   // not awaited: pulls the applied list past the Worker's caches
-    _vaddr.set(v.id, { status:'ok', v:Object.assign({ id:v.id, name, type:typeName, address:VenueAddress.compose(addr) }, addr) });
-    f.busy=false;
-    const shown=vfOnScreen(f);
-    if(_vf===f) closeVenueForm();
-    const box=_vctx && _vctx.box;
-    const picked = !!(box && box.isConnected && box.pickVenue && editing===f.ev && box.pickVenue(v.id));   // the picker's onChange: address default, address line, autosave
-    if(picked && shown){ const l=_vctx.addrEl && _vctx.addrEl.querySelector('[data-vact="edit"]'); if(l) l.focus({ preventScroll:true }); }   // the picker's input is hidden now
-    toast(picked ? 'Venue added' : 'Venue added. Choose it under Where.');   // the lead left the page or the create form meanwhile
   }catch(err){
     f.busy=false;
-    if(!err.unconfirmed) _vfPendingAdd=null;   // refused: nothing was inserted
+    _vfPendingAdd=null;   // refused (or no id came back): nothing to poll
     if(!vfOnScreen(f)){ if(_vf===f) _vf=null; toast(err.message || 'The venue wasn’t added','err'); return; }
     vfBusy(false);
     if(err.status===409) vfErrors({ name:err.message });
     else vfErrors(err.errors, err.message || 'The venue wasn’t added');   // a 400 names the fields it can (errors) and says why
+    return;
   }
+  // The id is known: close the dialog and show the venue on its event while Coda creates it.
+  f.busy=false;
+  if(_vf===f) closeVenueForm();
+  venueAddApplied(f.ev, p, typeName, addr);   // not awaited: the next submit (another venue's address) mustn't wait on it
+}
+// After Add venue: the new venue shows on its event (ev) until Coda applies the insert, then
+// it's picked there (autosave). p: _vfPendingAdd.
+async function venueAddApplied(ev, p, typeName, addr){
+  const name=p.name;
+  const adding=_vAdding={ ev, id:p.id, name, slow:false };
+  paintVenuePending(); paintVenueAddr();
+  const slowT=setTimeout(()=>{ if(_vAdding===adding){ adding.slow=true; paintVenueAddr(); } }, VADD_SLOW_MS);
+  const done=()=>{ clearTimeout(slowT); if(_vAdding===adding) _vAdding=null; paintVenuePending(); };
+  try{ await venueApplied(p.requestId); }
+  catch(_){
+    done(); paintVenueAddr();
+    toast('Coda didn’t confirm the new venue yet. Try Add venue again in a minute.','err');   // _vfPendingAdd stays: the same add polls again
+    return;
+  }
+  done();
+  _vfPendingAdd=null;
+  const v={ id:p.id, name, type:typeName, closed:false, hasAddress:VenueAddress.hasAddress(addr) };
+  setVenues(VENUES.filter(x=>x.id!==v.id).concat([v])); cacheSet('venues', VENUES);
+  refreshVenues(v.id);   // not awaited: pulls the applied list past the Worker's caches
+  _vaddr.set(v.id, { status:'ok', v:Object.assign({ id:v.id, name, type:typeName, address:VenueAddress.compose(addr) }, addr) });
+  const box=_vctx && _vctx.box;
+  const picked = !!(box && box.isConnected && box.pickVenue && editing===adding.ev && _vctx.ev===adding.ev && box.pickVenue(v.id));   // the picker's onChange: address default, address line, autosave
+  if(!picked) paintVenueAddr();
+  toast(picked ? 'Venue added' : 'Venue added. Choose it under Where.');   // the lead left the page or the create form meanwhile
 }
 async function submitAddress(f){
   const { addr }=vfRead(), id=f.venueId, rec=VENUES.find(x=>x.id===id)||{};
@@ -294,7 +346,8 @@ async function submitAddress(f){
   try{
     const r=await DB.updateVenue(id, addr);
     const unchanged=!!(r && r.unchanged);   // the same address as saved: nothing was written, nothing to wait for
-    if(!unchanged){
+    if(!unchanged && r && r.overlaid) venueConfirmLater(r.requestId, id);   // saved now; Coda applies it in the background
+    else if(!unchanged){
       try{ await venueApplied(r && r.requestId); }
       catch(_){ const e=new Error('Coda didn’t confirm the address yet. Try Save address again in a minute.'); throw e; }
     }

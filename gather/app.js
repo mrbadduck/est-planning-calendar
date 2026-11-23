@@ -184,7 +184,8 @@ function route(){
   const h = (location.hash || '#/').replace(/^#/, '') || '/';
   const m = h.match(/^\/event\/(.+)$/);
   if (m){ setTab(null); renderDetail(decodeURIComponent(m[1])); return; }
-  _detail = null;   // leaving the detail view cancels its optimistic state + reconcile
+  if (_detail) clearTimeout(_detail.reconT);
+  _detail = null;   // leaving the detail view cancels its optimistic state, reconcile and pending poll
   if (h === '/mine'){
     if (!state.member){ location.hash = '#/'; return; }
     setTab('mine'); renderMine(); return;
@@ -233,19 +234,30 @@ async function renderHome(){
    usually misses the new row. So the detail view is stateful — claim/unclaim
    mutate the local copy and repaint instantly, `recent` remembers those ops for
    15s, and a delayed reconcile pulls server truth and re-applies any op the
-   server hasn't caught up to yet. */
-let _detail = null;   // { id, ev, recent:Map, reconT }
+   server hasn't caught up to yet.
+   With the Worker's write overlay on, a sign-up Coda hasn't created yet comes back
+   `pending` (my own only): it shows as signed up, its Remove waits (Saving…), and
+   the page re-fetches every 4 s until none is pending (2 min at most, or until the
+   member leaves). One that vanishes meanwhile didn't save: say so. */
+// Poll past the overlay's 120 s give-up so a failed sign-up is seen; call it lost only once the overlay
+// could have failed it (an earlier miss is an overlay outage, not a failure).
+const PENDING_POLL_MS = 4000, PENDING_POLL_MAX_MS = 150000, LOST_AFTER_MS = 110000;
+let _detail = null;   // { id, ev, recent:Map, reconT, pendingMine:Map(claimId -> first seen), pollUntil }
 async function renderDetail(id){
+  if (_detail) clearTimeout(_detail.reconT);
+  _detail = null;
   view().innerHTML = `<div class="loading"><span class="spinner"></span> Loading…</div>`;
   let ev;
   try { ev = await api(`/events/${encodeURIComponent(id)}`); }
   catch (e){ view().innerHTML = `<a class="back" href="#/">← All events</a><div class="empty"><h2>Couldn’t load this event</h2><p>Try refreshing in a moment.</p>${contactHTML('Still down?')}</div>`; return; }
-  _detail = { id, ev, recent: new Map(), reconT: 0 };
+  _detail = { id, ev, recent: new Map(), reconT: 0, pendingMine: new Map(), pollUntil: 0 };
   paintDetail();
+  watchPending();
 }
 
 function paintDetail(){
   if (!_detail) return;
+  const kept = keepClaimForms();
   const ev = _detail.ev;
   const slots = (ev.slots || []).slice().sort((a, b) => (a.sortOrder - b.sortOrder));
   const byKind = {};
@@ -294,7 +306,30 @@ function paintDetail(){
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }));
   wireSheet();
+  restoreClaimForms(kept);
   checkRegistration();
+}
+
+// A repaint (the pending poll, a reconcile) must not wipe what the member is typing
+// into another slot's form: keep each form's text, and the focus and caret.
+function keepClaimForms(){
+  const vals = {}; let focus = null;
+  view().querySelectorAll('form[data-claim]').forEach((f) => {
+    const slot = f.getAttribute('data-claim'), inp = f.contribution;
+    if (!inp) return;
+    vals[slot] = inp.value;
+    if (document.activeElement === inp) focus = { slot, a: inp.selectionStart, b: inp.selectionEnd };
+  });
+  return { vals, focus };
+}
+function restoreClaimForms(kept){
+  view().querySelectorAll('form[data-claim]').forEach((f) => {
+    const slot = f.getAttribute('data-claim'), inp = f.contribution;
+    if (!inp) return;
+    if (kept.vals[slot]) inp.value = kept.vals[slot];
+    if (state.busy.has(slot)){ const b = f.querySelector('button'); if (b) b.disabled = true; }
+    if (kept.focus && kept.focus.slot === slot){ inp.focus(); try { inp.setSelectionRange(kept.focus.a, kept.focus.b); } catch (_) {} }
+  });
 }
 
 // Ask the Worker whether the signed-in member is already registered on
@@ -316,13 +351,27 @@ function checkRegistration(){
 
 function rememberOp(key, rec){ if (_detail) _detail.recent.set(key, Object.assign({ until: Date.now() + 15000 }, rec)); }
 function scheduleDetailReconcile(){
-  if (!_detail) return;
-  clearTimeout(_detail.reconT);
-  _detail.reconT = setTimeout(reconcileDetail, 4000);   // let Coda index, then pull server truth
-}
-async function reconcileDetail(){
   const d = _detail; if (!d) return;
-  let fresh; try { fresh = await api(`/events/${encodeURIComponent(d.id)}`); } catch (_) { return; }
+  clearTimeout(d.reconT);
+  d.reconT = setTimeout(() => reconcileDetail(d), 4000);   // let Coda index, then pull server truth
+}
+const myPendingClaims = (ev) => (ev.slots || []).flatMap((s) => (s.claims || []).filter((c) => c.mine && c.pending && c.claimId));
+// Re-fetch every 4 s while any of my sign-ups on the page is still being created.
+function watchPending(){
+  const d = _detail; if (!d) return;
+  const pending = myPendingClaims(d.ev);
+  let fresh = false;
+  for (const c of pending) if (!d.pendingMine.has(c.claimId)){ d.pendingMine.set(c.claimId, Date.now()); fresh = true; }
+  if (!pending.length && !d.pendingMine.size){ d.pollUntil = 0; return; }
+  if (fresh || !d.pollUntil) d.pollUntil = Date.now() + PENDING_POLL_MAX_MS;   // each new sign-up gets its 2.5 min
+  if (Date.now() >= d.pollUntil) return;              // 2.5 min: stop asking; the page shows what it last heard
+  clearTimeout(d.reconT);
+  d.reconT = setTimeout(() => reconcileDetail(d), PENDING_POLL_MS);
+}
+async function reconcileDetail(d){
+  if (!d || _detail !== d) return;
+  let fresh; try { fresh = await api(`/events/${encodeURIComponent(d.id)}`); }
+  catch (_) { if (_detail === d) watchPending(); return; }
   if (_detail !== d) return;                            // navigated away meanwhile
   const now = Date.now();
   for (const [k, rec] of [...d.recent]) if (rec.until <= now) d.recent.delete(k);
@@ -347,8 +396,19 @@ async function reconcileDetail(){
       }
     }
   }
+  // A sign-up that was being created and is gone now: its insert failed.
+  const present = new Set((fresh.slots || []).flatMap((s) => (s.claims || []).map((c) => c.claimId)).filter(Boolean));
+  let lost = false;
+  for (const [k, at] of [...d.pendingMine]){
+    if (!present.has(k) && Date.now() - at >= LOST_AFTER_MS){ d.pendingMine.delete(k); d.recent.delete(k); lost = true; }
+  }
+  for (const s of (fresh.slots || [])){
+    for (const c of (s.claims || [])) if (c.claimId && d.pendingMine.has(c.claimId) && !c.pending) d.pendingMine.delete(c.claimId);
+  }
+  if (lost) toast('Your sign-up didn’t save — try again', 'err');
   d.ev = fresh;
   paintDetail();
+  watchPending();
 }
 
 function slotHTML(s){
@@ -361,7 +421,9 @@ function slotHTML(s){
   let action = '';
   if (s.mineClaimed){
     const mineClaim = claims.find((c) => c.mine);
-    action = `<div class="slot-actions"><button class="btn danger sm" data-unclaim="${esc((mineClaim && mineClaim.claimId) || '')}" data-slot="${esc(s.id)}">Remove my sign-up</button></div>`;
+    action = (mineClaim && mineClaim.pending)
+      ? `<div class="slot-actions"><button class="btn danger sm" disabled title="Your sign-up is still being saved"><span class="spinner sm"></span> Saving…</button></div>`
+      : `<div class="slot-actions"><button class="btn danger sm" data-unclaim="${esc((mineClaim && mineClaim.claimId) || '')}" data-slot="${esc(s.id)}">Remove my sign-up</button></div>`;
   } else if (open){
     const ph = s.kind === 'Potluck' ? 'What are you bringing? (optional)' : 'Note (optional)';
     action = `<form class="claim-form" data-claim="${esc(s.id)}">
@@ -385,19 +447,23 @@ function wireSheet(){
       const slotId = f.getAttribute('data-claim');
       const contribution = (f.contribution.value || '').trim();
       const btn = f.querySelector('button'); btn.disabled = true;
+      state.busy.add(slotId);
       try {
         const res = await api('/claims', { method: 'POST', body: JSON.stringify({ slot: slotId, contributionDetail: contribution, qty: 1 }) });
+        state.busy.delete(slotId);
         const s = _detail && _detail.ev.slots.find((x) => x.id === slotId);
         if (s){                                          // show it NOW — the server read lags the write
           const c = { name: (state.member && state.member.name) || 'You', contribution, qty: 1, mine: true, claimId: (res && res.id) || `tmp-${Date.now()}` };
+          if (res && res.overlaid && res.id) c.pending = true;   // Coda hasn't created it yet: Remove waits (watchPending)
           (s.claims = s.claims || []).push(c);
           if (s.remaining != null) s.remaining = Math.max(0, s.remaining - 1);   // null = no limit, stays open
           s.mineClaimed = true;
           rememberOp(c.claimId, { added: { slot: s.id, claim: c } });
         }
         toast('You’re signed up!');
-        paintDetail(); scheduleDetailReconcile();
-      } catch (err){ toast(err.message || 'Could not sign up', 'err'); btn.disabled = false; }
+        paintDetail();
+        if (_detail && myPendingClaims(_detail.ev).length) watchPending(); else scheduleDetailReconcile();
+      } catch (err){ state.busy.delete(slotId); toast(err.message || 'Could not sign up', 'err'); btn.disabled = false; }
     });
   });
   view().querySelectorAll('button[data-unclaim]').forEach((b) => {

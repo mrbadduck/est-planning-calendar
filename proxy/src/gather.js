@@ -260,7 +260,8 @@ export function claimUpdateCells(body, cols) {
 // array of that slot's claim rows; `callerName` (+ opts.callerId, preferred when
 // present) drives `mineClaimed`. In the detail view (includeClaimants) each claim
 // carries `mine`, and the caller's OWN claim also carries its `claimId` (safe to
-// expose — it's the member's own row — and needed for unclaim).
+// expose — it's the member's own row — and needed for unclaim). opts.pendingClaims (a Set of
+// claim ids the overlay added but Coda hasn't applied) marks the caller's own claim `pending`.
 export function projectEventForMember(row, slots, claimsBySlot, callerName, opts = {}) {
   const callerId = opts.callerId || null;
   const v = (row && row.values) || {};
@@ -301,6 +302,7 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
           mine,
         };
         if (mine && c && c.id) o.claimId = c.id;   // only the caller's own claim id is ever exposed
+        if (mine && c && c.id && opts.pendingClaims && opts.pendingClaims.has(c.id)) o.pending = true;   // still being inserted: Remove waits
         return o;
       });
       const needed = normNeededQty(sv[SLOT_COLS.neededQty]);   // number, or null = no limit
@@ -319,9 +321,9 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
   };
 }
 
-// Gather's cached snapshot: only the upcoming published/approved planning rows, their
-// slots and those slots' claims, rich cells kept as read (so projectEventForMember is
-// unchanged). Plain objects keyed by row id so it survives JSON in KV.
+// Gather's snapshot: only the upcoming published/approved planning rows, their slots and
+// those slots' claims, rich cells kept as read (so projectEventForMember is unchanged).
+// Built per request from the raw rows in KV (GATHER_KV_KEY) once the overlay is merged in.
 export function gatherSnapshot(eventRows, slotRows, claimRows, todayIso) {
   const events = eventRows.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, todayIso) || isApprovedUpcoming(r, PLANNING_COLS, todayIso));
   const keep = new Set(events.map((r) => r.id));
@@ -337,4 +339,28 @@ export function gatherSnapshot(eventRows, slotRows, claimRows, todayIso) {
     if (sid && keptSlots.has(sid)) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
   }
   return { events, slotsByEvent, claimsBySlot };
+}
+
+// Trim gather's raw KV value ({events, slots, claims}) before it's cached: planning rows whose
+// effective date is more than `days` before today go (undated rows stay), and with them the
+// slots of dropped events and the claims of dropped slots. Members only ever see events from
+// today on (isPublishedUpcoming / isApprovedUpcoming), so a dropped row can only come back
+// through a date edit. A Worker edit busts this snapshot (planningWrite) and the refill after
+// Coda applies it brings the row back; the one gap: in the ~28 s before that apply, a row moved
+// from 7+ days past into the future isn't in the snapshot, so the overlay can't show it yet.
+// The 7-day margin also covers time zones and clock skew around "today".
+export function pruneGatherRaw(eventRows, slotRows, claimRows, todayIso, days = 7) {
+  const d = new Date(`${String(todayIso).slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  const cutoff = d.toISOString().slice(0, 10);
+  const events = (eventRows || []).filter((r) => {
+    const v = (r && r.values) || {};
+    const eff = plain(v[PLANNING_COLS.date]) || plain(v[PLANNING_COLS.windowEnd]) || plain(v[PLANNING_COLS.windowStart]) || null;
+    return !eff || String(eff).slice(0, 10) >= cutoff;
+  });
+  const keep = new Set(events.map((r) => r.id));
+  const slots = (slotRows || []).filter((s) => keep.has(relId(s.values && s.values[SLOT_COLS.event])));
+  const kept = new Set(slots.map((s) => s.id));
+  const claims = (claimRows || []).filter((c) => kept.has(relId(c.values && c.values[CLAIM_COLS.slot])));
+  return { events, slots, claims };
 }

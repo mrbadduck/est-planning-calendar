@@ -43,34 +43,24 @@ export const ALLOW_FILES = {
 // Single sites: `match` is a substring of the call (from its name to its closing paren);
 // `count` is how many calls it must match, so a new call can't hide behind an old entry.
 export const ALLOW = [
-  // Reads the overlay is merged into.
-  { file: 'proxy/src/overlay-routes.js', match: 'fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true',
-    reason: 'readPlanningRow: the read overlayRead merges into', count: 1 },
+  // Reads the overlay is merged into (overlayRead / mergedRows right after the read).
+  { file: 'proxy/src/overlay-routes.js', match: 'fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?${query}`',
+    reason: 'readRowMerged: the one-row read overlayRead merges into (planning, claims, slots, venues)', count: 1 },
   { file: 'proxy/src/worker.js', match: 'readAllRows(rowsUrl, auth)',
     reason: '/rows: the snapshot planningList merges the overlay into', count: 1 },
+  { file: 'proxy/src/worker-io.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`',
+    reason: 'fetchRefItems: Coda\'s venue rows, which refVenues merges at serve time (programs and venue types are not guarded)', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(venuesUrl', reason: 'POST /venues: the duplicate-name read mergedRows merges into', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`', reason: 'publish: the Venues read mergedRows merges into', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`', reason: 'slots reads mergedRows merges into (roster, /slots, buildMyClaims)', count: 3 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`', reason: 'claims reads mergedRows merges into (roster, /slots, buildMyClaims)', count: 3 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${t}/rows`', reason: 'the gather snapshot: raw rows gatherRows merges into', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true })', reason: 'buildMyClaims: the planning read gatherRows merges into', count: 1 },
   // Permanent.
   { file: 'proxy/src/worker.js', match: 'fetch(btnUrl',
     reason: 'the notes-doc button: Coda runs the button and writes the doc URL, so nothing is overlaid', count: 1 },
   { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${table}/rows`',
     reason: 'findOrCreatePerson writes People: not a guarded table', count: 1 },
-  // PR B (Task 7 removes these).
-  { file: 'proxy/src/worker-io.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`', reason: 'PR B: /ref/venues (fetchRefItems)', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}?', reason: 'PR B: GET /venues/:id', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(venuesUrl', reason: 'PR B: POST /venues duplicate-name read', count: 1 },
-  { file: 'proxy/src/worker.js', match: "fetch(venuesUrl, { method: 'POST'", reason: 'PR B: POST /venues (Add venue)', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: \'PUT\'', reason: 'PR B: PUT /venues/:id (Save address)', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`', reason: 'PR B: the publish route\'s Venues read', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`', reason: 'PR B: ensureEbVenue caches the Eventbrite venue id', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich', reason: 'PR B: the roster and the gather event reads (one planning row, rich)', count: 2 },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`', reason: 'PR B: slots reads (roster, /slots, buildMyClaims)', count: 3 },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`', reason: 'PR B: claims reads (roster, /slots, buildMyClaims)', count: 3 },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: \'POST\'', reason: 'PR B: POST /claims', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${claimsUrl}/', reason: 'PR B: /claims/:id ownership read, PUT and DELETE', count: 3 },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${slotsUrl}/', reason: 'PR B: /slots/:id PUT and DELETE', count: 2 },
-  { file: 'proxy/src/worker.js', match: "fetch(slotsUrl, { method: 'POST'", reason: 'PR B: POST /slots', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows/${encodeURIComponent(slotId)}?', reason: 'PR B: bustRosterForSlot reads the slot', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${t}/rows`', reason: 'PR B: the gather snapshot (buildMemberEvents)', count: 1 },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true })', reason: 'PR B: buildMyClaims reads the planning table', count: 1 },
 ];
 
 // Blank out comments, keeping newlines (line numbers survive). `//` starts a comment

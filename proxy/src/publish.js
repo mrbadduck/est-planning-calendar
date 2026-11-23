@@ -220,7 +220,7 @@ export function venueRefItem(row) {
   const type = Array.isArray(v[VENUE_COLS.type]) ? v[VENUE_COLS.type][0] : v[VENUE_COLS.type];
   return {
     id: row && row.id,
-    name: (row && row.name) || '',
+    name: (row && row.name) || String(v[VENUE_COLS.name] || ''),   // a venue the overlay holds as an insert has no display name yet
     values: { 'Venue Type': type == null ? '' : type, 'Closed/Unavailable?': v[VENUE_COLS.closed] === true },
     hasAddress: globalThis.VenueAddress.hasAddress(venueFromRow(row)),
   };

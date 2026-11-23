@@ -1,7 +1,7 @@
 /**
  * Shared Worker I/O helpers: KV cache bust, Coda row reads, the Eventbrite v3
  * client, the Eventbrite-pending marker and the Publish Log writer. Moved out of
- * worker.js so the sync modules can import them. Behavior unchanged.
+ * worker.js so the sync modules can import them.
  * The write overlay seam (decision 0012): overlayOn, codaWrite + passWrite (a Coda
  * write recorded in the WriteOverlay DO), overlayRead (a read with the overlay merged),
  * overlayStatus (/mutation asks the DO first), planningColMap (the planning table's
@@ -18,16 +18,14 @@ export async function swrBust(env, key) {
   try { await kv.delete(key); } catch (_) {}
 }
 export const ROWS_KV_KEY = 'rows-v1';
-export const GATHER_KV_KEY = 'gather-events-v1';   // gatherSnapshot of upcoming events + slots + claims
-// Anything that changes an event, slot or claim busts both event-derived snapshots.
+// Gather's snapshot: {events, slots, claims}, the three tables' raw rich rows. The overlay is
+// merged into them before gatherSnapshot groups them (worker.js buildMemberEvents), so the
+// snapshot is never the filtered, grouped shape (v1, 'gather-events-v1', is never read).
+export const GATHER_KV_KEY = 'gather-snap-v2';
+// Anything that changes an event, slot or claim busts both event-derived snapshots, once:
+// the bust refreshes the snapshot, the overlay covers the ~28 s until Coda applies the write.
 export async function bustEventCaches(env) {
   await Promise.all([swrBust(env, ROWS_KV_KEY), swrBust(env, GATHER_KV_KEY)]);
-}
-// After a claim or slot write Coda accepts it now but applies it ~28 s later, so a re-read
-// in between would refill the snapshot without the write: bust now and again after apply.
-export async function bustEventCachesNowAndAfterApply(env, ctx, delayMs = 28_000) {
-  await bustEventCaches(env);
-  if (ctx) ctx.waitUntil(new Promise((r) => setTimeout(r, delayMs)).then(() => bustEventCaches(env)));
 }
 
 // R19: Eventbrite ids the Worker created but Coda hasn't applied to the row yet
@@ -149,11 +147,13 @@ export const REF_TABLES = { programs: 'grid-g87NFbtqN8', people: 'grid-X316Eql8d
 // The builders behind the /ref/:name and People slim KV caches (worker.js /ref and peopleRows);
 // overlayNames refills a missing cache with the same one. Each throws on a failed read.
 // Venues are read by column id and projected (venueRefItem): no addresses in the cache (R12).
-export async function fetchRefItems(base, docId, auth, name) {
+// opts.raw (venues): the raw by-id rows, for the serve-time overlay merge (overlay-routes.js
+// refVenues); never cached (R12).
+export async function fetchRefItems(base, docId, auth, name, opts = {}) {
   const isVenues = name === 'venues';
   const out = await readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`, auth, { byId: isVenues });
   if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
-  return isVenues ? out.items.map(venueRefItem) : out.items;
+  return isVenues && !opts.raw ? out.items.map(venueRefItem) : out.items;
 }
 export async function fetchPeopleSlim(base, docId, auth) {
   const out = await readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES.people}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
@@ -271,9 +271,11 @@ export async function planningColMap(env, base, docId, tableId, auth) {
 // types 1 page each; People up to 6, though auth has normally just filled it), and only when a
 // live entry needs merging. A cache still missing gives an empty map: its relation cells read
 // as stale (logged once), as before.
-export async function overlayNames(env, refill) {
+// `want` (labels: people, programs, venues, venueTypes) reads only those caches; default all.
+export async function overlayNames(env, refill, want) {
   const read = async (key) => { try { const h = env.CACHE && await env.CACHE.get(key, 'json'); return h && Array.isArray(h.data) ? h.data : null; } catch (_) { return null; } };
   const fill = async (key, label, build) => {
+    if (want && !want.includes(label)) return [];
     const hit = await read(key);
     if (hit || !refill) return hit;
     try {
@@ -308,7 +310,8 @@ export async function overlayNames(env, refill) {
 // call (or column map, for planning) leaves rows unchanged with stale ['*'] and one line.
 // opts.planning = {base, docId, auth} on planning reads: colMap + colKinds come from
 // planningColMap, fetched only when a live entry needs merging.
-export async function overlayRead(env, tableId, rows, { shape, snapshotAt, now, colMap, colKinds, names, planning } = {}) {
+// opts.want: the names caches this table's relations need (overlayNames), when known.
+export async function overlayRead(env, tableId, rows, { shape, snapshotAt, now, colMap, colKinds, names, planning, want } = {}) {
   if (!overlayOn(env)) return { rows, stale: [] };
   let entries;
   try { entries = (await overlayCall(env, '/read', { tableId })).entries || []; }
@@ -318,5 +321,31 @@ export async function overlayRead(env, tableId, rows, { shape, snapshotAt, now, 
     try { const m = await planningColMap(env, planning.base, planning.docId, tableId, planning.auth); colMap = m; colKinds = colKinds || m.colKinds; }
     catch (e) { console.error(`overlay: column map for ${tableId} failed (${errText(e)}); rows unmerged`); return { rows, stale: ['*'] }; }
   }
-  return mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKinds, names: names || await overlayNames(env, planning), tableId });
+  return mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKinds, names: names || await overlayNames(env, planning, want), tableId });
+}
+
+// Does the overlay hold a live entry for `tableId` against a snapshot taken at `snapshotAt`?
+// false when off; an overlay failure logs and answers false (the caller serves Coda's copy).
+export async function overlayHasLive(env, tableId, snapshotAt) {
+  if (!overlayOn(env)) return false;
+  try {
+    const entries = (await overlayCall(env, '/read', { tableId })).entries || [];
+    const now = Date.now();
+    return entries.some((e) => e.tableId === tableId && isLive(e, { snapshotAt, now }));
+  } catch (e) { console.error(`overlay: read ${tableId} failed (${errText(e)}); Coda's copy served`); return false; }
+}
+
+// A list read (snapshot taken at `snapshotAt`) with the overlay merged; rows that couldn't be
+// merged keep Coda's copy for those cells and get one console line (overlayRead logs outages).
+// opts: shape ('rich' | 'id' | 'name'), planning ({base, docId, auth}: the planning table), want.
+export async function mergedRows(env, tableId, items, snapshotAt, opts = {}) {
+  return (await mergedRead(env, tableId, items, snapshotAt, opts)).rows;
+}
+// mergedRows plus the merge's pendingInserts (overlay.js): rows added from inserts Coda
+// hasn't applied yet.
+export async function mergedRead(env, tableId, items, snapshotAt, opts = {}) {
+  const m = await overlayRead(env, tableId, items || [], { ...opts, snapshotAt, now: Date.now() });
+  const rowsStale = m.stale.filter((x) => x !== '*');
+  if (rowsStale.length) console.error(`overlay: ${tableId} ${rowsStale.length} row(s) stale (${rowsStale.slice(0, 5).join(', ')}); Coda's copy kept for their unmerged cells`);
+  return { rows: m.rows, pendingInserts: m.pendingInserts || [] };
 }

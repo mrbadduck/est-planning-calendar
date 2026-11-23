@@ -56,6 +56,23 @@ test('an insert appears; a delete hides; an insert Coda already has is left to C
   assert.deepEqual(out.stale, []);
 });
 
+test('pendingInserts: the rows the merge added from un-applied insert entries, nothing else', () => {
+  const ins = (id, o = {}) => ({ ...set(id, 'Title', 'New ' + id, o), op: 'insert' });
+  const out = mergeRows([row('i-1', { Title: 'Keep' })], [ins('i-9'), ins('i-1'), set('i-1', 'Title', 'Edited')], opts());
+  assert.deepEqual(out.rows.map((r) => r.id), ['i-1', 'i-9']);
+  assert.deepEqual(out.pendingInserts, ['i-9'], 'an insert Coda already has is not pending');
+  // Applied, still merging into an older snapshot: Coda has the row, so it isn't pending.
+  const applied = mergeRows([], [ins('i-8', { state: 'applied', appliedAt: NOW - 500 })], opts());
+  assert.deepEqual(applied.rows.map((r) => r.id), ['i-8']);
+  assert.deepEqual(applied.pendingInserts, []);
+  // An insert dropped by a later delete, or whose row couldn't be translated, isn't added, so isn't pending.
+  const del = { ...set('i-7', '', null), op: 'delete', keying: 'name' };
+  const gone = mergeRows([], [ins('i-7'), { ...del, writtenAt: NOW - 500 }, { ...set('i-6', 'c-unknown', 'x'), op: 'insert' }], opts());
+  assert.deepEqual(gone.rows, []);
+  assert.deepEqual(gone.pendingInserts, []);
+  assert.deepEqual(mergeRows([row('i-1', {})], [], opts()).pendingInserts, []);
+});
+
 test('a name-keyed planning write read with shape rich is translated through colMap; an unknown key is stale', () => {
   const rows = [row('i-1', { [PLANNING_COLS.status]: '```Draft```', [PLANNING_COLS.title]: '```T```' })];
   const out = mergeRows(rows, [set('i-1', 'Status', 'Approved')], opts({ shape: 'rich' }));

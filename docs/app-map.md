@@ -166,7 +166,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   link** header button shares the current view.
 11. **`fields.js`** — one HTML builder per field, the create-form panel, `wireEventFields`, `readForm`.
 12. **`tabs-listing-planning.js`** — the Listing and Planning panels and the private-home address-default rules.
-13. **`venue-form.js`** — the Where block's venue address line (`#venueAddr`: the picked venue's address from `GET /venues/:id`, fetched once per venue per session, editors only; **Edit address** / **No street address yet** + **Add address**; "Shared with registrants only" on a Registrants-only event) and the venue dialog (`#venueDialog` > `#vdBox` in `index.html`, one stable element painted with `paintInner`, D1; z-index 66: above the event page and the create form's `#modal`, below Help and Preview): **Add a venue** → **Add venue** (from the picker's **+ Add "<name>" as a venue** row or the `venueOther` readiness link) and **Edit address** → **Save address** (from the line or the `venueAddress` readiness link). `role="dialog"`, `aria-modal`; focus goes to the first empty field, Tab is trapped (keydown wrap + a `focusin` guard that lets the Help drawer keep focus), Enter in a text field submits, Esc / Cancel / a scrim click close it and return focus to the opener — all disabled while the write waits for Coda (busy: fields, Cancel and the primary disabled, spinner + **Adding venue…** / **Saving address…**). Leaving the page or the create form (`leaveEventPage`, `closeModal` → `dismissVenueDialog`) takes it down even mid-write; that write finishes and reports by toast. Both wait until Coda applies the write (`CodaApplied`, D3) before the app selects the new venue or repaints readiness, and update the local `VENUES` list themselves at once, then `refreshVenues` (data.js) re-reads `/ref/venues?fresh=1` in the background and merges it (`VenueAddress.mergeVenues`: fresh wins, this session's adds are kept until the fresh list has them). A Save address with the address already saved comes back `{unchanged:true}` and doesn't wait. A failed readiness row carries its check key (`checklist[].check`) so `focusField` can open the right form.
+13. **`venue-form.js`** — the Where block's venue address line (`#venueAddr`: the picked venue's address from `GET /venues/:id`, fetched once per venue per session, editors only; **Edit address** / **No street address yet** + **Add address**; "Shared with registrants only" on a Registrants-only event) and the venue dialog (`#venueDialog` > `#vdBox` in `index.html`, one stable element painted with `paintInner`, D1; z-index 66: above the event page and the create form's `#modal`, below Help and Preview): **Add a venue** → **Add venue** (from the picker's **+ Add "<name>" as a venue** row or the `venueOther` readiness link) and **Edit address** → **Save address** (from the line or the `venueAddress` readiness link). `role="dialog"`, `aria-modal`; focus goes to the first empty field, Tab is trapped (keydown wrap + a `focusin` guard that lets the Help drawer keep focus), Enter in a text field submits, Esc / Cancel / a scrim click close it and return focus to the opener — all disabled while the write is in flight (busy: fields, Cancel and the primary disabled, spinner + **Adding venue…** / **Saving address…**). Leaving the page or the create form (`leaveEventPage`, `closeModal` → `dismissVenueDialog`) takes it down even mid-write; that write finishes and reports by toast. **Add venue** closes the dialog as soon as the Worker returns the new venue's id and shows it on its event at once (`_vAdding`: the picker's `pendVenue` chip with a spinner and no ×, pickers.js, and the address line's *Adding venue… this takes about half a minute* with **Edit address** disabled; *Still adding — this is taking longer than usual* after 60 s; a second Add meanwhile toasts *Still adding the last venue…*). The picker's state is untouched meanwhile, so the event's Venue cell is written only once Coda applies the insert (`CodaApplied`, D3): an event must never point at a venue row Coda hasn't created (0012 D9). Then `pickVenue` (autosave) and **Venue added**; never confirmed, a toast and the chip goes (`_vfPendingAdd` keeps the same add polling on a retry, never re-POSTed). **Save address** waits the same way only when the response isn't `overlaid` (`OVERLAY_MODE` off, or the overlay down); overlaid, it closes at once, repaints readiness, and confirms in the background (`venueConfirmLater`; a failure logs and toasts *The change didn't confirm. Check again in a minute.*). Both update the local `VENUES` list themselves at once, then `refreshVenues` (data.js) re-reads `/ref/venues?fresh=1` in the background and merges it (`VenueAddress.mergeVenues`: fresh wins, this session's adds are kept until the fresh list has them). A Save address with the address already saved comes back `{unchanged:true}` and doesn't wait. A failed readiness row carries its check key (`checklist[].check`) so `focusField` can open the right form.
 14. **`tab-attendees.js`** — the Attendees tab (the roster is described under `editor-tabs.js` above).
 15. **`tab-potluck.js`** — the Potluck & Volunteers tab: the gather slot builder and its claims.
 16. **`feedback.js`** — the votable Feedback / Ideas board and its modal.
@@ -334,8 +334,9 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   bump it on any slim-shape change), **/rows** (soft 30s/hard 5m — busted on every planning write incl.
   publish/cancel/notes-doc; `?fresh=1` bypasses for the notes-doc fast-poll),
   **/ref/***, **/references**, and **/roster/:rowId** (soft 60s/hard 5m per event
-  — busted by the claim write routes via the slot's Event relation; `?fresh=1` for
-  the refresh button; the value holds raw registrant emails, server-side only).
+  — `roster-v2:`, raw orders, slots and claims merged at serve time; busted after claim
+  and slot writes via the slot's Event relation; `?fresh=1` for the refresh button; the
+  value holds raw registrant emails, server-side only).
   When adding a Worker write path that mutates
   planning rows, bust `ROWS_KV_KEY`. Cache API is a no-op on workers.dev (no
   Cloudflare zone — DNS stays at Hover), which is why KV.
@@ -350,9 +351,30 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   snapshot taken before `appliedAt + 30 s`; so a 5-minute-old snapshot still shows a write
   however late it's served, and one taken after the apply shows Coda's copy (and any
   later Coda-side edit). A new event's insert is overlaid too, so `/rows` lists it before
-  Coda applies it. `scripts/check.sh` rule 7 flags a direct Coda call to the planning,
-  slots, claims or venues tables outside the helpers. The gather snapshot, slots, claims,
-  the roster and venues move onto the overlay in PR B.
+  Coda applies it. The gather snapshot (`GATHER_KV_KEY` = `gather-snap-v2`) holds the raw
+  rich rows `{events, slots, claims}`, not the grouped snapshot: `buildMemberEvents` and
+  `buildMyClaims` merge the overlay into them (`gatherRows`, with the snapshot's `at`) before
+  `gatherSnapshot` groups them, so with `OVERLAY_MODE` live an event approved, a slot added
+  or a claim made a moment ago shows in gather at once (the old `gather-events-v1` key is
+  never read). Before caching, `pruneGatherRaw` drops events dated more than 7 days back
+  (undated stay) and their slots and claims. No cache holds a merged view, so a write that
+  later fails never lingers: the roster caches raw rows and merges before `buildRoster` at
+  serve time; `/ref/venues` caches Coda's projection (no addresses, R12) and, when a venue
+  entry is live, reads the venues table once and serves it merged (`refVenues`). `/slots`,
+  the registration check, `GET /venues/:id`, Add venue's duplicate check and publish's
+  Venues read merge too (`mergedRows`, `readRowMerged`). Slot, claim and venue writes go
+  through `codaWrite`: `gatherWrite` busts the event snapshots once when overlaid, and again
+  after ~28 s when not (`OVERLAY_MODE` off or the overlay down). Editing or removing a sign-up
+  whose insert is still pending answers 409 *Your sign-up is still being saved. Try again in
+  a few seconds.* (`readClaimForWrite`), the backstop: gather already knows. `mergeRows` returns
+  `pendingInserts` (rows it added from inserts Coda hasn't applied), `gatherRows` passes the
+  claims' as `pendingClaims`, and the caller's own such claim reads `pending: true`. gather
+  shows it signed up with **Remove my sign-up** disabled (spinner, *Saving…*) and re-fetches the
+  event every 4 s while any is pending (2 min per new sign-up, stops when the member leaves);
+  one that vanishes toasts *Your sign-up didn’t save — try again*. Repaints keep what the
+  member is typing into another slot's form. `scripts/check.sh` rule 7 flags a direct Coda call
+  to the planning, slots, claims or venues tables outside the helpers; only the sync runners
+  are left out.
 - **Coda `valueFormat=rich` fences text values in triple backticks** (```` ```Main dish``` ````)
   and backslash-escapes markdown punctuation. Every rich read must unwrap via
   `stripRich` in `proxy/src/gather.js` — `plain()`/`relName()` already do; never

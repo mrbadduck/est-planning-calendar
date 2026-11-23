@@ -5,8 +5,9 @@
 
 ## Decision
 
-The app shows a change as saved only once reads through the Worker's planning routes return
-it, never merely because Coda accepted it (HTTP 202); gather and the roster follow in PR B.
+The app shows a change as saved only once reads through the Worker return it (the planning
+routes, gather, slots, claims, the roster and venues), never merely because Coda accepted it
+(HTTP 202).
 That means one of two things:
 
 - **Overlaid:** Coda accepted the write and the Worker's write overlay holds it

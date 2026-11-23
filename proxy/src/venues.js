@@ -55,7 +55,8 @@ export function createCells(body, { venues, types }) {
   const name = str(b.name).replace(/\s+/g, ' ').trim();
   if (!name) return { error: 'Add the venue name', status: 400 };
   if (name.length > NAME_MAX) return { error: 'Name is too long', status: 400 };
-  // Can't see venues created in the last ~28 s (Coda apply lag): acceptable at this scale.
+  // `venues` comes through the overlay (worker.js), so a venue added through the Worker in the
+  // last ~28 s counts; one added in Coda itself in that window still doesn't (acceptable).
   const dup = (venues || []).find(v => VA.sameName(v.name, name));
   if (dup) return { error: `A venue called ${dup.name} already exists`, status: 409 };
   const type = (types || []).find(t => b.typeId && t.id === b.typeId);

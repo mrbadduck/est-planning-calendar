@@ -318,6 +318,9 @@
   .typeahead.dis{background:var(--soft2);cursor:not-allowed}
   .ta-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 5px 3px 8px;border-radius:20px;background:var(--accent-tint);border:1px solid var(--accent);color:var(--accent-dk)}
   .ta-chip button{border:0;background:none;cursor:pointer;color:var(--accent-dk);font-size:14px;line-height:1;padding:0}
+  .venue-pending > :not(.venue-pend){display:none !important}   /* a venue being added: only its chip shows */
+  .ta-chip.venue-pend{padding-right:8px}
+  .ta-chip.venue-pend .ndoc-spin{width:10px;height:10px;border-width:1.5px}
   .ta-input{flex:1 1 90px;min-width:90px;border:0!important;padding:2px 4px!important;font:inherit;font-size:12px;background:transparent!important}
   .ta-input:focus{outline:none!important}
   .ta-input:disabled{background:transparent!important}
@@ -364,6 +367,7 @@
   .vaddr{font-size:12px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
   .vaddr-txt.none{font-style:italic}
   .vaddr .lnk{margin-left:4px}
+  .vaddr .ndoc-spin{width:10px;height:10px;border-width:1.5px;vertical-align:-1px}
   /* the venue dialog (#venueDialog): above the event page and #modal (z 60), below Help and Preview (z 70) */
   .vd-scrim{position:fixed;inset:0;z-index:66;background:rgba(28,27,34,.4);display:flex;align-items:flex-start;justify-content:center;padding:72px 16px 16px;overflow:auto}
   .vd-scrim[hidden]{display:none}
