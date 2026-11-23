@@ -1,6 +1,6 @@
 # 0006 — Nothing read from Eventbrite is written to Coda (D4)
 
-**Date:** Nov 2026 (PR #35) · **Status:** in force
+**Date:** Nov 2026 (PR #35) · **Status:** superseded by [0009](0009-eventbrite-edits-flow-into-plan.md)
 
 ## Decision
 

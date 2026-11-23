@@ -4,7 +4,7 @@ import {
   slotRemaining, normNeededQty, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
-  isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells, urlOf, memberEventbriteUrl,
+  isApprovedUpcoming, stripRich, plain, slimPeopleRows, friendlyName, claimUpdateCells, urlOf, memberEventbriteUrl, gatherSnapshot,
 } from '../src/gather.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, PEOPLE_COLS } from '../src/coda-columns.js';
 
@@ -393,4 +393,25 @@ test('PRIVACY: projectEventForMember never emits an email key anywhere in the pr
     if (o && typeof o === 'object') for (const k of Object.keys(o)) { assert.ok(!/email/i.test(k), `email-ish key at ${path}.${k}`); walk(o[k], `${path}.${k}`); }
   };
   walk(proj);
+});
+
+test('gatherSnapshot keeps upcoming published/approved events with their slots and claims only', () => {
+  const today = '2026-11-20';
+  const ev = (id, v) => ({ id, values: v });
+  const events = [
+    ev('past', { [PLANNING_COLS.published]: true, [PLANNING_COLS.date]: '2026-01-01' }),
+    ev('draft', { [PLANNING_COLS.status]: 'Draft', [PLANNING_COLS.date]: '2027-01-01' }),
+    ev('live', { [PLANNING_COLS.published]: true, [PLANNING_COLS.date]: '2027-01-01' }),
+    ev('appr', { [PLANNING_COLS.status]: 'Approved', [PLANNING_COLS.date]: '2027-02-01' }),
+  ];
+  const slot = (id, e) => ({ id, values: { [SLOT_COLS.event]: { rowId: e, name: e } } });
+  const claim = (id, s) => ({ id, values: { [CLAIM_COLS.slot]: { rowId: s, name: s } } });
+  const snap = gatherSnapshot(events, [slot('s1', 'live'), slot('s2', 'live'), slot('sp', 'past'), slot('sd', 'draft')],
+    [claim('c1', 's1'), claim('cp', 'sp')], today);
+  assert.deepEqual(snap.events.map((e) => e.id), ['live', 'appr']);
+  assert.deepEqual(Object.keys(snap.slotsByEvent), ['live']);
+  assert.deepEqual(snap.slotsByEvent.live.map((s) => s.id), ['s1', 's2']);
+  assert.deepEqual(Object.keys(snap.claimsBySlot), ['s1']);
+  assert.deepEqual(snap.claimsBySlot.s1.map((c) => c.id), ['c1']);
+  assert.deepEqual(JSON.parse(JSON.stringify(snap)), snap);
 });

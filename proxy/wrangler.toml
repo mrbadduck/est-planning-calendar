@@ -31,8 +31,15 @@ EVENTBRITE_AREA_CITY = "Nashville"          # coarse public city (registrants-on
 EVENTBRITE_AREA_REGION = "TN"               # coarse public region/state
 CODA_PUBLISH_LOG_TABLE = "grid-CJNl0A1OGZ"  # Publish Log table — append-only audit of publish attempts
 CODA_FEEDBACK_TABLE = "grid-pP5rwauO2j"     # Roadmap Feedback table — votable ideas board
+EB_SYNC_MODE = "off"                        # Eventbrite -> plan sync (webhook + 15-minute sweep): off | live
 
 # Secrets are NOT stored here. Set them once with:
 #   npx wrangler secret put CODA_API_TOKEN     # a READ+WRITE, doc-scoped token (Plan 2b)
 #   npx wrangler secret put EVENTBRITE_TOKEN   # Eventbrite private token (publish-out)
 #   npx wrangler secret put APP_KEY            # optional, unused in the phased plan
+#   npx wrangler secret put EB_WEBHOOK_SECRET  # path segment of POST /webhooks/eventbrite/<secret> (Eventbrite webhooks are unsigned)
+
+# Eventbrite sweep (runSweep in src/eb-sync-run.js) every 15 minutes, so events made
+# directly on Eventbrite import promptly (the webhook leaves new events to it).
+[triggers]
+crons = ["*/15 * * * *"]

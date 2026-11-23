@@ -74,6 +74,14 @@ App live at `plan.eastsidetribe.org` (Netlify) → Worker
     layer-toggle persistence. Consider a 2-token split (read-only doc token +
     planning-write token) to tighten the Worker's write scope.
 11. **(Optional) Embed** inside Mission Control — validate `web/embed-test/` first.
+12. **Non-Eventbrite registration path** (Eric, 2026-11-22): at publish, a lead picks
+    "On Eventbrite" or "Somewhere else" and gives the URL people register at
+    (`External registration URL`); gather links "Register" there, and gCal's
+    registration line uses it.
+13. **Banner image** (Eric, 2026-11-22): upload a banner in plan and push it to
+    Eventbrite as the listing image; a plain plan-owned `Banner image` column.
+14. **After-event follow-up** (Eric, 2026-11-22): leads answer a few questions about the
+    event, record attendee feedback and reactions, and upload photos.
 
 
 ## Open decisions

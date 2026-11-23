@@ -76,6 +76,10 @@ the sixth step the current one.
 | published line | `footerModel` → `LIVE_STATUS_TEXT`, `input.liveStatus` (`_ebStatus`) | "Published · registration open / happening now / registration closed / canceled on Eventbrite", from Eventbrite's live status; before it loads, closed once the date has passed. |
 | **pushed snapshot** | Coda `Last EB pushed values` → `ev.pushed` | What the Worker last sent to Eventbrite. Written only by the Worker. Field sync status compares the form with it (`syncStatus`, `unpushedFields`), never with live Eventbrite data (D4). |
 | Last EB push at / Last published at | Coda columns of those names | ISO text, written by the Worker. |
+| **Source** | Coda `Source` (Plan / Eventbrite / Backfill; blank = Plan) → `ev.origin` (not `ev.source`, which is `'planning'`) | Where the row came from. The app writes `Plan` on a new event and never changes it. |
+| imported event | `ev.origin === 'Eventbrite'` | An event made directly on Eventbrite that the Worker copied into planning. Shows "Imported from Eventbrite" where the creator's name would be. |
+| flow-in | Worker, spec §5.3; decision 0009 | A change made on Eventbrite copied onto the planning row, field by field. Plan's unpushed edits win. |
+| Last from Eventbrite | Coda `Last from Eventbrite` → `ev.lastFromEb` `{at, fields}` | JSON written by the Worker on each flow-in. The panel says "Updated from Eventbrite: …" while `at` is later than `Last EB push at` (`PageRules.updatedFromEbLine`). |
 
 ## Saving
 

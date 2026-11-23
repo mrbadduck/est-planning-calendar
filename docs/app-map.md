@@ -88,7 +88,7 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
 `venue-address.js` **[node-tested]** (`VenueAddress`: pure structured-address rules for venues, also imported by the Worker, so no DOM), `listing-html.js` **[node-tested]** (description sanitizer), `listing-preview.js`
 **[node-tested]** (preview model before Eventbrite), `coda-applied.js` **[node-tested]**
 (honest-save poller), `save-queue.js` **[node-tested]** (per-event save queue),
-`editor-head.js` **[node-tested]** (header meta), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval).
+`editor-head.js` **[node-tested]** (header meta), `page-rules.js` **[node-tested]** (section aliases, step notes, needs-approval, the "Updated from Eventbrite" line). `planningRowToEvent` also reads `Source` → `ev.origin` and `Last from Eventbrite` → `ev.lastFromEb` (both Worker-written; `eventToCodaCells` writes only `Source = Plan` on a new event).
 
 1. **`util.js`** — pure helpers: `esc`, `cap`, date/time formatting, `linkify`, `cssColor`.
 2. **`data.js`** — reference lists, local cache, the Coda seam, `CodaSource`.

@@ -125,7 +125,7 @@ function statusPanelHTML(withPill){
     + `<ol class="sp-steps" id="edStatus"></ol><div class="sp-checks" id="edChecks"></div>`
     + `<button type="button" class="sp-more" id="edMore" aria-expanded="false" aria-controls="edStatus"></button>`
     + `<div class="sp-acts"><div class="edacts" id="edActs"></div><div class="kbwrap" id="edMenu"></div></div>`
-    + `<p class="sp-sub" id="edSub"></p><div class="sp-bars" id="edBars"></div><div class="sp-listing" id="listingCard"></div></section>`
+    + `<p class="sp-sub" id="edSub"></p><p class="sp-sub" id="edFromEb"></p><div class="sp-bars" id="edBars"></div><div class="sp-listing" id="listingCard"></div></section>`
     + (withPill ? `<span class="savestat clean" id="saveStatus" role="status"></span>` : '');
 }
 // Listing's red dot: a readiness item for the next step is a field on Listing.
@@ -137,6 +137,7 @@ function renderStatusPanel(){
   paintInner(document.getElementById('edStatus'), checklistStepsHTML(m, m.stepNotes));
   paintInner(document.getElementById('edChecks'), nextStepHTML(m));
   paintInner(document.getElementById('edSub'), subHTML(m));
+  paintInner(document.getElementById('edFromEb'), esc(PageRules.updatedFromEbLine(editing, fmtDate)));   // empty until Eventbrite changes something
   const cur=m.steps.findIndex(s=>s.state==='current');   // phones' toggle; none when the stage has no step (Cancelled)
   paintInner(document.getElementById('edMore'), cur<0 ? '' : `Step ${cur+1} of ${m.steps.length} · see all steps <span class="sp-chev" aria-hidden="true">▾</span>`);
   const bEl=document.getElementById('epBadges'); if(bEl) paintInner(bEl, badgesHTML(editing));   // the badge follows the same stage

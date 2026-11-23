@@ -8,3 +8,5 @@ ALLOW_WRITES=true
 FIREBASE_PROJECT_ID=est-planning-calendar
 EVENTBRITE_TOKEN="eb-private-token"
 # APP_KEY=optional-shared-secret   # unused in the phased plan
+# Must match the Worker secret; used by scripts/eb-webhook.mjs
+EB_WEBHOOK_SECRET=paste-a-long-random-string

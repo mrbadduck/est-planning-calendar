@@ -2,8 +2,9 @@
 import { normText } from './eventbrite.js';
 import '../../web/listing-readiness.js';   // globalThis.ListingRules (the app's shared rules)
 import '../../web/venue-address.js';       // globalThis.VenueAddress (the app's shared address rules)
-import { VENUE_COLS } from './coda-columns.js';
+import { VENUE_COLS, PLANNING_COLS } from './coda-columns.js';
 import { venueFromRow } from './venues.js';
+import { ebToFields, ebSnapshot } from './eb-sync.js';
 
 // Map Coda's GET /mutationStatus/:id response to our route's response.
 export function mutationResult(status, body) {
@@ -60,6 +61,32 @@ export function pushedValues(ev, { ticketClassId } = {}) {
     addressVisibility: ev.addressVisibility || '',
     ticketClassId: ticketClassId || '',
   });
+}
+
+// Snapshot after a push: Eventbrite's own normalized values (so its HTML rewriting
+// is not read as an edit later). `fields` null (re-read failed) falls back to what we sent.
+export function pushSnapshot(ev, fields, ticketClassId) {
+  if (!fields) return pushedValues(ev, { ticketClassId });
+  // normText collapses whitespace, which the app's trim-only compare would read as an edit:
+  // when only whitespace differs, keep the form's own text.
+  const keepForm = (k) => (normText(ev[k]) === normText(fields[k]) ? { [k]: ev[k] } : {});
+  fields = { ...fields, ...keepForm('title'), ...keepForm('publicDescription') };
+  return ebSnapshot(fields, { publicSummary: ev.publicSummary, venueName: ev.venueName, addressVisibility: ev.addressVisibility, ticketClassId });
+}
+
+// Re-read the event and its structured content, then build the snapshot. A failed
+// re-read must never fail the push: any error or null fields falls back.
+export async function snapshotAfterPush(ebFetch, ebId, ev, ticketClassId) {
+  try {
+    const [r, sc] = await Promise.all([
+      ebFetch(`/events/${ebId}/?expand=venue,ticket_classes`),
+      ebFetch(`/events/${ebId}/structured_content/`),
+    ]);
+    const fields = r && r.ok && sc && sc.ok ? ebToFields(r.body, sc.body) : null;
+    return pushSnapshot(ev, fields, ticketClassId);
+  } catch (_) {
+    return pushSnapshot(ev, null, ticketClassId);
+  }
 }
 
 // The publish route's 200 body. `pushed` is the snapshot just written to Last EB
@@ -156,6 +183,16 @@ export function cancelPlan({ status, sold } = {}) {
   if (status === 'live' || status === 'started') return { action: 'unpublish' };
   if (status === 'draft') return { action: 'delete' };
   return { action: 'none' };
+}
+
+// Cancel / unpublish (C1): the snapshot's ebStatus becomes what Eventbrite now holds,
+// so the sync doesn't read the route's own change as an Eventbrite edit. `V` is the
+// name-keyed row; a blank ebStatus (deleted draft) or no readable snapshot: no cell.
+export function snapshotStatusCells(V, ebStatus) {
+  if (!ebStatus) return [];
+  let p = null; try { p = JSON.parse((V || {})['Last EB pushed values']); } catch (_) {}
+  if (!p || typeof p !== 'object') return [];
+  return [{ column: PLANNING_COLS.lastEbPushedValues, value: JSON.stringify({ ...p, ebStatus }) }];
 }
 
 // Coda checkbox cell (simpleWithArrays) -> boolean.

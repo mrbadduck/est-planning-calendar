@@ -11,9 +11,10 @@ that supersedes it rather than editing history.
 | [0003](0003-dns-at-hover.md) | DNS stays at Hover; deploy standalone on Netlify | Aug 2026 |
 | [0004](0004-phased-auth.md) | Auth is phased: read-only first, then Firebase sign-in + role gate for writes | Aug 2026 |
 | [0005](0005-saved-means-applied.md) | D3: "Saved" means Coda applied the write | Nov 2026 |
-| [0006](0006-nothing-from-eventbrite-written-back.md) | D4: nothing read from Eventbrite is written to Coda | Nov 2026 |
+| [0006](0006-nothing-from-eventbrite-written-back.md) | D4: nothing read from Eventbrite is written to Coda (superseded by 0009) | Nov 2026 |
 | [0007](0007-no-silent-fallbacks.md) | D7: no silent fallbacks | Nov 2026 |
 | [0008](0008-coda-apply-latency.md) | Coda applies writes ~28 s after accepting them, whatever the doc size | Nov 2026 |
+| [0009](0009-eventbrite-edits-flow-into-plan.md) | Eventbrite edits flow into plan, field by field (supersedes 0006) | Nov 2026 |
 
 Smaller rules from PR #35 (D1 stable containers, D2 one `ctx`, D5 one shared rules
 module, D6 footer model, D8 no mid-push confirm) are in

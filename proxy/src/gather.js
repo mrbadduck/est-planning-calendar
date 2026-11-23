@@ -318,3 +318,23 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
     }).sort((a, b) => a.sortOrder - b.sortOrder),
   };
 }
+
+// Gather's cached snapshot: only the upcoming published/approved planning rows, their
+// slots and those slots' claims, rich cells kept as read (so projectEventForMember is
+// unchanged). Plain objects keyed by row id so it survives JSON in KV.
+export function gatherSnapshot(eventRows, slotRows, claimRows, todayIso) {
+  const events = eventRows.filter((r) => isPublishedUpcoming(r, PLANNING_COLS, todayIso) || isApprovedUpcoming(r, PLANNING_COLS, todayIso));
+  const keep = new Set(events.map((r) => r.id));
+  const slotsByEvent = {}, claimsBySlot = {}, keptSlots = new Set();
+  for (const s of slotRows) {
+    const eid = relId(s.values[SLOT_COLS.event]);
+    if (!eid || !keep.has(eid)) continue;
+    (slotsByEvent[eid] = slotsByEvent[eid] || []).push(s);
+    keptSlots.add(s.id);
+  }
+  for (const c of claimRows) {
+    const sid = relId(c.values[CLAIM_COLS.slot]);
+    if (sid && keptSlots.has(sid)) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
+  }
+  return { events, slotsByEvent, claimsBySlot };
+}

@@ -172,6 +172,8 @@ function eventToCodaCells(e){
     {column:'Address visibility', value:e.addressVisibility||''},   // blank = not chosen yet (Eventbrite treats it as Public)
     {column:'Public summary',     value:e.publicSummary||''},
     {column:'Public description', value:e.publicDescription||''},
+    // New events only: `Source` = Plan. Never on update (Eventbrite imports own theirs), never `Last from Eventbrite`.
+    ...(e.id ? [] : [{column:'Source', value:'Plan'}]),
   ];
 }
 
@@ -227,6 +229,11 @@ function _pushedSnapshot(raw){
   if(!raw || typeof raw!=='string') return null;
   try{ const p=JSON.parse(raw); return (p && typeof p==='object' && !Array.isArray(p)) ? p : null; }catch(_){ return null; }
 }
+// `Last from Eventbrite` is Worker-written JSON {at, fields}; anything else is null.
+function _lastFromEb(raw){
+  if(!raw || typeof raw!=='string') return null;
+  try{ const p=JSON.parse(raw); return (p && typeof p.at==='string' && Array.isArray(p.fields)) ? {at:p.at, fields:p.fields.filter(f=>typeof f==='string')} : null; }catch(_){ return null; }
+}
 function planningRowToEvent(r){
   const v = r.values || {};
   const venueName = _asList(v['Venue'])[0] || '';
@@ -252,6 +259,9 @@ function planningRowToEvent(r){
     publishStatus: v['Publish status'] || 'Unpublished',
     eventbriteId: v['Eventbrite Event ID'] || '',
     lastPublishError: v['Last publish error'] || '',
+    // `origin` (the Coda column `Source`: Plan / Eventbrite / Backfill; blank = Plan). Not `source`, which is already 'planning' on every event.
+    origin: _asList(v['Source'])[0] || 'Plan',
+    lastFromEb: _lastFromEb(v['Last from Eventbrite']),   // read-only; eventToCodaCells never writes it
     pushed: _pushedSnapshot(v['Last EB pushed values']),   // what the Worker last sent to Eventbrite; read-only (never written by the app)
     planningNotes: v['Planning Notes'] || '',
     // proxy injects notesDocUrl resolved by the stable column id (rename-proof);

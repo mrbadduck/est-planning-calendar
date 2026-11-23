@@ -114,6 +114,38 @@ render — that proves the full path (browser → Pages → Worker → Superhuma
    prior Google Sign-In setup) before allowing any `POST/PUT/DELETE`. Swap the
    Coda token to a **read+write** doc-scoped token.
 
+## Eventbrite sync (webhook + 15-minute sweep)
+
+The Worker imports and refreshes events from Eventbrite into the planning table. It ships
+**off**; turning it on is a deliberate step.
+
+- **Secret `EB_WEBHOOK_SECRET`**: a long random string, the last segment of the webhook URL
+  (`POST /webhooks/eventbrite/<secret>`; a wrong secret gets a 404). Set it with
+  `cd proxy && npx wrangler secret put EB_WEBHOOK_SECRET`, and put the same value in
+  `proxy/.dev.vars` for the script below.
+- **Var `EB_SYNC_MODE`** (`proxy/wrangler.toml`): `off` (default) means the webhook and the sweep do
+  nothing; `live` means they read Eventbrite and write Coda (imports and changes).
+- **Cron**: `*/15 * * * *` runs the sweep, which catches anything a webhook missed. In `off` mode it is a no-op.
+- **Webhook script**: `node scripts/eb-webhook.mjs` lists the org's webhooks and prints what it would
+  create (GET only). `node scripts/eb-webhook.mjs --apply` registers
+  `event.created,event.published,event.updated,event.unpublished` to the Worker URL; it refuses if
+  `EB_WEBHOOK_SECRET` is missing or a webhook to the Worker already exists. Tokens come from
+  `proxy/.dev.vars` and are never printed; the path secret is masked. **Run the dry run first.**
+  The create route (`POST /v3/organizations/{org}/webhooks/`) is unconfirmed: if `--apply` gets a
+  4xx, nothing was created (the script prints Eventbrite's `error_description`); the manual
+  fallback is `POST /v3/webhooks/` with the same body.
+- **Before going live**: the Coda select `Publish status` needs the option `Removed from Eventbrite`.
+- **Known limit**: the sweep reads at most 1,200 planning rows. Past that, a run does no imports
+  (rows past the cap would look unlinked and be duplicated); changes to the rows it read still flow
+  in, and the console and one Publish Log record say why. Fix that before the backfill.
+
+**Switch on:** merge (CI deploys with `EB_SYNC_MODE=off`), `wrangler secret put EB_WEBHOOK_SECRET`,
+run the script with `--apply`, set `EB_SYNC_MODE = "live"` in `proxy/wrangler.toml` and deploy.
+Then a **one-push smoke test**: push one event from plan, wait ~60 s, and check that its row's
+`Last from Eventbrite` stays empty and the listing markers show "matches Eventbrite".
+**Switch off in an emergency:** set `EB_SYNC_MODE = "off"` and redeploy. (Optionally delete the
+webhook in Eventbrite too; the Worker ignores it while off.)
+
 ## Secrets checklist
 
 - Superhuman Docs token: **Worker secret only** (`CODA_API_TOKEN`) — never committed,
@@ -122,6 +154,7 @@ render — that proves the full path (browser → Pages → Worker → Superhuma
 - Phase 2: the Firebase web config and `FIREBASE_PROJECT_ID` (`est-planning-calendar`)
   ship in the app / Worker var (public); the **allowlist** and the read+write Coda
   token live in the Worker.
+- `EB_WEBHOOK_SECRET`: Worker secret (see Eventbrite sync above).
 - `CLOUDFLARE_API_TOKEN`: GitHub repo secret (for CI proxy deploys only).
 - The legacy optional `APP_KEY` shared-secret path is superseded by the phased model
   above and is not used for the standalone deploy.

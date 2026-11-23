@@ -248,6 +248,16 @@ Until these are done, the button can't be clicked. **Status & next step** lists 
 
 Every listing has free General Admission tickets. Paid tickets and discount codes are coming later.
 
+## Events made on Eventbrite {#eventbrite-events}
+
+You can also make an event directly on Eventbrite. It shows up in the calendar and in gather within about 10 to 25 minutes, with **Imported from Eventbrite** where the name of the person who made it would be. After that, you manage it here like any other event.
+
+When someone changes an event on Eventbrite, the event here usually follows within a minute or so (up to about 25 minutes if you updated the listing from here just before), and **Status & next step** says **Updated from Eventbrite** and lists what changed: title, date, start or end time, capacity, description, venue or status.
+
+If you changed the same thing here and haven't clicked [[Update draft]] or [[Update listing]] yet, your version stays, and **Status & next step** says *Someone changed this listing on Eventbrite since your last update. Updating will replace their changes.* Check it before you update.
+
+The summary and the tickets are never copied from Eventbrite. Neither is [[Address on listing]], with one exception: when someone moves the event to a different venue on Eventbrite, that venue's own setting comes with it. Otherwise, set them here.
+
 ## Change or take down a listing {#publish-changes}
 
 **To change it,** edit the fields as usual. Each changed field says **Not on Eventbrite yet** until you click [[Update draft]] (private draft) or [[Update listing]] (published). If you leave the event first, with [[← Calendar]] or Back, you're asked: [[Keep editing]] stays, and [[Close anyway]] leaves the changes off Eventbrite.

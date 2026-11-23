@@ -305,3 +305,53 @@ test('venueRefItem: reads by column id; hasAddress from structured Street+City, 
   assert.equal(venueRefItem({ id: 'i-5', name: 'L', values: { [C.address]: '9 Legacy St, Nashville, TN' } }).hasAddress, true);
   assert.equal(venueRefItem({ id: 'i-6', name: 'S', values: { [C.street]: '9 Only St' } }).hasAddress, false, 'street without city is not an address');
 });
+
+import { pushSnapshot, snapshotAfterPush } from '../src/publish.js';
+
+test('pushSnapshot: stores Eventbrite normalized values, keeps summary/venue/visibility/ticket', () => {
+  const ev = { title: 'T', publicSummary: 'Sum', publicDescription: 'Old text', venueName: 'Home', addressVisibility: 'Registrants only', capacity: 40 };
+  const fields = { title: 'T', date: '2026-12-05', start: '18:30', end: '19:45', capacity: 40, publicDescription: 'Hi there', changed: 'c1', ebVenueId: 'v1', ebStatus: 'live' };
+  const s = JSON.parse(pushSnapshot(ev, fields, '456'));
+  assert.equal(s.publicDescription, 'Hi there');
+  assert.equal(s.publicSummary, 'Sum');
+  assert.equal(s.venueName, 'Home');
+  assert.equal(s.addressVisibility, 'Registrants only');
+  assert.equal(s.ticketClassId, '456');
+  assert.equal(s.ebStatus, 'live');
+});
+test('pushSnapshot: null fields falls back to pushedValues', () => {
+  const ev = { title: 'T', date: '2026-12-05', capacity: 5, publicDescription: 'x' };
+  assert.equal(pushSnapshot(ev, null, '9'), pushedValues(ev, { ticketClassId: '9' }));
+});
+test('snapshotAfterPush: failed re-read falls back, never throws', async () => {
+  const ev = { title: 'T', capacity: 5 };
+  const fallback = pushedValues(ev, { ticketClassId: '9' });
+  assert.equal(await snapshotAfterPush(async () => ({ ok: false }), 'e1', ev, '9'), fallback);
+  assert.equal(await snapshotAfterPush(async () => { throw new Error('boom'); }, 'e1', ev, '9'), fallback);
+  const ok = { ok: true, body: { name: { text: 'T' }, start: { local: '2026-12-05T18:30:00' }, end: { local: '2026-12-05T19:45:00' }, capacity: 5, status: 'live', changed: 'c', description: { html: '' } } };
+  const s = JSON.parse(await snapshotAfterPush(async () => ok, 'e1', ev, '9'));
+  assert.equal(s.ebStatus, 'live');
+});
+
+test('pushSnapshot: whitespace-only differences keep the form text', () => {
+  const f = (o) => ({ title: 'A B', date: '2026-12-05', start: '18:30', end: '19:45', capacity: 5, publicDescription: 'One Two', ...o });
+  let s = JSON.parse(pushSnapshot({ title: 'A  B', publicDescription: 'One\n\nTwo' }, f(), '1'));
+  assert.equal(s.publicDescription, 'One\n\nTwo');
+  assert.equal(s.title, 'A  B');
+});
+test('pushSnapshot: a genuinely different Eventbrite description is stored', () => {
+  const s = JSON.parse(pushSnapshot({ title: 'T', publicDescription: 'One\n\nTwo' }, { title: 'T', publicDescription: 'Changed', capacity: 5 }, '1'));
+  assert.equal(s.publicDescription, 'Changed');
+});
+
+import { snapshotStatusCells } from '../src/publish.js';
+import { PLANNING_COLS as PC } from '../src/coda-columns.js';
+test('C1 snapshotStatusCells: the snapshot takes the status Eventbrite now holds', () => {
+  const V = { 'Last EB pushed values': JSON.stringify({ title: 'T', ebStatus: 'live', ebChanged: 'c' }) };
+  const cells = snapshotStatusCells(V, 'draft');
+  assert.equal(cells.length, 1); assert.equal(cells[0].column, PC.lastEbPushedValues);
+  assert.deepEqual(JSON.parse(cells[0].value), { title: 'T', ebStatus: 'draft', ebChanged: 'c' });
+  assert.deepEqual(snapshotStatusCells(V, ''), [], 'a deleted draft: left as is');
+  assert.deepEqual(snapshotStatusCells({}, 'draft'), [], 'no snapshot: nothing to update');
+  assert.deepEqual(snapshotStatusCells({ 'Last EB pushed values': 'nope' }, 'draft'), []);
+});
