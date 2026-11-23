@@ -63,11 +63,29 @@ test('record then read returns the entry as pending; status says pending; alarm 
   assert.deepEqual(await core.read('grid-Other'), []);
 });
 
-test('record leaves an alarm that is already set alone', async () => {
-  const { core, storage } = setup();
-  storage.alarm = 42;
+test('record leaves an alarm that is already sooner than now + 5 s alone', async () => {
+  const { core, storage, clock } = setup();
+  storage.alarm = clock.t + 1_000;
   await core.record([entry()]);
-  assert.equal(storage.alarm, 42);
+  assert.equal(storage.alarm, clock.t + 1_000);
+});
+
+test('record pulls a far-off cleanup alarm forward so a new write is polled in 5 s', async () => {
+  const { core, coda, clock, storage, runAlarm } = setup();
+  await core.record([entry()]);
+  coda.completed.add('req-1');
+  clock.t += 6_000;
+  await runAlarm();                                   // req-1 applied; alarm re-armed at the deletion time
+  assert.equal(await core.status('req-1'), 'applied');
+  assert.equal(storage.alarm, clock.t + KEEP_MS);
+  await core.record([entry({ requestId: 'req-2', rowId: 'i-2', writtenAt: clock.t })]);
+  assert.equal(storage.alarm, clock.t + ALARM_EVERY_MS, 'pulled forward to now + ALARM_EVERY_MS');
+  coda.completed.add('req-2');
+  clock.t += ALARM_EVERY_MS;
+  const before = coda.calls.length;
+  await runAlarm();
+  assert.ok(coda.calls.slice(before).some((c) => c.url.endsWith('/req-2')), 'the next alarm polls the new write');
+  assert.equal(await core.status('req-2'), 'applied');
 });
 
 test('an insert is one entry per cell; a delete has key ""; read returns them all', async () => {
