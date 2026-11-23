@@ -12,6 +12,10 @@
 #   4. web/listing-readiness.js and web/venue-address.js stay free of browser globals — the Worker bundles them
 #   5. no outerHTML assignments in web/ (decision D1: stable containers, inner HTML only)
 #   6. web/*.js files stay under MAX_LINES (small, focused files)
+#   7. the write overlay's paths (decision 0012): every Worker write to the planning, slots,
+#      claims and venues tables goes through codaWrite, every read through overlayRead
+#      (scripts/check-coda-paths.mjs, with its allowlist and reasons; test:
+#      proxy/test/check-coda-paths.test.js)
 #
 # Unit tests (cd proxy && npm test) are not here: they take longer and need the
 # machine-wide test lock. Run them for any change to proxy/ or the shared modules.
@@ -60,6 +64,10 @@ for f in web/*.js; do
     (( allowed )) || add "$f is $n lines (ceiling $MAX_LINES): split it along a seam, see docs/app-map.md"
   fi
 done
+
+# 7. Overlay paths: no direct Coda write or read of the four tables outside the helpers.
+out=$(node scripts/check-coda-paths.mjs 2>&1) || add "direct Coda call outside codaWrite/overlayRead (decision 0012):
+$out"
 
 if (( ${#problems[@]} == 0 )); then
   (( hook )) || echo "check.sh: all checks passed"
