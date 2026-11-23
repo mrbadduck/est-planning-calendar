@@ -444,6 +444,24 @@ test('gather: a slot inserted only in the overlay appears under its event', asyn
   codaRoute = null;
 });
 
+test('gather: my claim still being inserted reads pending: true on /events/:id until Coda applies it', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { d, e } = gLive();
+  await call(e, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot' } });
+  let ev = await call(e, 'GET', '/events/i-pub', { email: 'mem@x.org' });
+  const mine = (b) => slotOf(b).claims.filter((x) => x.mine);
+  assert.deepEqual(mine(ev.body).map((x) => [x.claimId, x.pending]).sort(), [['i-new1', true], ['i-old', undefined]]);
+  const other = await call(e, 'GET', '/events/i-pub', { email: 'lead@x.org' });
+  assert.ok(slotOf(other.body).claims.every((x) => !('pending' in x)), 'only the caller\'s own claim carries it');
+  const q = await d.core.storage.get('q:req-1');
+  await d.core.setState('req-1', q, 'applied', Date.now());
+  c.t['grid-claims'].set('i-new1', { id: 'i-new1', values: { [CC.slot]: [{ rowId: 'i-slot', name: 'Mains' }], [CC.member]: [{ rowId: 'i-mem', name: 'i-mem' }], [CC.qty]: 1 } });
+  await e.CACHE.delete('gather-snap-v2');
+  ev = await call(e, 'GET', '/events/i-pub', { email: 'mem@x.org' });
+  assert.deepEqual(mine(ev.body).map((x) => [x.claimId, x.pending]).sort(), [['i-new1', undefined], ['i-old', undefined]]);
+  codaRoute = null;
+});
+
 const STILL_SAVING_CLAIM = 'Your sign-up is still being saved. Try again in a few seconds.';
 test('/claims/:id on the caller\'s pending insert answers 409; on a claim Coda has, it proceeds', async () => {
   skew = 0; const c = gatherCoda(); codaRoute = c.route;

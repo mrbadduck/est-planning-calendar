@@ -33,6 +33,9 @@
 // is unknown or whose value can't be converted keeps Coda's value for that cell only (the
 // row's other overlaid cells still merge) and marks the row stale. `tableId`, when given,
 // ignores entries for other tables.
+// Returns { rows, stale, pendingInserts }: pendingInserts are the rows the merge added from
+// insert entries Coda hasn't applied yet (not in Coda's rows, entry not `applied`); gather
+// marks the caller's own such claim `pending` (its edit/remove would answer 409).
 
 import { APPLY_MARGIN_MS, FAIL_AFTER_MS } from './overlay-do.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from './coda-columns.js';
@@ -124,11 +127,13 @@ export function mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKi
   const have = new Set((rows || []).map((r) => r.id));
   const deleted = new Set(), inserted = [], cells = new Map();   // rowId -> Map(readerKey -> {entry, kind})
   const untranslated = new Set();   // rows whose overlay is dropped whole
+  const unapplied = new Set();      // inserted rows Coda hasn't applied yet
   for (const e of live) {
     if (e.op === 'delete') { deleted.add(e.rowId); continue; }
     if (e.op === 'insert') {
       if (have.has(e.rowId)) continue;   // Coda already has the row: its copy wins
       if (!inserted.includes(e.rowId)) inserted.push(e.rowId);
+      if (e.state !== 'applied') unapplied.add(e.rowId);
     }
     const colId = e.keying === 'id' ? e.key : colMap && colMap.nameToId && colMap.nameToId[e.key];
     const colName = e.keying === 'name' ? e.key : colMap && colMap.idToName && colMap.idToName[e.key];
@@ -154,8 +159,11 @@ export function mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKi
   };
   const out = (rows || []).filter((r) => !deleted.has(r.id))
     .map((r) => (untranslated.has(r.id) ? r : overlay(r)));
+  const pendingInserts = [];
   for (const id of inserted) {
-    if (!have.has(id) && !deleted.has(id) && !untranslated.has(id)) out.push(overlay({ id, values: {} }));
+    if (have.has(id) || deleted.has(id) || untranslated.has(id)) continue;
+    out.push(overlay({ id, values: {} }));
+    if (unapplied.has(id)) pendingInserts.push(id);
   }
-  return { rows: out, stale: [...stale] };
+  return { rows: out, stale: [...stale], pendingInserts };
 }

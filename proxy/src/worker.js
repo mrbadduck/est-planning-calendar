@@ -34,7 +34,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, overlayOn, readAllRows, ebFetch, readEbPending, writeEbPending, logPublish, overlayStatus, planningColMap, passWrite, codaWrite, mergedRows, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, overlayOn, readAllRows, ebFetch, readEbPending, writeEbPending, logPublish, overlayStatus, planningColMap, passWrite, codaWrite, mergedRows, mergedRead, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -1415,7 +1415,7 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
     || (opts.previewer && isApprovedUpcoming(r, PLANNING_COLS, today)));
   if (opts.onlyId) rows = rows.filter((r) => r.id === opts.onlyId);
   const items = rows.map((r) => projectEventForMember(r, slotsByEvent[r.id] || [], claimsBySlot, callerName, {
-    includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf, anonymous: !!opts.anonymous,
+    includeClaimants: !!opts.includeClaimants, callerId, nameOf: opts.nameOf, anonymous: !!opts.anonymous, pendingClaims: g.pendingClaims,
     preview: !!opts.previewer && !isPublishedUpcoming(r, PLANNING_COLS, today),
   }));
   items.sort((a, b) => String(a.date || a.windowStart || '').localeCompare(String(b.date || b.windowStart || '')));
@@ -1454,14 +1454,15 @@ async function buildMyClaims(base, docId, tableId, env, auth, personId) {
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
 }
 
-// The three gather lists (raw rich rows read at `at`) with the overlay merged.
+// The three gather lists (raw rich rows read at `at`) with the overlay merged. pendingClaims:
+// claim ids the overlay added that Coda hasn't applied yet (gather shows the caller's as Saving…).
 async function gatherRows(env, base, docId, tableId, auth, raw, at) {
   const [events, slots, claims] = await Promise.all([
     mergedRows(env, tableId, raw.events, at, { shape: 'rich', planning: { base, docId, auth } }),
     mergedRows(env, env.CODA_SLOTS_TABLE, raw.slots, at, { shape: 'rich', want: [] }),
-    mergedRows(env, env.CODA_CLAIMS_TABLE, raw.claims, at, { shape: 'rich', want: ['people'] }),
+    mergedRead(env, env.CODA_CLAIMS_TABLE, raw.claims, at, { shape: 'rich', want: ['people'] }),
   ]);
-  return { events, slots, claims };
+  return { events, slots, claims: claims.rows, pendingClaims: new Set(claims.pendingInserts) };
 }
 
 // --- Eventbrite v3 I/O client -------------------------------------------------

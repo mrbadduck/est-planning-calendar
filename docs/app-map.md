@@ -366,7 +366,13 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   through `codaWrite`: `gatherWrite` busts the event snapshots once when overlaid, and again
   after ~28 s when not (`OVERLAY_MODE` off or the overlay down). Editing or removing a sign-up
   whose insert is still pending answers 409 *Your sign-up is still being saved. Try again in
-  a few seconds.* (`readClaimForWrite`). `scripts/check.sh` rule 7 flags a direct Coda call
+  a few seconds.* (`readClaimForWrite`), the backstop: gather already knows. `mergeRows` returns
+  `pendingInserts` (rows it added from inserts Coda hasn't applied), `gatherRows` passes the
+  claims' as `pendingClaims`, and the caller's own such claim reads `pending: true`. gather
+  shows it signed up with **Remove my sign-up** disabled (spinner, *Saving…*) and re-fetches the
+  event every 4 s while any is pending (2 min per new sign-up, stops when the member leaves);
+  one that vanishes toasts *Your sign-up didn’t save — try again*. Repaints keep what the
+  member is typing into another slot's form. `scripts/check.sh` rule 7 flags a direct Coda call
   to the planning, slots, claims or venues tables outside the helpers; only the sync runners
   are left out.
 - **Coda `valueFormat=rich` fences text values in triple backticks** (```` ```Main dish``` ````)

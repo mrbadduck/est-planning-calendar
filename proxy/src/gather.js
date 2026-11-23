@@ -260,7 +260,8 @@ export function claimUpdateCells(body, cols) {
 // array of that slot's claim rows; `callerName` (+ opts.callerId, preferred when
 // present) drives `mineClaimed`. In the detail view (includeClaimants) each claim
 // carries `mine`, and the caller's OWN claim also carries its `claimId` (safe to
-// expose — it's the member's own row — and needed for unclaim).
+// expose — it's the member's own row — and needed for unclaim). opts.pendingClaims (a Set of
+// claim ids the overlay added but Coda hasn't applied) marks the caller's own claim `pending`.
 export function projectEventForMember(row, slots, claimsBySlot, callerName, opts = {}) {
   const callerId = opts.callerId || null;
   const v = (row && row.values) || {};
@@ -301,6 +302,7 @@ export function projectEventForMember(row, slots, claimsBySlot, callerName, opts
           mine,
         };
         if (mine && c && c.id) o.claimId = c.id;   // only the caller's own claim id is ever exposed
+        if (mine && c && c.id && opts.pendingClaims && opts.pendingClaims.has(c.id)) o.pending = true;   // still being inserted: Remove waits
         return o;
       });
       const needed = normNeededQty(sv[SLOT_COLS.neededQty]);   // number, or null = no limit

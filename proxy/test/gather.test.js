@@ -384,6 +384,23 @@ test('projectEventForMember constructs the EB url from the stored event id', () 
   assert.ok(!JSON.stringify(proj).includes('hand-pasted'));
 });
 
+test('projectEventForMember: opts.pendingClaims flags only the caller\'s own claim pending', () => {
+  const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'X' } };
+  const slots = [{ id: 'i-s1', values: { [SLOT_COLS.label]: 'Dessert', [SLOT_COLS.sortOrder]: 1 } }];
+  const claimsBySlot = { 'i-s1': [
+    { id: 'i-c1', values: { [CLAIM_COLS.member]: { rowId: 'i-me', name: 'Leah' }, [CLAIM_COLS.qty]: 1 } },
+    { id: 'i-c2', values: { [CLAIM_COLS.member]: { rowId: 'i-other', name: 'Dana' }, [CLAIM_COLS.qty]: 1 } },
+    { id: 'i-c3', values: { [CLAIM_COLS.member]: { rowId: 'i-me', name: 'Leah' }, [CLAIM_COLS.qty]: 1 } },
+  ] };
+  const proj = projectEventForMember(row, slots, claimsBySlot, 'Leah', { includeClaimants: true, callerId: 'i-me', pendingClaims: new Set(['i-c1', 'i-c2']) });
+  const [c1, c2, c3] = proj.slots[0].claims;
+  assert.equal(c1.pending, true);
+  assert.equal('pending' in c2, false, 'another member\'s pending claim says nothing (its id isn\'t theirs to see)');
+  assert.equal('pending' in c3, false);
+  const none = projectEventForMember(row, slots, claimsBySlot, 'Leah', { includeClaimants: true, callerId: 'i-me' });
+  assert.ok(none.slots[0].claims.every((c) => !('pending' in c)));
+});
+
 test('PRIVACY: projectEventForMember never emits an email key anywhere in the projection', () => {
   const row = { id: 'i-ev', values: { [PLANNING_COLS.title]: 'Potluck', [PLANNING_COLS.published]: true } };
   const slots = [{ id: 'i-s1', values: { [SLOT_COLS.label]: 'Dessert', [SLOT_COLS.kind]: 'Potluck' } }];

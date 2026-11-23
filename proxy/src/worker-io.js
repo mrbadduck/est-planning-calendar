@@ -339,8 +339,13 @@ export async function overlayHasLive(env, tableId, snapshotAt) {
 // merged keep Coda's copy for those cells and get one console line (overlayRead logs outages).
 // opts: shape ('rich' | 'id' | 'name'), planning ({base, docId, auth}: the planning table), want.
 export async function mergedRows(env, tableId, items, snapshotAt, opts = {}) {
+  return (await mergedRead(env, tableId, items, snapshotAt, opts)).rows;
+}
+// mergedRows plus the merge's pendingInserts (overlay.js): rows added from inserts Coda
+// hasn't applied yet.
+export async function mergedRead(env, tableId, items, snapshotAt, opts = {}) {
   const m = await overlayRead(env, tableId, items || [], { ...opts, snapshotAt, now: Date.now() });
   const rowsStale = m.stale.filter((x) => x !== '*');
   if (rowsStale.length) console.error(`overlay: ${tableId} ${rowsStale.length} row(s) stale (${rowsStale.slice(0, 5).join(', ')}); Coda's copy kept for their unmerged cells`);
-  return m.rows;
+  return { rows: m.rows, pendingInserts: m.pendingInserts || [] };
 }
