@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../../web/page-rules.js';
 
-const { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval, revertTransition } = globalThis.PageRules;
+const { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval, revertTransition, lateFailMsg } = globalThis.PageRules;
 
 test('sectionFromParam maps aliases and passes other ids through', () => {
   assert.equal(sectionFromParam('notes'), 'planning');
@@ -85,4 +85,14 @@ test('revertTransition puts prev back only while the event still has the status 
   assert.equal(revertTransition(later, prev, 'approved'), false);
   assert.deepEqual(later, { status: 'draft', approvedBy: 'Dana' });
   assert.equal(revertTransition(null, prev, 'approved'), false);
+});
+
+test('lateFailMsg: the step holds the title or leads it; Worker writes say check it again', () => {
+  assert.equal(lateFailMsg('Approving', 'Shabbat'), 'Approving “Shabbat” didn’t confirm — open it and try again');
+  assert.equal(lateFailMsg('Adding {title} to Eventbrite', 'Shabbat', { workerWrite: true }),
+    'Adding “Shabbat” to Eventbrite didn’t confirm — check it again in a minute');
+  assert.equal(lateFailMsg('Updating the draft of', 'Shabbat', { workerWrite: true }),
+    'Updating the draft of “Shabbat” didn’t confirm — check it again in a minute');
+  assert.equal(lateFailMsg('Cancelling', '', { workerWrite: true }),
+    'Cancelling “an event” didn’t confirm — check it again in a minute');
 });

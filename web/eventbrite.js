@@ -13,11 +13,12 @@
    checks} or 409 {conflict} (Eventbrite edited since our last push). On success
    it returns the snapshot it stored (`pushed`, R15), which the app adopts as-is.
    Nothing from the live status is ever put into the form or written (D4). */
+// step: names the push in a late-failure toast (PageRules.lateFailMsg; {title} → “<title>”).
 const PUSH_ACTS = {
-  'add-eb':         { draftOnly:true,  ok:'Added to Eventbrite as a private draft' },
-  'update-eb':      { draftOnly:true,  ok:'Eventbrite draft updated' },
-  'publish-eb':     { draftOnly:false, ok:'Published. Registration is open' },
-  'update-listing': { draftOnly:false, ok:'Eventbrite listing updated' },
+  'add-eb':         { draftOnly:true,  ok:'Added to Eventbrite as a private draft', step:'Adding {title} to Eventbrite' },
+  'update-eb':      { draftOnly:true,  ok:'Eventbrite draft updated',               step:'Updating the draft of' },
+  'publish-eb':     { draftOnly:false, ok:'Published. Registration is open',        step:'Publishing' },
+  'update-listing': { draftOnly:false, ok:'Eventbrite listing updated',             step:'Updating the listing of' },
 };
 const EB_CONFLICT_NOTICE = ListingRules.EB_CONFLICT_NOTICE;   // one text for the card and the panel
 const _ebStatus=new Map();      // event id → { editedSincePush, sold, liveStatus } from GET /eventbrite/status (session-local)
@@ -169,7 +170,7 @@ async function pushToEventbrite(act){
       // The Worker may have created the event (or written the row) before failing:
       // adopt its id so nothing re-creates it, and wait for that write to apply.
       if(err && err.eventbriteId && !ev.eventbriteId){ ev.eventbriteId=err.eventbriteId; applyLocal(ev); rerender(); }
-      if(err && (err.requestId || err.eventbriteId)) trackWorkerWrite(ev, err.requestId, err.overlaid, 'Publishing');
+      if(err && (err.requestId || err.eventbriteId)) trackWorkerWrite(ev, err.requestId, err.overlaid, spec.step);
       if(err && err.status===409 && err.checks && err.checks.length){
         _pushChecks.set(id, { draftOnly: spec.draftOnly, checks: err.checks });
         toast(err.checks[0].message || err.message,'err');
@@ -199,7 +200,7 @@ async function pushToEventbrite(act){
     _pushChecks.delete(id); _ebConflict.delete(id); _conflictShown.delete(id); clearEbBlock(id);
     const st=_ebStatus.get(id); if(st) st.editedSincePush=false;
     applyLocal(ev); rerender();
-    trackWorkerWrite(ev, res.requestId, res.overlaid, 'Publishing'); scheduleReconcile();
+    trackWorkerWrite(ev, res.requestId, res.overlaid, spec.step); scheduleReconcile();
     let msg=spec.ok;
     if(act==='update-listing' && prevPushed && ev.pushed){
       const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);

@@ -1,5 +1,5 @@
 /* page-rules.js — pure rules for the event page: section-id aliases, the lifecycle
-   step notes and "needs approval". Pure (no DOM): node-tested in
+   step notes, "needs approval", the late-revert rule and the late-failure toast. Pure (no DOM): node-tested in
    proxy/test/page-rules.test.js. Attaches `PageRules` to globalThis (same shape as
    editor-head.js).
 
@@ -18,7 +18,13 @@
    revertTransition(ev, prev, setStatus) -> boolean
      A transition's Status write never confirmed: put `prev` back into ev, but only
      while ev.status is still the status that transition set — a later transition
-     is never undone. Returns whether it reverted. */
+     is never undone. Returns whether it reverted.
+   lateFailMsg(step, title, {workerWrite}) -> string
+     The toast for a background confirm that failed: "<step> “<title>” didn’t
+     confirm — …". A step with {title} in it places the quoted title there ("Adding
+     {title} to Eventbrite"); otherwise the title follows it. Edits and transitions
+     say "open it and try again"; a Worker write (workerWrite: the Eventbrite side
+     already happened) says "check it again in a minute". */
 (function (root) {
   const ALIASES = { notes: 'planning', attendance: 'attendees', publish: 'details', listing: 'details' };
   function sectionFromParam(id) {
@@ -74,5 +80,11 @@
     return true;
   }
 
-  root.PageRules = { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval, revertTransition };
+  function lateFailMsg(step, title, opts) {
+    const t = '“' + (title || 'an event') + '”';
+    const what = step.includes('{title}') ? step.replace('{title}', t) : step + ' ' + t;
+    return what + ' didn’t confirm — ' + (opts && opts.workerWrite ? 'check it again in a minute' : 'open it and try again');
+  }
+
+  root.PageRules = { sectionFromParam, stepNotes, updatedFromEbLine, needsApproval, revertTransition, lateFailMsg };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

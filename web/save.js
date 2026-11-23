@@ -121,12 +121,14 @@ function reopenEdits(id, snap, token, err){
 // overlaid: Coda applies it 13–30 s later, so hold the primary at Saving…
 // (pendingFor counts it). Either way loadEvents keeps the local copy over stale
 // /rows reads (it holds _recent while _applying or _confirming counts the event).
-// step ("Publishing", "Cancelling", "Unpublishing") names a late, background failure.
+// step ("Publishing", "Adding {title} to Eventbrite", "Cancelling", …: PUSH_ACTS, transitions.js)
+// names a late, background failure; the Eventbrite side already happened, so the
+// toast says check it again rather than try again.
 function trackWorkerWrite(ev, requestId, overlaid, step){
   markRecent(ev.id, {e:ev});
   if(!requestId) return;
   const fail=msg=>err=>{ console.warn('worker write not confirmed:', err); markRecent(ev.id, {e:ev}); toast(msg(),'err'); scheduleReconcile(); };
-  if(overlaid){ confirmLater(requestId, ev.id, fail(()=>step ? lateFailMsg(step, ev.title) : 'The change didn’t confirm. Check again in a minute.')); return; }
+  if(overlaid){ confirmLater(requestId, ev.id, fail(()=>step ? lateFailMsg(step, ev.title, { workerWrite:true }) : 'The change didn’t confirm. Check again in a minute.')); return; }
   applied(requestId, ev.id).then(()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); }, fail(()=>'The change didn’t confirm. Check again in a minute.'));
 }
 // Writes to a just-created row wait for its insert to apply (a failed confirm is
@@ -178,7 +180,7 @@ const saveQueue = SaveQueue.create({
 // event's insert applied; a Worker write or transition whose background confirm failed.
 const lostChangeMsg = title => `Your last change to “${title || 'an event'}” didn’t save — open it and make the change again`;
 const createdMsg = title => title ? `“${title}” created` : 'Created';
-const lateFailMsg = (step, title) => `${step} “${title || 'an event'}” didn’t confirm — open it and try again`;
+const lateFailMsg = PageRules.lateFailMsg;   // (step, title, {workerWrite}) — page-rules.js, node-tested
 const titleOf = id => (state.events.find(x=>x.id===id) || {}).title || '';
 // A save failed with no open editor to retry from: put back the fields the failed
 // edits changed (the rest — a create, a status change — did save), forget the
