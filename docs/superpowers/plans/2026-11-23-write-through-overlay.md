@@ -72,7 +72,7 @@ ruling; it overrides anything here it contradicts).
   - panel primary while creating: `Creating… (about half a minute)`
   - toast on Create: `Creating… this takes about half a minute`
   - toast `Created`: moves to when `trackCreate`'s apply resolves (not on the 202)
-  - `SLOW_TIP = 'This is taking longer than usual; your change is safe'`
+  - `SLOW_TIP = 'Still saving — your change is safe'`
   - save.js:81 toast: `The change didn't confirm. Check again in a minute.` (no "Coda")
   - No other new strings. No "Mission Control" on screen. In help, new on-screen text goes inside
     `[[ ]]` (e.g. `[[Creating… (about half a minute)]]`) so the help guard protects it; bold
@@ -420,7 +420,7 @@ ruling; it overrides anything here it contradicts).
   : await applied(…)`, so Approve → Add to Eventbrite doesn't wait ~28 s.
 - **Push** (`web/eventbrite.js` `settledForPush`): no logic change (`pendingFor` drops on its
   own once the request returns).
-- **Copy** (`web/listing-readiness.js`): `SLOW_TIP = 'This is taking longer than usual; your change is safe'`.
+- **Copy** (`web/listing-readiness.js`): `SLOW_TIP = 'Still saving — your change is safe'`.
 - **Code comments** (in this task, because it edits these files):
   - [ ] `web/save.js:38-42` (honest saves: Saved = overlaid or applied), `:63-66`
     (`pendingFor`: no longer counts background confirms), `:73-75` (`trackWorkerWrite`). `:86`

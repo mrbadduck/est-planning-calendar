@@ -252,7 +252,7 @@ poller, no unconfirmed/lost states and no new failure copy.
 - **Venues.** **Save address** is a plain cell edit: when overlaid, the dialog closes at once.
   **Add venue** keeps its wait, because a new venue has to be created before an event can use it
   (its id isn't in the name caches until Coda applies it). Help says so in one plain line.
-- **Copy.** `SLOW_TIP` becomes `This is taking longer than usual; your change is safe`. No other
+- **Copy.** `SLOW_TIP` becomes `Still saving — your change is safe`. No other
   new on-screen text beyond §3.4's. No "Mission Control" on screen.
 - **gather** drops the "bust again after 28 s" workaround (`bustEventCachesNowAndAfterApply`).
 - **Help ships with it**, in each PR: saves are instant, a new event takes about half a minute

@@ -434,6 +434,12 @@ export default {
         // via the stored Eventbrite Event ID), venue, ticket class, structured-content
         // description, then publish — writing status/ids back to the row and appending
         // to the Publish Log at each significant step. Same write gate as row writes.
+        // Subrequest budget (free plan: 50 per invocation). Worst case, a publish that CREATES the
+        // event with cold name caches, counting each overlay DO call as one, is about 44: ~37 external
+        // (auth + people read, the row read, the Venues read, Eventbrite create / venue / ticket class /
+        // structured content / publish / snapshot reads, the Coda row writes, the Publish Log posts, KV
+        // pending notes, the gCal waitUntil sync) plus ~7 DO calls (the row read's overlay merge and one
+        // record() per setRow). Recount before adding a call to this route.
         if (env.ALLOW_WRITES !== 'true') return json({ error: 'writes disabled' }, 403, cors);
         if (!env.EVENTBRITE_TOKEN || !env.EVENTBRITE_ORG_ID) return json({ error: 'eventbrite not configured' }, 500, cors);
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); }
