@@ -36,8 +36,11 @@ export function planningRowSetter(env, { rowsUrl, tableId, rowId, auth }) {
 
 // One planning row by id (column names, simpleWithArrays) with the overlay merged, snapshotAt
 // stamped before the read. {ok:false, status} when Coda can't read it (a 404 stays a 404: a new
-// event waits for its insert, D2) or a pending delete hides it. stale: the row (or the whole
-// overlay read) couldn't be merged; the caller decides (publish/cancel/unpublish answer 409).
+// event waits for its insert, D2) or a pending delete hides it. stale: this row couldn't be
+// merged (an untranslatable or calculated column, a missing name): the guarded routes answer
+// 409. An overlay outage (stale ['*']) is not stale here: the row is Coda's copy, the writes
+// that follow aren't overlaid (the app waits for the apply, as today), and overlayRead has
+// already written its one console line.
 export async function readPlanningRow(env, { base, docId, tableId, auth, rowId }) {
   const at = Date.now();
   const r = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
@@ -45,10 +48,11 @@ export async function readPlanningRow(env, { base, docId, tableId, auth, rowId }
   const row = await r.json();
   const id = (row && row.id) || rowId;
   const m = await overlayRead(env, tableId, [{ ...row, id }], { shape: 'name', snapshotAt: at, now: Date.now(), planning: { base, docId, auth } });
-  const stale = m.stale.includes('*') || m.stale.includes(id);
-  if (stale && !m.stale.includes('*')) console.error(`overlay: planning row ${id} read stale; Coda's copy kept for its unmerged cells`);
-  if (!m.rows.length) return { ok: false, status: 404 };
-  return { ok: true, row: m.rows[0], values: m.rows[0].values || {}, stale };
+  const mine = m.rows.find((x) => x.id === id);   // never another row (a pending insert is appended)
+  if (!mine) return { ok: false, status: 404 };
+  const stale = m.stale.includes(id);
+  if (stale) console.error(`overlay: planning row ${id} read stale; Coda's copy kept for its unmerged cells`);
+  return { ok: true, values: mine.values || {}, stale };
 }
 
 // The /rows list with the overlay merged into a snapshot taken at `snapshotAt`.

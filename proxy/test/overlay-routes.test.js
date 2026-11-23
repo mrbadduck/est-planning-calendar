@@ -217,17 +217,48 @@ test('publish reads a pending Status Approved from the overlay although Coda say
   codaRoute = null;
 });
 
-test('publish, cancel and unpublish answer 409 "still being saved" when the row read is stale', async () => {
+const pendingCell = async (d, key, value, rowId = 'i-row', op = 'set', requestId = 'req-y') =>
+  d.core.record([{ tableId: 'grid-plan', rowId, key, keying: 'name', value, op, requestId, writtenAt: Date.now() }]);
+
+test('publish, cancel, unpublish and DELETE answer 409 "still being saved" when the row itself is stale', async () => {
   skew = 0; const c = planningCoda(); codaRoute = c.route;
-  for (const path of ['/publish/eventbrite', '/cancel/eventbrite', '/unpublish/eventbrite']) {
+  for (const [method, path] of [['POST', '/publish/eventbrite'], ['POST', '/cancel/eventbrite'], ['POST', '/unpublish/eventbrite'], ['DELETE', '/rows/i-row']]) {
     const { d, e } = live(EB);
-    await pendingStatus(d);
-    d.fail.add('/read');   // overlayRead -> stale ['*']
-    const out = await call(e, 'POST', path, { body: { rowId: 'i-row' } });
+    await pendingCell(d, 'Mystery', 'x');   // a column /columns doesn't know: this row is stale
+    const out = await call(e, method, path, { body: method === 'POST' ? { rowId: 'i-row' } : undefined });
     assert.equal(out.status, 409, path);
     assert.deepEqual(out.body, { error: 'Your last update is still being saved. Try again in a few seconds.' }, path);
     assert.equal(c.writes.length, 0, `${path}: nothing written`);
   }
+  codaRoute = null;
+});
+
+test('an overlay outage (stale [*]) does not block: publish proceeds on Coda\'s copy, cancel and DELETE write unoverlaid', async () => {
+  skew = 0; const c = planningCoda(); codaRoute = c.route;
+  let { d, e } = live(EB);
+  await pendingStatus(d);
+  d.fail.add('/read');
+  const pub = await call(e, 'POST', '/publish/eventbrite', { body: { rowId: 'i-row' } });
+  assert.equal(pub.status, 409);
+  assert.equal(pub.body.checks.some((x) => x.key === 'approved'), true, "Coda's copy (Proposed), not the overlay's");
+  const can = await call(e, 'POST', '/cancel/eventbrite', { body: { rowId: 'i-row' } });
+  assert.equal(can.status, 200); assert.equal(can.body.overlaid, true, 'the read failed, the record did not');
+  d.fail.add('/record');
+  const del = await call(e, 'DELETE', '/rows/i-row');
+  assert.equal(del.status, 202); assert.equal(del.body.overlaid, false);
+  codaRoute = null;
+});
+
+test('a row read never borrows another row: a pending delete plus a pending insert is a 404', async () => {
+  skew = 0; const c = planningCoda(); codaRoute = c.route;
+  const { d, e } = live(EB);
+  await d.core.record([{ tableId: 'grid-plan', rowId: 'i-row', key: '', keying: 'id', value: null, op: 'delete', requestId: 'req-d', writtenAt: Date.now() }]);
+  await pendingCell(d, 'Title', 'Someone else', 'i-new', 'insert', 'req-i');
+  for (const [method, path] of [['POST', '/publish/eventbrite'], ['POST', '/cancel/eventbrite'], ['DELETE', '/rows/i-row'], ['GET', '/eventbrite/status?rowId=i-row']]) {
+    const out = await call(e, method, path, { body: method === 'POST' ? { rowId: 'i-row' } : undefined });
+    assert.equal(out.status, 404, path); assert.equal(out.body.error, 'row not found', path);
+  }
+  assert.equal(c.writes.length, 0);
   codaRoute = null;
 });
 

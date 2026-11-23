@@ -157,6 +157,7 @@ export default {
             // Worst case: auth + row read + EB GET + EB DELETE + row DELETE + log (~8).
             const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
             if (!one.ok) return json({ error: 'row not found' }, 404, cors);
+            if (one.stale) return json({ error: STILL_SAVING }, 409, cors);
             const V = one.values;
             const gate = deleteGate({ published: isPublishedCell(V['Published?']), status: V['Status'] || '' }, id);
             if (gate) return json({ error: gate.error }, gate.status, cors);
