@@ -239,8 +239,10 @@ async function renderHome(){
    `pending` (my own only): it shows as signed up, its Remove waits (Saving…), and
    the page re-fetches every 4 s until none is pending (2 min at most, or until the
    member leaves). One that vanishes meanwhile didn't save: say so. */
-const PENDING_POLL_MS = 4000, PENDING_POLL_MAX_MS = 120000;
-let _detail = null;   // { id, ev, recent:Map, reconT, pendingMine:Set, pollUntil }
+// Poll past the overlay's 120 s give-up so a failed sign-up is seen; call it lost only once the overlay
+// could have failed it (an earlier miss is an overlay outage, not a failure).
+const PENDING_POLL_MS = 4000, PENDING_POLL_MAX_MS = 150000, LOST_AFTER_MS = 110000;
+let _detail = null;   // { id, ev, recent:Map, reconT, pendingMine:Map(claimId -> first seen), pollUntil }
 async function renderDetail(id){
   if (_detail) clearTimeout(_detail.reconT);
   _detail = null;
@@ -248,7 +250,7 @@ async function renderDetail(id){
   let ev;
   try { ev = await api(`/events/${encodeURIComponent(id)}`); }
   catch (e){ view().innerHTML = `<a class="back" href="#/">← All events</a><div class="empty"><h2>Couldn’t load this event</h2><p>Try refreshing in a moment.</p>${contactHTML('Still down?')}</div>`; return; }
-  _detail = { id, ev, recent: new Map(), reconT: 0, pendingMine: new Set(), pollUntil: 0 };
+  _detail = { id, ev, recent: new Map(), reconT: 0, pendingMine: new Map(), pollUntil: 0 };
   paintDetail();
   watchPending();
 }
@@ -359,10 +361,10 @@ function watchPending(){
   const d = _detail; if (!d) return;
   const pending = myPendingClaims(d.ev);
   let fresh = false;
-  for (const c of pending) if (!d.pendingMine.has(c.claimId)){ d.pendingMine.add(c.claimId); fresh = true; }
-  if (!pending.length){ d.pollUntil = 0; return; }
-  if (fresh || !d.pollUntil) d.pollUntil = Date.now() + PENDING_POLL_MAX_MS;   // each new sign-up gets its 2 min
-  if (Date.now() >= d.pollUntil) return;              // 2 min: stop asking; the page shows what it last heard
+  for (const c of pending) if (!d.pendingMine.has(c.claimId)){ d.pendingMine.set(c.claimId, Date.now()); fresh = true; }
+  if (!pending.length && !d.pendingMine.size){ d.pollUntil = 0; return; }
+  if (fresh || !d.pollUntil) d.pollUntil = Date.now() + PENDING_POLL_MAX_MS;   // each new sign-up gets its 2.5 min
+  if (Date.now() >= d.pollUntil) return;              // 2.5 min: stop asking; the page shows what it last heard
   clearTimeout(d.reconT);
   d.reconT = setTimeout(() => reconcileDetail(d), PENDING_POLL_MS);
 }
@@ -397,8 +399,8 @@ async function reconcileDetail(d){
   // A sign-up that was being created and is gone now: its insert failed.
   const present = new Set((fresh.slots || []).flatMap((s) => (s.claims || []).map((c) => c.claimId)).filter(Boolean));
   let lost = false;
-  for (const k of [...d.pendingMine]){
-    if (!present.has(k)){ d.pendingMine.delete(k); d.recent.delete(k); lost = true; }
+  for (const [k, at] of [...d.pendingMine]){
+    if (!present.has(k) && Date.now() - at >= LOST_AFTER_MS){ d.pendingMine.delete(k); d.recent.delete(k); lost = true; }
   }
   for (const s of (fresh.slots || [])){
     for (const c of (s.claims || [])) if (c.claimId && d.pendingMine.has(c.claimId) && !c.pending) d.pendingMine.delete(c.claimId);
