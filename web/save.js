@@ -129,7 +129,7 @@ function trackWorkerWrite(ev, requestId, overlaid, step){
   if(!requestId) return;
   const fail=msg=>err=>{ console.warn('worker write not confirmed:', err); markRecent(ev.id, {e:ev}); toast(msg(),'err'); scheduleReconcile(); };
   if(overlaid){ confirmLater(requestId, ev.id, fail(()=>step ? lateFailMsg(step, ev.title, { workerWrite:true }) : 'The change didn’t confirm. Check again in a minute.')); return; }
-  applied(requestId, ev.id).then(()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); }, fail(()=>'The change didn’t confirm. Check again in a minute.'));
+  applied(requestId, ev.id).then(()=>{ markRecent(ev.id, {e:ev}); scheduleReconcile(); }, fail(()=>step ? lateFailMsg(step, ev.title, { workerWrite:true }) : 'The change didn’t confirm. Check again in a minute.'));
 }
 // Writes to a just-created row wait for its insert to apply (a failed confirm is
 // handled by _unconfirmed, not here).

@@ -49,7 +49,7 @@ async function transitionTo(status){
     if(err && err.status===401) sessionExpired();
     else {
       const unconfirmed = !fieldsFailed && err && err.message==='save not confirmed';   // accepted, but Coda never said it applied
-      toast(fieldsFailed ? 'Your changes didn’t save, so the status wasn’t changed — try again' : unconfirmed ? 'The change didn’t confirm. Check again in a minute.' : 'Update failed — reverted','err');
+      toast(fieldsFailed ? 'Your changes didn’t save, so the status wasn’t changed — try again' : unconfirmed ? lateFailMsg(TRANSITION_STEP[status], ev.title) : 'Update failed — reverted','err');
       console.warn('transition failed:', err);
       if(unconfirmed) scheduleReconcile();
     }

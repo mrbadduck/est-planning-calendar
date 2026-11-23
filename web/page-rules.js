@@ -23,7 +23,7 @@
      The toast for a background confirm that failed: "<step> “<title>” didn’t
      confirm — …". A step with {title} in it places the quoted title there ("Adding
      {title} to Eventbrite"); otherwise the title follows it. Edits and transitions
-     say "open it and try again"; a Worker write (workerWrite: the Eventbrite side
+     say "open it and try again"; no step -> "The change didn’t confirm. Check again in a minute."; a Worker write (workerWrite: the Eventbrite side
      already happened) says "check it again in a minute". */
 (function (root) {
   const ALIASES = { notes: 'planning', attendance: 'attendees', publish: 'details', listing: 'details' };
@@ -81,6 +81,7 @@
   }
 
   function lateFailMsg(step, title, opts) {
+    if (!step) return 'The change didn’t confirm. Check again in a minute.';   // no step to name: the generic line
     const t = '“' + (title || 'an event') + '”';
     const what = step.includes('{title}') ? step.replace('{title}', t) : step + ' ' + t;
     return what + ' didn’t confirm — ' + (opts && opts.workerWrite ? 'check it again in a minute' : 'open it and try again');

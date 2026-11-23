@@ -87,6 +87,10 @@ test('revertTransition puts prev back only while the event still has the status 
   assert.equal(revertTransition(null, prev, 'approved'), false);
 });
 
+test('lateFailMsg: no step gives the generic message, never throws', () => {
+  assert.equal(lateFailMsg(undefined, 'Shabbat'), 'The change didn’t confirm. Check again in a minute.');
+});
+
 test('lateFailMsg: the step holds the title or leads it; Worker writes say check it again', () => {
   assert.equal(lateFailMsg('Approving', 'Shabbat'), 'Approving “Shabbat” didn’t confirm — open it and try again');
   assert.equal(lateFailMsg('Adding {title} to Eventbrite', 'Shabbat', { workerWrite: true }),
