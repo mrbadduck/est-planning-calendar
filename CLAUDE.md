@@ -58,8 +58,9 @@ Each has a page in `docs/decisions/`.
 ## Hard constraints (learned the hard way)
 
 - **Coda applies writes ~28 s after accepting them**, whatever the doc size (0008).
-  Reads through the Worker's planning routes see its writes (the write overlay, 0012; gather
-  and the roster follow in PR B); Coda-side readers and the sync runners still lag ~28 s. Outside the overlay, never act on a read right after a write
+  Reads through the Worker see its writes (the write overlay, 0012: the planning routes,
+  gather, slots, claims, the roster and venues); Coda-side readers and the sync runners
+  still lag ~28 s. Outside the overlay, never act on a read right after a write
   without waiting for it to apply.
 - **`web/listing-readiness.js` and `web/venue-address.js` are bundled into the Worker**:
   no DOM or browser globals (checked), and editing either redeploys the Worker.
@@ -73,7 +74,7 @@ Each has a page in `docs/decisions/`.
 - **Every Worker write to the planning, slots, claims or venues tables goes through
   `codaWrite`, every read through `overlayRead`** (`proxy/src/worker-io.js`, 0012).
   `scripts/check.sh` rule 7 enforces it; the sync runners are allowlisted until the
-  follow-up, and the gather, slot, claim, venue and roster sites until PR B.
+  follow-up.
 - **The Coda API does not expose row layouts**: build forms from column metadata plus our
   own layout, and deep-link to the doc for rich editing.
 - Calendar grid columns are `minmax(0,1fr)`, never bare `1fr`. The month grid is

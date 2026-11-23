@@ -10,7 +10,7 @@ that supersedes it rather than editing history.
 | [0002](0002-worker-side-publishing.md) | Tokens and publishing live in the Worker, never the browser | Aug 2026 |
 | [0003](0003-dns-at-hover.md) | DNS stays at Hover; deploy standalone on Netlify | Aug 2026 |
 | [0004](0004-phased-auth.md) | Auth is phased: read-only first, then Firebase sign-in + role gate for writes | Aug 2026 |
-| [0005](0005-saved-means-applied.md) | D3: "Saved" means the Worker's planning reads return the write: overlaid, else applied (amended by 0012; gather and the roster in PR B) | Nov 2026 |
+| [0005](0005-saved-means-applied.md) | D3: "Saved" means the Worker's planning reads return the write: overlaid, else applied (amended by 0012) | Nov 2026 |
 | [0006](0006-nothing-from-eventbrite-written-back.md) | D4: nothing read from Eventbrite is written to Coda (superseded by 0009) | Nov 2026 |
 | [0007](0007-no-silent-fallbacks.md) | D7: no silent fallbacks | Nov 2026 |
 | [0008](0008-coda-apply-latency.md) | Coda applies writes ~28 s after accepting them, whatever the doc size (the Worker covers its own reads since 0012) | Nov 2026 |

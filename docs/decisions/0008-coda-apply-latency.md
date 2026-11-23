@@ -14,8 +14,8 @@ is not the cause, so slimming the doc won't help.
 - Saves are honest about it ([0005](0005-saved-means-applied.md)). With the write overlay
   live, an edit counts as saved once the overlay holds it, so it no longer looks slow; a new
   event, and any save when the overlay is off, still waits ~28 s.
-- Reads through the Worker's planning routes right after a write no longer miss it: the
-  overlay is merged into them (gather and the roster follow in PR B). Coda-side readers (Coda's UI, formulas, pack syncs) and the sync runners
+- Reads through the Worker (the planning routes, gather, slots, claims, the roster and
+  venues) right after a write no longer miss it: the overlay is merged into them. Coda-side readers (Coda's UI, formulas, pack syncs) and the sync runners
   (`eb-sync-run.js`, `gcal-run.js`) still do. The app still keeps local copies (`_unsaved`,
   `_recent`) and reconciles later, which covers an overlay outage.
 - An Eventbrite push inside the apply window must not create a duplicate event (R19).

@@ -255,8 +255,10 @@ reads. It ships **off**; turning it on is a deliberate step.
    logs only problems), and `GET /mutation/<requestId>` answering `completed: true` within
    ~30 s. Check the Publish Log has no new error rows.
 5. Once `live` has held for a while, the "after the flip" help PR: tighten
-   `web/help/guide.md` (saves usually take a moment) and add the whats-new line (plan
-   `2026-11-23-write-through-overlay.md`, Deferred).
+   `web/help/guide.md` (saves usually take a moment) and add the whats-new lines (plan
+   `2026-11-23-write-through-overlay.md`, Deferred), including PR B's: *[[Save address]]
+   now saves at once; adding a venue still takes about half a minute.* (It is held back
+   until the flip because with `OVERLAY_MODE` off Save address still waits.)
 
 **Switch off in an emergency:** set `OVERLAY_MODE = "off"` and redeploy. Nothing is lost:
 every write went to Coda first; the overlay only held copies.

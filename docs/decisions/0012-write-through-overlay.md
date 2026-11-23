@@ -86,7 +86,11 @@ after), and lays those writes over the reads it serves. Coda keeps the data
   hasn't created, and the overlay is not a write queue. A new event's panel button reads
   **Creating… (about half a minute)** until the insert applies, then the app says
   “*title*” created. The event stays editable: edits queue behind the insert (`afterCreate`).
-- **Add venue still waits** (PR B): a new venue has to be created before an event can use it.
+- **Add venue still waits**: a new venue has to be created before an event can use it.
+  **Save address** is a plain edit of the venue row, so it is saved once overlaid.
+- **A sign-up still being saved can't be edited or removed yet.** Coda answers "not found"
+  to a write on a claim it hasn't created, so the Worker answers 409 *Your sign-up is still
+  being saved. Try again in a few seconds.* to its owner (or a lead) instead.
 - **The notes-doc button isn't overlaid.** Coda runs the button and writes the doc URL, so
   there is nothing the Worker wrote.
 - **The sync runners are deferred.** `eb-sync-run.js` and `gcal-run.js` keep reading and
@@ -122,11 +126,12 @@ for unconfirmed or lost writes.
 - Coda-side readers (Coda's own UI, formulas, pack syncs) and the sync runners still see
   writes ~28 s late. Writes people make directly in Coda aren't the Worker's, so the overlay
   doesn't know them.
-- In PR A only the planning routes and `/mutation` call the DO (and none do with
-  `OVERLAY_MODE = "off"`): one call per write and one per read, plus the planning column
-  map's hourly `/columns` call; PR B adds gather, slots, claims, the roster and venues. Count each DO call as one of the 50 outbound calls an
+- The planning routes, gather, slots, claims, the roster, venues and `/mutation` call the
+  DO (none do with `OVERLAY_MODE = "off"`): one call per write and one per table read (a
+  gather read: three), plus the planning column map's hourly `/columns` call. Count each DO call as one of the 50 outbound calls an
   invocation allows until it is verified whether they count (`docs/deployment.md`).
-- Gather, claims, slots, the roster and venues read and write through the helpers in PR B;
-  until then rule 7 allowlists them ("PR B").
+- Gather keeps raw rows in KV (`gather-snap-v2`) so the merge can run before the snapshot is
+  filtered and grouped. Rule 7 allowlists only the sync runners and the reads the overlay
+  is merged into right after.
 - Spec: `docs/superpowers/specs/2026-11-23-write-through-overlay-design.md`; plan:
   `docs/superpowers/plans/2026-11-23-write-through-overlay.md`.

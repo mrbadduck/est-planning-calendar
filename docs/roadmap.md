@@ -15,8 +15,9 @@ still open. Settled decisions are in `docs/decisions/`.
   Object remembers the Worker's own Coda writes until Coda applies them, and the planning
   routes read through it (decision 0012). Once Eric flips it to `live`, a lead's edit saves
   as soon as its request returns and Approve → Add to Eventbrite doesn't wait; a new event
-  still takes about half a minute and says so. PR B (gather, slots, claims, the roster and
-  venues) follows. Flip checklist: `docs/deployment.md`.
+  still takes about half a minute and says so. PR B (Nov 2026) puts gather, slots, claims,
+  the roster and venues on it too: gather shows a sign-up at once, and Save address saves at
+  once (Add venue still waits). Flip checklist: `docs/deployment.md`.
 - **Registrant comms v1 (Sep 2026):** Attendees roster + copy/mailto.
 - **gather** (member sign-up app): all 5 slices (Aug 2026); live at
   `https://gather.eastsidetribe.org` (Nov 2026) — see `docs/gather-deploy-runbook.md`.
