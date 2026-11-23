@@ -237,10 +237,15 @@ function venueApplied(requestId){
   });
 }
 // An overlaid Save address confirms in the background (no slow note: the dialog has closed).
-// A failure is never silent: the console line plus the app's existing late-failure toast.
-function venueConfirmLater(requestId){
+// A failure is never silent: the console line, the app's existing late-failure toast, and the
+// address line and VENUES re-read from what Coda holds (the local copy assumed it saved).
+function venueConfirmLater(requestId, id){
   CodaApplied.waitApplied(requestId, { fetchStatus: rid => DB.mutationStatus(rid), sleep: ms => new Promise(r => setTimeout(r, ms)), now: () => Date.now() })
-    .catch(err => { console.warn('overlaid address save not confirmed:', err); toast('The change didn’t confirm. Check again in a minute.','err'); });
+    .catch(err => {
+      console.warn('overlaid address save not confirmed:', err);
+      toast('The change didn’t confirm. Check again in a minute.','err');
+      _vaddr.delete(id); paintVenueAddr(); refreshVenues();
+    });
 }
 // The dialog this write came from is still showing (not taken down by leaving the page or the create form).
 const vfOnScreen = f => { const el=vfEl(); return _vf===f && !f.detached && !!(el && el.querySelector('fieldset')); };
@@ -302,7 +307,7 @@ async function submitAddress(f){
   try{
     const r=await DB.updateVenue(id, addr);
     const unchanged=!!(r && r.unchanged);   // the same address as saved: nothing was written, nothing to wait for
-    if(!unchanged && r && r.overlaid) venueConfirmLater(r.requestId);   // saved now; Coda applies it in the background
+    if(!unchanged && r && r.overlaid) venueConfirmLater(r.requestId, id);   // saved now; Coda applies it in the background
     else if(!unchanged){
       try{ await venueApplied(r && r.requestId); }
       catch(_){ const e=new Error('Coda didn’t confirm the address yet. Try Save address again in a minute.'); throw e; }
