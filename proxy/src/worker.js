@@ -53,6 +53,7 @@ import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js'
 import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
+export { WriteOverlay } from './overlay-do.js';   // the write overlay Durable Object (binding OVERLAY)
 const ListingRules = globalThis.ListingRules;
 
 const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items, exp} }
