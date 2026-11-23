@@ -17,11 +17,13 @@
      address, or the venueAddress readiness link; Name and Venue type read-only).
      Esc, Cancel and a scrim click close it, except while a write waits for Coda (busy);
      Tab stays inside it; focus goes back to whatever opened it.
-   A write waits until Coda has applied it (D3) before the app uses the new row or
-   says the address changed: an event must never point at a venue row Coda hasn't
-   applied. /ref/venues is busted before Coda applies, so the local VENUES list is
-   updated here at once, then refreshVenues re-reads /ref/venues?fresh=1 in the
-   background (the write has applied by then) and refills the Worker's caches.
+   Add venue waits until Coda has applied the insert (D3, 0012 D9) before the app uses
+   the new row: an event must never point at a venue row Coda hasn't created. Save
+   address is saved once the Worker's overlay holds it (overlaid: every Worker read
+   returns the new address): it closes at once and confirms in the background; not
+   overlaid (OVERLAY_MODE off, or the overlay down), it waits for the apply as before.
+   The local VENUES list is updated here at once, then refreshVenues re-reads
+   /ref/venues?fresh=1 in the background and refills the Worker's caches.
    A PUT with the address already saved comes back {unchanged:true}: no wait. Read-only, locked and signed-out views get
    neither container's controls and fetch nothing. */
 const _vaddr=new Map();   // venue id → { status:'loading'|'ok'|'err', v:{id,name,type,street,unit,city,state,zip,address} }
@@ -234,6 +236,12 @@ function venueApplied(requestId){
     onSlow: () => { const el=vfEl(), s=el && el.querySelector('[data-vf-slow]'); if(s) s.textContent='Coda is slow right now. This can take a minute.'; },
   });
 }
+// An overlaid Save address confirms in the background (no slow note: the dialog has closed).
+// A failure is never silent: the console line plus the app's existing late-failure toast.
+function venueConfirmLater(requestId){
+  CodaApplied.waitApplied(requestId, { fetchStatus: rid => DB.mutationStatus(rid), sleep: ms => new Promise(r => setTimeout(r, ms)), now: () => Date.now() })
+    .catch(err => { console.warn('overlaid address save not confirmed:', err); toast('The change didn’t confirm. Check again in a minute.','err'); });
+}
 // The dialog this write came from is still showing (not taken down by leaving the page or the create form).
 const vfOnScreen = f => { const el=vfEl(); return _vf===f && !f.detached && !!(el && el.querySelector('fieldset')); };
 // The one way a venue write starts (the button's click and Enter in a field both land
@@ -294,7 +302,8 @@ async function submitAddress(f){
   try{
     const r=await DB.updateVenue(id, addr);
     const unchanged=!!(r && r.unchanged);   // the same address as saved: nothing was written, nothing to wait for
-    if(!unchanged){
+    if(!unchanged && r && r.overlaid) venueConfirmLater(r.requestId);   // saved now; Coda applies it in the background
+    else if(!unchanged){
       try{ await venueApplied(r && r.requestId); }
       catch(_){ const e=new Error('Coda didn’t confirm the address yet. Try Save address again in a minute.'); throw e; }
     }
