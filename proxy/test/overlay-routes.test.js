@@ -249,6 +249,23 @@ test('an overlay outage (stale [*]) does not block: publish proceeds on Coda\'s 
   codaRoute = null;
 });
 
+test('an overlay outage plus `unconfirmed` answers 409 "still being saved" on publish, cancel, unpublish and DELETE', async () => {
+  skew = 0; const c = planningCoda(); codaRoute = c.route;
+  for (const [method, path] of [['POST', '/publish/eventbrite'], ['POST', '/cancel/eventbrite'], ['POST', '/unpublish/eventbrite'], ['DELETE', '/rows/i-row?unconfirmed=1']]) {
+    const { d, e } = live(EB);
+    d.fail.add('/read');   // stale ['*']
+    const out = await call(e, method, path, { body: method === 'POST' ? { rowId: 'i-row', unconfirmed: true } : undefined });
+    assert.equal(out.status, 409, path);
+    assert.deepEqual(out.body, { error: 'Your last update is still being saved. Try again in a few seconds.' }, path);
+  }
+  assert.equal(c.writes.length, 0, 'nothing written');
+  const { d, e } = live(EB);   // the flag alone, overlay up and the row clean: no refusal
+  const can = await call(e, 'POST', '/cancel/eventbrite', { body: { rowId: 'i-row', unconfirmed: true } });
+  assert.equal(can.status, 200);
+  assert.deepEqual(d.calls.slice(0, 1), ['/read']);
+  codaRoute = null;
+});
+
 test('a row read never borrows another row: a pending delete plus a pending insert is a 404', async () => {
   skew = 0; const c = planningCoda(); codaRoute = c.route;
   const { d, e } = live(EB);

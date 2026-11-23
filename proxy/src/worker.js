@@ -53,7 +53,7 @@ import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js'
 import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
-import { STILL_SAVING, planningWrite, planningRowSetter, readPlanningRow, planningList } from './overlay-routes.js';   // planning reads/writes through the overlay
+import { STILL_SAVING, mustWait, planningWrite, planningRowSetter, readPlanningRow, planningList } from './overlay-routes.js';   // planning reads/writes through the overlay
 export { WriteOverlay } from './overlay-do.js';   // the write overlay Durable Object (binding OVERLAY)
 const ListingRules = globalThis.ListingRules;
 
@@ -157,7 +157,7 @@ export default {
             // Worst case: auth + row read + EB GET + EB DELETE + row DELETE + log (~8).
             const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
             if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-            if (one.stale) return json({ error: STILL_SAVING }, 409, cors);
+            if (mustWait(one, url.searchParams.get('unconfirmed') === '1')) return json({ error: STILL_SAVING }, 409, cors);
             const V = one.values;
             const gate = deleteGate({ published: isPublishedCell(V['Published?']), status: V['Status'] || '' }, id);
             if (gate) return json({ error: gate.error }, gate.status, cors);
@@ -455,7 +455,7 @@ export default {
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
         const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        if (one.stale) return json({ error: STILL_SAVING }, 409, cors);
+        if (mustWait(one, body.unconfirmed === true)) return json({ error: STILL_SAVING }, 409, cors);   // body.unconfirmed: the app holds unconfirmed overlaid writes
         const V = one.values;
         const ev = rowToListingEvent(V);
         // R19: our own earlier writes (event id, ticket class, push time) may not be
@@ -742,7 +742,7 @@ export default {
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
         const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        if (one.stale) return json({ error: STILL_SAVING }, 409, cors);
+        if (mustWait(one, body.unconfirmed === true)) return json({ error: STILL_SAVING }, 409, cors);   // body.unconfirmed: the app holds unconfirmed overlaid writes
         const V = one.values;
         // rw.requestId: Coda's id for the row write, the app waits on it (D3). The bust (in
         // planningWrite) refreshes the snapshot; the overlay covers the apply gap.

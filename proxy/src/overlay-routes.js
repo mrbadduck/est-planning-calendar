@@ -52,7 +52,14 @@ export async function readPlanningRow(env, { base, docId, tableId, auth, rowId }
   if (!mine) return { ok: false, status: 404 };
   const stale = m.stale.includes(id);
   if (stale) console.error(`overlay: planning row ${id} read stale; Coda's copy kept for its unmerged cells`);
-  return { ok: true, values: mine.values || {}, stale };
+  return { ok: true, values: mine.values || {}, stale, outage: m.stale.includes('*') };
+}
+
+// Should a guarded route (publish, cancel, unpublish, /rows DELETE) answer 409 STILL_SAVING?
+// Yes when this row is stale. In an overlay outage, only when the app says it still holds
+// unconfirmed overlaid writes for the event (`unconfirmed`): Coda's copy may predate them.
+export function mustWait(one, unconfirmed) {
+  return one.stale || (one.outage && unconfirmed === true);
 }
 
 // The /rows list with the overlay merged into a snapshot taken at `snapshotAt`.
