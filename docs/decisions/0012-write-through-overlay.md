@@ -90,7 +90,8 @@ after), and lays those writes over the reads it serves. Coda keeps the data
   **Save address** is a plain edit of the venue row, so it is saved once overlaid.
 - **A sign-up still being saved can't be edited or removed yet.** Coda answers "not found"
   to a write on a claim it hasn't created, so the Worker answers 409 *Your sign-up is still
-  being saved. Try again in a few seconds.* to its owner (or a lead) instead.
+  being saved. Try again in a few seconds.* to its owner (or a lead), or when its member can't
+  be named yet, instead.
 - **The notes-doc button isn't overlaid.** Coda runs the button and writes the doc URL, so
   there is nothing the Worker wrote.
 - **The sync runners are deferred.** `eb-sync-run.js` and `gcal-run.js` keep reading and

@@ -334,8 +334,9 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   bump it on any slim-shape change), **/rows** (soft 30s/hard 5m — busted on every planning write incl.
   publish/cancel/notes-doc; `?fresh=1` bypasses for the notes-doc fast-poll),
   **/ref/***, **/references**, and **/roster/:rowId** (soft 60s/hard 5m per event
-  — busted by the claim write routes via the slot's Event relation; `?fresh=1` for
-  the refresh button; the value holds raw registrant emails, server-side only).
+  — `roster-v2:`, raw orders, slots and claims merged at serve time; busted after claim
+  and slot writes via the slot's Event relation; `?fresh=1` for the refresh button; the
+  value holds raw registrant emails, server-side only).
   When adding a Worker write path that mutates
   planning rows, bust `ROWS_KV_KEY`. Cache API is a no-op on workers.dev (no
   Cloudflare zone — DNS stays at Hover), which is why KV.
@@ -353,13 +354,17 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   Coda applies it. The gather snapshot (`GATHER_KV_KEY` = `gather-snap-v2`) holds the raw
   rich rows `{events, slots, claims}`, not the grouped snapshot: `buildMemberEvents` and
   `buildMyClaims` merge the overlay into them (`gatherRows`, with the snapshot's `at`) before
-  `gatherSnapshot` groups them, so an event approved, a slot added or a claim made a moment
-  ago shows in gather at once (the old `gather-events-v1` key is never read). `/slots`, the
-  roster build (merged before `buildRoster`; its KV cache and `bustRosterForSlot` stay), the
-  registration check, `/ref/venues` (merged before `venueRefItem`), `GET /venues/:id`, Add
-  venue's duplicate check and publish's Venues read merge too (`mergedRows`, `readRowMerged`).
-  Slot, claim and venue writes go through `codaWrite` (`gatherWrite` busts the event
-  snapshots once; the old bust-again-after-28 s is gone). Editing or removing a sign-up
+  `gatherSnapshot` groups them, so with `OVERLAY_MODE` live an event approved, a slot added
+  or a claim made a moment ago shows in gather at once (the old `gather-events-v1` key is
+  never read). Before caching, `pruneGatherRaw` drops events dated more than 7 days back
+  (undated stay) and their slots and claims. No cache holds a merged view, so a write that
+  later fails never lingers: the roster caches raw rows and merges before `buildRoster` at
+  serve time; `/ref/venues` caches Coda's projection (no addresses, R12) and, when a venue
+  entry is live, reads the venues table once and serves it merged (`refVenues`). `/slots`,
+  the registration check, `GET /venues/:id`, Add venue's duplicate check and publish's
+  Venues read merge too (`mergedRows`, `readRowMerged`). Slot, claim and venue writes go
+  through `codaWrite`: `gatherWrite` busts the event snapshots once when overlaid, and again
+  after ~28 s when not (`OVERLAY_MODE` off or the overlay down). Editing or removing a sign-up
   whose insert is still pending answers 409 *Your sign-up is still being saved. Try again in
   a few seconds.* (`readClaimForWrite`). `scripts/check.sh` rule 7 flags a direct Coda call
   to the planning, slots, claims or venues tables outside the helpers; only the sync runners

@@ -58,9 +58,9 @@ Each has a page in `docs/decisions/`.
 ## Hard constraints (learned the hard way)
 
 - **Coda applies writes ~28 s after accepting them**, whatever the doc size (0008).
-  Reads through the Worker see its writes (the write overlay, 0012: the planning routes,
-  gather, slots, claims, the roster and venues); Coda-side readers and the sync runners
-  still lag ~28 s. Outside the overlay, never act on a read right after a write
+  With `OVERLAY_MODE` live, reads through the Worker see its writes (the write overlay,
+  0012: the planning routes, gather, slots, claims, the roster and venues); with it off, and
+  for Coda-side readers and the sync runners, writes still lag ~28 s. Outside the overlay, never act on a read right after a write
   without waiting for it to apply.
 - **`web/listing-readiness.js` and `web/venue-address.js` are bundled into the Worker**:
   no DOM or browser globals (checked), and editing either redeploys the Worker.
