@@ -34,7 +34,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish, overlayStatus, planningColMap, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish, overlayStatus, planningColMap, passWrite, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -53,6 +53,7 @@ import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js'
 import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
+import { STILL_SAVING, planningWrite, planningRowSetter, readPlanningRow, planningList } from './overlay-routes.js';   // planning reads/writes through the overlay
 export { WriteOverlay } from './overlay-do.js';   // the write overlay Durable Object (binding OVERLAY)
 const ListingRules = globalThis.ListingRules;
 
@@ -154,9 +155,9 @@ export default {
             // With an Eventbrite id, its listing goes first (F7: allowed with no
             // orders) — on an Eventbrite refusal the row stays.
             // Worst case: auth + row read + EB GET + EB DELETE + row DELETE + log (~8).
-            const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+            const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
             if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-            const V = (await one.json()).values || {};
+            const V = one.values;
             const gate = deleteGate({ published: isPublishedCell(V['Published?']), status: V['Status'] || '' }, id);
             if (gate) return json({ error: gate.error }, gate.status, cors);
             const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19: a just-created id may not be on the row yet
@@ -178,12 +179,12 @@ export default {
                 }
               }
             }
-            const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
-            if (w.ok) { await bustEventCaches(env); if (env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} } }
+            const w = await planningWrite(env, { url: `${rowsUrl}/${encodeURIComponent(rowId)}`, method: 'DELETE', tableId, op: 'delete', rowId, auth });
+            if (w.ok && env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} }
             // gCal: the row's calendar event goes too; the row is gone, so nothing is written to it.
             if (w.ok && ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), status: 'deleted' }, rowGone: true }));
             await logPublish(env, base, docId, auth, { rowId: w.ok ? '' : rowId, actorId: id.personId, action: 'delete', ok: w.ok, status: w.status, ebId, message: w.ok ? `event deleted (eb: ${ebOutcome}; row ${rowId})` : `row delete failed (eb: ${ebOutcome})` });
-            return pass(w, cors);
+            return passWrite(w, cors);
           }
 
           if ((request.method === 'POST' && !rowId) || (request.method === 'PUT' && rowId)) {
@@ -203,9 +204,9 @@ export default {
               if (approving) { setCell(cells, 'Approved by', [id.personId]); setCell(cells, 'Approved at', today); }
             }
             const target = request.method === 'POST' ? rowsUrl : `${rowsUrl}/${encodeURIComponent(rowId)}`;
-            const w = await fetch(target, { method: request.method, headers: auth, body: JSON.stringify(body) });
-            if (w.ok) await bustEventCaches(env);   // next read must see this write, not the snapshot
-            return pass(w, cors);
+            // planningWrite busts on success: the bust refreshes the snapshot, the overlay covers the apply gap.
+            const w = await planningWrite(env, { url: target, method: request.method, body, tableId, op: request.method === 'POST' ? 'insert' : 'update', rowId, auth });
+            return passWrite(w, cors);
           }
           return json({ error: 'bad write request' }, 400, cors);
         }
@@ -215,19 +216,21 @@ export default {
             const out = await readAllRows(rowsUrl, auth);
             if (!out.ok) throw new Error(`rows read failed (${out.resp.status})`);
             // Anchor the notes URL to its stable column id, not its (renameable) name.
-            const nm = env.CODA_NOTES_COL_ID ? await planningColMap(env, base, docId, tableId, auth).then((m) => m.idToName[env.CODA_NOTES_COL_ID] || null, () => null) : null;
+            const nm = env.CODA_NOTES_COL_ID ? await planningColMap(env, base, docId, tableId, auth).then((m) => m.idToName[env.CODA_NOTES_COL_ID] || null,
+              (e) => { console.error(`rows: notes column map failed (${String((e && e.message) || e)}); notesDocUrl left out`); return null; }) : null;
             if (nm) for (const it of out.items) { it.notesDocUrl = (it.values || {})[nm] || null; }
             return out.items;
           };
           // ?fresh=1 (the notes-doc fast-poll) bypasses the snapshot but refills it.
           try {
+            const pl = { base, docId, tableId, auth };
             if (url.searchParams.get('fresh')) {
-              const items = await fetchRows();
-              if (env.CACHE) { try { await env.CACHE.put(ROWS_KV_KEY, JSON.stringify({ at: Date.now(), data: items })); } catch (_) {} }
-              return json({ items }, 200, cors);
+              const at = Date.now(), items = await fetchRows();   // stamped before the read: the merge is age-aware
+              if (env.CACHE) { try { await env.CACHE.put(ROWS_KV_KEY, JSON.stringify({ at, data: items })); } catch (_) {} }
+              return json({ items: await planningList(env, pl, items, at) }, 200, cors);
             }
-            const items = await swrGet(env, ctx, ROWS_KV_KEY, 30_000, 300_000, fetchRows);   // soft 30s / hard 5min
-            return json({ items }, 200, cors);
+            const snap = await swrGetAt(env, ctx, ROWS_KV_KEY, 30_000, 300_000, fetchRows);   // soft 30s / hard 5min
+            return json({ items: await planningList(env, pl, snap.data, snap.at) }, 200, cors);
           } catch (e) {
             return json({ error: String((e && e.message) || e) }, 502, cors);
           }
@@ -272,8 +275,8 @@ export default {
               return isVenues ? out.items.map(venueRefItem) : out.items;
             };
             if (fresh) {
-              items = await fetchRef();
-              if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at: Date.now(), data: items })); } catch (_) {} }
+              const at = Date.now(); items = await fetchRef();
+              if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at, data: items })); } catch (_) {} }
             } else {
               items = await swrGet(env, ctx, kvKey, 5 * 60_000, 24 * 3600_000, fetchRef);   // soft 5min / hard 24h
             }
@@ -449,10 +452,10 @@ export default {
         const force = body.force === true;           // caller confirmed overwriting Eventbrite-side edits
 
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
-        const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const row = await one.json();
-        const V = row.values || {};
+        if (one.stale) return json({ error: STILL_SAVING }, 409, cors);
+        const V = one.values;
         const ev = rowToListingEvent(V);
         // R19: our own earlier writes (event id, ticket class, push time) may not be
         // applied to the row yet: use the KV marker where the row is still blank, so
@@ -501,14 +504,10 @@ export default {
 
         // Every row write records Coda's requestId: the response carries the last one
         // so the app shows Saved only once Coda has applied it (D3).
-        let lastRequestId = null;
+        // The bust (in planningWrite) refreshes the snapshot; the overlay covers the apply gap.
+        const rw = planningRowSetter(env, { rowsUrl, tableId, rowId, auth }), setRow = rw.set;
         let ebIdNow = ev.eventbriteId || '';   // set once the event exists on Eventbrite
-        const setRow = async (cells) => {
-          const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) { await bustEventCaches(env); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // publish write-backs must be visible to the next /rows read
-          return r;
-        };
-        const failBody = (extra) => ({ ...extra, requestId: lastRequestId, ...(ebIdNow ? { eventbriteId: ebIdNow } : {}) });
+        const failBody = (extra) => ({ ...extra, requestId: rw.requestId, overlaid: rw.overlaid, ...(ebIdNow ? { eventbriteId: ebIdNow } : {}) });
         const fail = async (action, r, httpStatus = 502) => {
           // Build the most specific message Eventbrite gives us. error_detail carries
           // the per-argument reasons that error_description flattens to an unhelpful
@@ -662,7 +661,7 @@ export default {
           const gev = gcalEventFromRow(rowId, V);   // gCal: the event as just written (Coda applies it ~28 s later)
           if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gev, addressVisibility: ev.addressVisibility,
             venueAddress: venueRow ? venueRow.address : '', publishStatus: draftOnly ? 'Draft' : 'Published', eventbriteUrl: gev.eventbriteUrl || eventbriteWebUrl(ebId) } }));
-          return json(publishSuccessBody({ ebId, url: eventbriteWebUrl(ebId), draftOnly, ticketNote, pushedJson, lastPushAt, requestId: lastRequestId }), 200, cors);
+          return json({ ...publishSuccessBody({ ebId, url: eventbriteWebUrl(ebId), draftOnly, ticketNote, pushedJson, lastPushAt, requestId: rw.requestId }), overlaid: rw.overlaid }, 200, cors);
         } catch (err) {
           const msg = String((err && err.message) || err);
           try { await setRow([{ column: 'Publish status', value: 'Error' }, { column: 'Last publish error', value: msg }]); } catch (_) {}
@@ -680,9 +679,9 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const rowId = url.searchParams.get('rowId');
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
-        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const V = (await one.json()).values || {};
+        const V = one.values;
         const ids = resolveEbIds(V, await readEbPending(env, rowId));   // R19
         const ebId = ids.ebId;
         if (!ebId) return json({ linked: false }, 200, cors);
@@ -705,9 +704,9 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const rowId = url.searchParams.get('rowId');
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
-        const one = await fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const V = (await one.json()).values || {};
+        const V = one.values;
         const { ebId } = resolveEbIds(V, await readEbPending(env, rowId));   // R19
         if (!ebId) return json({ linked: false }, 404, cors);
         const [evr, dr] = await Promise.all([
@@ -740,15 +739,13 @@ export default {
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
 
         const rowsUrl = `${base}/docs/${docId}/tables/${tableId}/rows`;
-        const one = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}?useColumnNames=true&valueFormat=simpleWithArrays`, { headers: auth });
+        const one = await readPlanningRow(env, { base, docId, tableId, auth, rowId });
         if (!one.ok) return json({ error: 'row not found' }, 404, cors);
-        const V = (await one.json()).values || {};
-        let lastRequestId = null;   // Coda's id for the row write: the app waits on it (D3)
-        const setRow = async (cells) => {
-          const r = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'PUT', headers: auth, body: JSON.stringify({ row: { cells } }) });
-          if (r.ok) { await bustEventCaches(env); lastRequestId = (await codaRequestId(r)) || lastRequestId; }   // write-backs must be visible to the next /rows read
-          return r;
-        };
+        if (one.stale) return json({ error: STILL_SAVING }, 409, cors);
+        const V = one.values;
+        // rw.requestId: Coda's id for the row write, the app waits on it (D3). The bust (in
+        // planningWrite) refreshes the snapshot; the overlay covers the apply gap.
+        const rw = planningRowSetter(env, { rowsUrl, tableId, rowId, auth }), setRow = rw.set;
         const action = isCancel ? 'cancel' : 'unpublish';
         const pend = await readEbPending(env, rowId), { ebId } = resolveEbIds(V, pend);   // R19: a just-created id may not be on the row yet
         const notePending = () => writeEbPending(env, rowId, mergeEbPending(pend, { ebId }));   // C1: the sync skips our own change
@@ -787,10 +784,10 @@ export default {
             { column: 'Edited by', value: [id.personId] },
             ...snapshotStatusCells(V, 'draft'),
           ]);
-          if (!w.ok) return pass(w, cors);
+          if (!w.ok) return pass(w.resp, cors);
           await log({ ok: true, status: 200, ebUrl: eventbriteWebUrl(ebId), message: 'listing unpublished (back to private draft)' });
           if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), publishStatus: 'Draft' } }));
-          return json({ ok: true, publishStatus: 'Draft', requestId: lastRequestId }, 200, cors);
+          return json({ ok: true, publishStatus: 'Draft', requestId: rw.requestId, overlaid: rw.overlaid }, 200, cors);
         }
 
         let ebOutcome = 'none', ebNow = '';   // ebNow: Eventbrite's status after this, for the snapshot
@@ -822,10 +819,10 @@ export default {
         ];
         if (ebId) cells.push({ column: 'Publish status', value: 'Cancelled' }, ...snapshotStatusCells(V, ebNow));
         const w = await setRow(cells);
-        if (!w.ok) return pass(w, cors);
+        if (!w.ok) return pass(w.resp, cors);
         await log({ ok: true, status: 200, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
         if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), status: 'cancelled' } }));
-        return json({ ok: true, publishStatus: ebId ? 'Cancelled' : '', eventbrite: ebOutcome, requestId: lastRequestId }, 200, cors);
+        return json({ ok: true, publishStatus: ebId ? 'Cancelled' : '', eventbrite: ebOutcome, requestId: rw.requestId, overlaid: rw.overlaid }, 200, cors);
       }
       if (parts[0] === 'notes-doc' && request.method === 'POST') {
         // Provision a Planning-Notes Google Doc by pushing the row's notes-doc
@@ -846,7 +843,9 @@ export default {
         if (!rowId) return json({ error: 'rowId required' }, 400, cors);
         const btnUrl = `${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}/buttons/${encodeURIComponent(buttonId)}`;
         const w = await fetch(btnUrl, { method: 'POST', headers: auth });
-        if (w.ok) await bustEventCaches(env);   // the button writes the doc URL into the row; the fast-poll must see it
+        // A Coda button: Coda writes the doc URL, so nothing is overlaid (a direct call by design).
+        // The bust refreshes the snapshot; the fast-poll's ?fresh=1 sees the URL once Coda applies it.
+        if (w.ok) await bustEventCaches(env);
         return pass(w, cors);
       }
 
@@ -889,8 +888,8 @@ export default {
         const key = rosterKvKey(rowId);
         let data;
         if (url.searchParams.get('fresh') === '1') {
-          data = await build();                                   // refresh button: bypass + rewrite the snapshot
-          if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify({ at: Date.now(), data })); } catch (_) {} }
+          const at = Date.now(); data = await build();            // refresh button: bypass + rewrite the snapshot
+          if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify({ at, data })); } catch (_) {} }
         } else {
           data = await swrGet(env, ctx, key, 60_000, 300_000, build);
         }
@@ -1211,8 +1210,8 @@ async function peopleRows(base, docId, auth, env, ctx, opts = {}) {
   if (opts.force) {
     // Manual refresh: bypass BOTH caches, pull fresh from Coda, and rewrite KV so
     // every isolate converges on the next read (their short L1 expires in ~60s).
-    rows = await fetchSlim();
-    if (env.CACHE) { try { await env.CACHE.put(PEOPLE_KV_KEY, JSON.stringify({ at: Date.now(), data: rows })); } catch (_) {} }
+    const at = Date.now(); rows = await fetchSlim();
+    if (env.CACHE) { try { await env.CACHE.put(PEOPLE_KV_KEY, JSON.stringify({ at, data: rows })); } catch (_) {} }
   } else {
     try { rows = await swrGet(env, ctx, PEOPLE_KV_KEY, 300_000, 1_800_000, fetchSlim); }   // soft 5min / hard 30min
     catch (_) { return _people || []; }                // read failed: last isolate copy, never cache the failure

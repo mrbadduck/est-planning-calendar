@@ -188,7 +188,9 @@ export async function codaWrite(env, { url, method, body, tableId, op, rowId, au
   if (!resp.ok || !overlayOn(env) || (body && body.keyColumns)) return out;
   const entries = requestId ? writeEntries({ body, tableId, op, rowId }, requestId, addedRowIds, Date.now()) : null;
   if (!entries || !entries.length) {
-    console.error(`overlay: ${op} on ${tableId} not overlaid (${requestId ? 'no entries' : 'no requestId'})`);
+    const rows = op === 'insert' && body && Array.isArray(body.rows) ? body.rows : null;
+    const why = !requestId ? 'no requestId' : (rows && rows.length && rows.length !== addedRowIds.length ? 'addedRowIds count mismatch' : 'no entries');
+    console.error(`overlay: ${op} on ${tableId} not overlaid (${why})`);
     return out;
   }
   try { await overlayCall(env, '/record', { entries }); out.overlaid = true; }
