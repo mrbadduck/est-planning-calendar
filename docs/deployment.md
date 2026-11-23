@@ -275,6 +275,17 @@ stored entries, which are copies), and deploy:
 
 Keep the `v1` block above it. Use the next unused tag if `v2` is taken by then.
 
+## Logs and CI tests
+
+- **Workers Logs** is on (`[observability]` in `proxy/wrangler.toml`): the Worker's
+  `console` output, uncaught errors and cron runs show in the Cloudflare dashboard under
+  Workers → `est-planning-proxy` → Logs. On the Free plan that is 200,000 log events a
+  day, kept 3 days. To log fewer invocations, lower `head_sampling_rate` (0–1). To turn
+  it off, set `enabled = false` and deploy. Cloudflare moves Workers Logs to its
+  Observability pricing on Dec 1, 2026; check the Free allowance then.
+- **Unit tests run in CI** (`.github/workflows/unit-tests.yml`): `cd proxy && npm test`
+  on every PR and on `main`. They need no install and take a few seconds.
+
 ## Secrets checklist
 
 - Superhuman Docs token: **Worker secret only** (`CODA_API_TOKEN`) — never committed,

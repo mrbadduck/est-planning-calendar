@@ -22,6 +22,13 @@ class_name = "WriteOverlay"
 tag = "v1"
 new_sqlite_classes = ["WriteOverlay"]
 
+# Workers Logs: keep the Worker's console output, errors and cron runs, readable in the
+# Cloudflare dashboard (Workers → est-planning-proxy → Logs). Free plan: 200,000 log
+# events a day, kept 3 days. head_sampling_rate 1 keeps every invocation.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [vars]
 CODA_API_BASE  = "https://coda.io/apis/v1"
 CODA_DOC_ID    = "DYAz_wCVfv"          # EST — Mission Control doc
