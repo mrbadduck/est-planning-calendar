@@ -1,0 +1,21 @@
+name: Unit tests
+# The Worker's unit tests (proxy/test, node:test, no dependencies). scripts/check.sh
+# leaves them out to stay fast locally; CI runs them on every PR and on main so a
+# broken Worker can't merge and deploy unnoticed.
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: cd proxy && npm test
+        run: npm test
+        working-directory: proxy
