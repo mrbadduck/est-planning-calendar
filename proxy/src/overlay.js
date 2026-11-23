@@ -16,10 +16,21 @@
 //              via the `names` caches; an id missing there marks the row stale. Text is
 //              fenced for 'rich' the way Coda fences it (stripRich reads it back). A written
 //              'HH:MM' time and 'YYYY-MM-DD' date become the ISO forms Coda returns.
-// Column kinds handled: relation (RELATION_COLS), time, date, and everything else as a
-// plain scalar (text, select, number, checkbox, link, JSON text). Formula, lookup and
-// button columns and the row's display name are not overlaid: nothing writes them.
-// An array written to a column the merge can't classify is stale, never shown as raw ids.
+//              Relations always come back as arrays (names, or {rowId, name}); the rich
+//              objects leave out Coda's `type` and `targetTableId` (no reader uses them).
+// Column kinds: relation, time, date, and plain scalars (text, select, number, checkbox,
+// link, JSON text: strings fenced for rich, the rest as written). Formula, lookup and button
+// columns and the row's display name are not overlaid: nothing writes them.
+// Where kinds come from:
+//   - With `colKinds` (the planning table; Task 3 builds it from /columns: `calculated` plus
+//     format.type): colKinds first, keyed by column id or name. A `calculated` column, or one
+//     colKinds doesn't know, marks the row stale (0007: no silent pass-through).
+//   - Without it (slots, claims, venues: id-keyed, fully covered by RELATION_COLS and the ids
+//     below): KIND_BY_ID, then KIND_BY_NAME, else a plain scalar. An array written to a
+//     column classified this way is stale, never shown as raw ids.
+// No silent drops: if the newest entry for a cell can't be translated, the whole row keeps
+// Coda's copy (no older entry shows) and is stale. `tableId`, when given, ignores entries for
+// other tables.
 
 import { APPLY_MARGIN_MS, FAIL_AFTER_MS } from './overlay-do.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from './coda-columns.js';
@@ -33,7 +44,9 @@ export const RELATION_COLS = {
   [PLANNING_COLS.volunteers]: 'people',
   [PLANNING_COLS.venue]: 'venues',
   [PLANNING_COLS.createdBy]: 'people',
-  ...(PLANNING_COLS.venueType ? { [PLANNING_COLS.venueType]: 'venueTypes' } : {}),
+  [PLANNING_COLS.editedBy]: 'people',
+  [PLANNING_COLS.approvedBy]: 'people',
+  [PLANNING_COLS.venueType]: 'venueTypes',
   [SLOT_COLS.event]: 'events',
   [CLAIM_COLS.slot]: 'slots',
   [CLAIM_COLS.member]: 'people',
@@ -43,16 +56,25 @@ const KIND_BY_ID = {
   ...RELATION_COLS,
   [PLANNING_COLS.start]: 'time', [PLANNING_COLS.end]: 'time',
   [PLANNING_COLS.date]: 'date', [PLANNING_COLS.windowStart]: 'date', [PLANNING_COLS.windowEnd]: 'date',
+  [PLANNING_COLS.approvedAt]: 'date',
 };
 // The planning seam writes by name (web/data.js eventToCodaCells, worker.js attribution).
-// Used when a name-keyed entry's id isn't known (no colMap, or a column with no id in
-// coda-columns.js yet: Venue Type, Edited by, Approved by).
+// The fallback after ids, for a name-keyed entry whose id is unknown (read without colMap).
 const KIND_BY_NAME = {
   'Program(s)': 'programs', Leads: 'people', Volunteers: 'people', Venue: 'venues',
   'Venue Type': 'venueTypes', 'Created by': 'people', 'Edited by': 'people', 'Approved by': 'people',
   Start: 'time', End: 'time', Date: 'date', 'Window start': 'date', 'Window end': 'date',
+  'Approved at': 'date',
 };
+const COL_KIND = { text: null, time: 'time', date: 'date' };
+// A colKinds value -> internal kind (a names cache, 'time', 'date' or null for plain), or FAIL.
+function fromColKinds(k) {
+  if (typeof k !== 'string') return FAIL;
+  if (k.startsWith('relation:') && k.length > 9) return k.slice(9);
+  return Object.prototype.hasOwnProperty.call(COL_KIND, k) ? COL_KIND[k] : FAIL;   // 'calculated' too
+}
 const NAMELESS = new Set(['events', 'slots']);
+const FAIL = Symbol('stale');
 
 export function isLive(entry, { snapshotAt, now }) {
   if (!entry) return false;
@@ -75,8 +97,6 @@ const dateIso = (v, tz) => `${v}T00:00:00.000${offsetAt(tz, `${v}T12:00:00Z`)}`;
 // Inverse of stripRich: escape what it unescapes, then fence.
 const fence = (s) => '```' + s.replace(/[\\`*_~[\]()#+\-.!>|{}]/g, '\\$&') + '```';
 
-const FAIL = Symbol('stale');
-
 function convert(value, kind, shape, names, tz) {
   if (kind === 'time' && typeof value === 'string' && /^\d{2}:\d{2}$/.test(value)) return timeIso(value, tz);
   if (kind === 'date' && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return dateIso(value, tz);
@@ -93,13 +113,15 @@ function convert(value, kind, shape, names, tz) {
   return value;
 }
 
-export function mergeRows(rows, entries, { shape, snapshotAt, now, colMap, names, tz = 'America/Chicago' } = {}) {
+export function mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKinds, names, tableId, tz = 'America/Chicago' } = {}) {
   const readerKeying = shape === 'name' ? 'name' : 'id';
   const stale = new Set();
-  const live = (entries || []).filter((e) => isLive(e, { snapshotAt, now }))
+  const live = (entries || [])
+    .filter((e) => (tableId == null || e.tableId === tableId) && isLive(e, { snapshotAt, now }))
     .sort((a, b) => a.writtenAt - b.writtenAt);
   const have = new Set((rows || []).map((r) => r.id));
   const deleted = new Set(), inserted = [], cells = new Map();   // rowId -> Map(readerKey -> {entry, kind})
+  const untranslated = new Set();   // rows whose overlay is dropped whole
   for (const e of live) {
     if (e.op === 'delete') { deleted.add(e.rowId); continue; }
     if (e.op === 'insert') {
@@ -109,8 +131,12 @@ export function mergeRows(rows, entries, { shape, snapshotAt, now, colMap, names
     const colId = e.keying === 'id' ? e.key : colMap && colMap.nameToId && colMap.nameToId[e.key];
     const colName = e.keying === 'name' ? e.key : colMap && colMap.idToName && colMap.idToName[e.key];
     const readerKey = e.keying === readerKeying ? e.key : (readerKeying === 'id' ? colId : colName);
-    if (!readerKey) { stale.add(e.rowId); continue; }
-    const kind = KIND_BY_ID[colId] || KIND_BY_NAME[colName] || null;
+    if (!readerKey) { stale.add(e.rowId); untranslated.add(e.rowId); continue; }
+    let kind;
+    if (colKinds) {
+      const k = (colId && colKinds[colId]) || (colName && colKinds[colName]);
+      kind = fromColKinds(k);
+    } else kind = KIND_BY_ID[colId] || KIND_BY_NAME[colName] || null;
     if (!cells.has(e.rowId)) cells.set(e.rowId, new Map());
     cells.get(e.rowId).set(readerKey, { entry: e, kind });   // ascending writtenAt: newest wins
   }
@@ -119,12 +145,15 @@ export function mergeRows(rows, entries, { shape, snapshotAt, now, colMap, names
     if (!touched) return r;
     const values = { ...(r.values || {}) };
     for (const [k, { entry, kind }] of touched) {
-      const v = convert(entry.value, kind, shape, names, tz);
+      const v = kind === FAIL ? FAIL : convert(entry.value, kind, shape, names, tz);
       if (v === FAIL) stale.add(r.id); else values[k] = v;
     }
     return { ...r, values };
   };
-  const out = (rows || []).filter((r) => !deleted.has(r.id)).map(overlay);
-  for (const id of inserted) if (!have.has(id) && !deleted.has(id)) out.push(overlay({ id, values: {} }));
+  const out = (rows || []).filter((r) => !deleted.has(r.id))
+    .map((r) => (untranslated.has(r.id) ? r : overlay(r)));
+  for (const id of inserted) {
+    if (!have.has(id) && !deleted.has(id) && !untranslated.has(id)) out.push(overlay({ id, values: {} }));
+  }
   return { rows: out, stale: [...stale] };
 }

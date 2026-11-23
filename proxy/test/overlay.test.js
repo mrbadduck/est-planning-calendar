@@ -15,7 +15,7 @@ const set = (rowId, key, value, o = {}) => ({
 });
 const row = (id, values) => ({ id, values });
 const colMap = {
-  nameToId: { Title: PLANNING_COLS.title, Status: PLANNING_COLS.status, 'Publish status': PLANNING_COLS.publishStatus, 'Last EB push at': PLANNING_COLS.lastEbPushAt, Leads: PLANNING_COLS.leads, Start: PLANNING_COLS.start },
+  nameToId: { Title: PLANNING_COLS.title, Status: PLANNING_COLS.status, 'Publish status': PLANNING_COLS.publishStatus, 'Last EB push at': PLANNING_COLS.lastEbPushAt, Leads: PLANNING_COLS.leads, Start: PLANNING_COLS.start, Venue: PLANNING_COLS.venue, 'All day': PLANNING_COLS.allDay, Capacity: PLANNING_COLS.capacity },
   idToName: {},
 };
 for (const [n, id] of Object.entries(colMap.nameToId)) colMap.idToName[id] = n;
@@ -163,7 +163,99 @@ test('rows without entries come back unchanged, and the input is not mutated', (
 
 test('RELATION_COLS covers the planning, slot and claim relation columns by id', () => {
   for (const id of [PLANNING_COLS.programs, PLANNING_COLS.leads, PLANNING_COLS.volunteers, PLANNING_COLS.venue,
-    PLANNING_COLS.createdBy, SLOT_COLS.event, CLAIM_COLS.slot, CLAIM_COLS.member]) {
+    PLANNING_COLS.createdBy, PLANNING_COLS.editedBy, PLANNING_COLS.approvedBy, PLANNING_COLS.venueType,
+    SLOT_COLS.event, CLAIM_COLS.slot, CLAIM_COLS.member]) {
     assert.ok(RELATION_COLS[id], id);
   }
+  assert.equal(PLANNING_COLS.venueType, 'c-pVQ7AT4ZI4');
+  assert.equal(RELATION_COLS[PLANNING_COLS.editedBy], 'people');
+  assert.equal(RELATION_COLS[PLANNING_COLS.approvedBy], 'people');
+  assert.equal(RELATION_COLS[PLANNING_COLS.venueType], 'venueTypes');
+});
+
+test('Edited by, Venue Type and Approved at convert by id on a rich read', () => {
+  const out = mergeRows([row('i-1', {})], [
+    set('i-1', PLANNING_COLS.editedBy, ['i-p1']),
+    set('i-1', PLANNING_COLS.venueType, ['i-t1']),
+    set('i-1', PLANNING_COLS.approvedAt, '2026-12-05'),
+  ], opts({ shape: 'rich' }));
+  const v = out.rows[0].values;
+  assert.equal(relName(v[PLANNING_COLS.editedBy]), 'Leah Cohen');
+  assert.equal(relId(v[PLANNING_COLS.venueType]), 'i-t1');
+  assert.equal(v[PLANNING_COLS.approvedAt], '2026-12-05T00:00:00.000-06:00');
+  assert.deepEqual(out.stale, []);
+});
+
+const colKinds = {
+  [PLANNING_COLS.title]: 'text', Status: 'text', 'Computed thing': 'calculated',
+  [PLANNING_COLS.leads]: 'relation:people', Start: 'time',
+};
+
+test('colKinds: a calculated column is stale, an unknown column is stale, a relation converts', () => {
+  const rows = [row('i-1', { 'Computed thing': 'x', Mystery: 'm', Leads: ['Old'] })];
+  const calc = mergeRows(rows, [set('i-1', 'Computed thing', 'y')], opts({ colKinds }));
+  assert.deepEqual(calc.stale, ['i-1']);
+  assert.equal(calc.rows[0].values['Computed thing'], 'x');
+  const unk = mergeRows(rows, [set('i-1', 'Mystery', 'scalar')], opts({ colKinds }));
+  assert.deepEqual(unk.stale, ['i-1']);
+  assert.equal(unk.rows[0].values.Mystery, 'm');
+  const rel = mergeRows(rows, [set('i-1', 'Leads', ['i-p2'])], opts({ colKinds }));
+  assert.deepEqual(rel.rows[0].values.Leads, ['Dana Levy']);
+  assert.deepEqual(rel.stale, []);
+  // Without colKinds, the same unknown scalar passes as written (slots/claims/venues path).
+  assert.equal(mergeRows(rows, [set('i-1', 'Mystery', 'scalar')], opts()).rows[0].values.Mystery, 'scalar');
+});
+
+test('the newest entry for a cell untranslatable: the whole row keeps Coda\'s copy and is stale', () => {
+  const rows = [row('i-1', { [PLANNING_COLS.status]: '```Draft```', [PLANNING_COLS.title]: '```T```' })];
+  const out = mergeRows(rows, [
+    set('i-1', 'Status', 'Approved', { writtenAt: NOW - 5000 }),
+    set('i-1', 'Unmapped column', 'v', { writtenAt: NOW - 1000 }),
+    set('i-1', 'Title', 'New title', { writtenAt: NOW - 3000 }),
+  ], opts({ shape: 'rich' }));
+  assert.deepEqual(out.stale, ['i-1']);
+  assert.deepEqual(out.rows[0].values, rows[0].values);
+});
+
+test('tableId: entries for other tables are ignored', () => {
+  const rows = [row('i-1', { Title: 'A' })];
+  const other = set('i-1', 'Title', 'From another table', { tableId: 'grid-other' });
+  assert.equal(mergeRows(rows, [other], opts({ tableId: T })).rows[0].values.Title, 'A');
+  assert.equal(mergeRows(rows, [set('i-1', 'Title', 'Mine')], opts({ tableId: T })).rows[0].values.Title, 'Mine');
+});
+
+test('same column written once by name and once by id: the newer wins', () => {
+  const rows = [row('i-1', { Status: 'Draft' })];
+  const byName = set('i-1', 'Status', 'Approved', { writtenAt: NOW - 5000 });
+  const byId = set('i-1', PLANNING_COLS.status, 'Cancelled', { writtenAt: NOW - 1000 });
+  assert.equal(mergeRows(rows, [byId, byName], opts()).rows[0].values.Status, 'Cancelled');
+  const rich = mergeRows([row('i-1', {})], [byId, { ...byName, writtenAt: NOW - 500 }], opts({ shape: 'rich' }));
+  assert.equal(plain(rich.rows[0].values[PLANNING_COLS.status]), 'Approved');
+});
+
+test('applied boundary: snapshotAt === appliedAt + APPLY_MARGIN_MS is not live', () => {
+  const appliedAt = NOW - 60_000;
+  const e = { state: 'applied', writtenAt: appliedAt - 28_000, appliedAt };
+  assert.equal(isLive(e, { snapshotAt: appliedAt + APPLY_MARGIN_MS, now: NOW }), false);
+  assert.equal(isLive(e, { snapshotAt: appliedAt + APPLY_MARGIN_MS - 1, now: NOW }), true);
+});
+
+test('checkbox and number pass through as written, in every shape', () => {
+  for (const shape of ['name', 'id', 'rich']) {
+    const out = mergeRows([row('i-1', {})], [
+      set('i-1', PLANNING_COLS.allDay, true),
+      set('i-1', PLANNING_COLS.capacity, 40),
+    ], opts({ shape }));
+    const v = out.rows[0].values;
+    const key = (id, name) => (shape === 'name' ? name : id);
+    assert.equal(v[key(PLANNING_COLS.allDay, 'All day')], true, shape);
+    assert.equal(v[key(PLANNING_COLS.capacity, 'Capacity')], 40, shape);
+  }
+});
+
+test('a rich single relation (Venue) reads back through relId and relName', () => {
+  const out = mergeRows([row('i-1', {})], [set('i-1', 'Venue', ['i-v1'])], opts({ shape: 'rich' }));
+  const cell = out.rows[0].values[PLANNING_COLS.venue];
+  assert.equal(relId(cell), 'i-v1');
+  assert.equal(relName(cell), 'Community Hall');
 });
