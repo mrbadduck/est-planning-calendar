@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { onCalendar, gcalEventBody, gcalPlan } from '../src/gcal.js';
+import { onCalendar, inSyncWindow, gcalEventBody, gcalPlan, gcalHash } from '../src/gcal.js';
 
 const OPTS = { tz: 'America/Chicago', gatherBase: 'https://gather.eastsidetribe.org', area: 'Nashville, TN' };
 const ev = (o = {}) => ({
@@ -14,13 +14,16 @@ const TODAY = '2026-11-22';
 test('onCalendar: approved exact dated future event', () => {
   assert.equal(onCalendar(ev(), TODAY), true);
 });
-test('onCalendar: yesterday still counts, two days ago does not', () => {
-  assert.equal(onCalendar(ev({ date: '2026-11-21' }), TODAY), true);
-  assert.equal(onCalendar(ev({ date: '2026-11-20' }), TODAY), false);
+test('onCalendar: no date window, past events still count', () => {
+  assert.equal(onCalendar(ev({ date: '2020-01-01' })), true);
 });
-test('onCalendar: yesterday across a month boundary', () => {
-  assert.equal(onCalendar(ev({ date: '2026-11-30' }), '2026-12-01'), true);
-  assert.equal(onCalendar(ev({ date: '2026-11-29' }), '2026-12-01'), false);
+test('inSyncWindow: yesterday counts, two days ago does not', () => {
+  assert.equal(inSyncWindow(ev({ date: '2026-11-21' }), TODAY), true);
+  assert.equal(inSyncWindow(ev({ date: '2026-11-20' }), TODAY), false);
+});
+test('inSyncWindow: yesterday across a month boundary', () => {
+  assert.equal(inSyncWindow(ev({ date: '2026-11-30' }), '2026-12-01'), true);
+  assert.equal(inSyncWindow(ev({ date: '2026-11-29' }), '2026-12-01'), false);
 });
 test('onCalendar: cancelled, draft, month idea, no date are off', () => {
   assert.equal(onCalendar(ev({ status: 'cancelled' }), TODAY), false);
@@ -79,25 +82,45 @@ test('body: location rules', () => {
 });
 
 test('plan: on calendar, no id -> insert with body and hash', () => {
-  const p = gcalPlan(ev(), '', '', TODAY);
+  const p = gcalPlan(ev(), '', '');
   assert.equal(p.op, 'insert');
   assert.equal(p.body.summary, 'Shabbat Dinner');
   assert.equal(typeof p.hash, 'string');
 });
 test('plan: same event again -> none; changed -> patch', () => {
-  const first = gcalPlan(ev(), '', '', TODAY);
-  assert.equal(gcalPlan(ev(), 'g1', first.hash, TODAY).op, 'none');
-  const p = gcalPlan(ev({ title: 'New' }), 'g1', first.hash, TODAY);
+  const first = gcalPlan(ev(), '', '');
+  assert.equal(gcalPlan(ev(), 'g1', first.hash).op, 'none');
+  const p = gcalPlan(ev({ title: 'New' }), 'g1', first.hash);
   assert.equal(p.op, 'patch');
   assert.notEqual(p.hash, first.hash);
 });
 test('plan: hash is independent of key order', () => {
-  const a = gcalPlan(ev(), 'g', '', TODAY).hash;
+  const a = gcalPlan(ev(), 'g', '').hash;
   const e = ev(); const rev = Object.fromEntries(Object.entries(e).reverse());
-  assert.equal(gcalPlan(rev, 'g', '', TODAY).hash, a);
+  assert.equal(gcalPlan(rev, 'g', '').hash, a);
 });
 test('plan: cancelled or back to draft with id -> delete; without id -> none', () => {
-  assert.deepEqual(gcalPlan(ev({ status: 'cancelled' }), 'g1', 'h', TODAY), { op: 'delete' });
-  assert.equal(gcalPlan(ev({ status: 'proposed' }), 'g1', 'h', TODAY).op, 'delete');
-  assert.deepEqual(gcalPlan(ev({ status: 'cancelled' }), '', '', TODAY), { op: 'none' });
+  assert.deepEqual(gcalPlan(ev({ status: 'cancelled' }), 'g1', 'h'), { op: 'delete' });
+  assert.equal(gcalPlan(ev({ status: 'proposed' }), 'g1', 'h').op, 'delete');
+  assert.deepEqual(gcalPlan(ev({ status: 'cancelled' }), '', ''), { op: 'none' });
+});
+
+test('plan: a past approved event with a stored id is left alone', () => {
+  const past = ev({ date: '2020-01-01' });
+  const h = gcalPlan(past, '', '').hash;
+  assert.deepEqual(gcalPlan(past, 'g1', h), { op: 'none' });
+});
+test('body: overnight end rolls to the next day; equal end stays', () => {
+  const b = gcalEventBody(ev({ start: '20:00', end: '01:00' }), OPTS);
+  assert.equal(b.end.dateTime, '2026-12-06T01:00:00');
+  assert.equal(gcalEventBody(ev({ start: '9:00', end: '10:00' }), OPTS).end.dateTime, '2026-12-05T10:00:00');
+  assert.equal(gcalEventBody(ev({ start: '18:00', end: '18:00' }), OPTS).end.dateTime, '2026-12-05T18:00:00');
+});
+test('body: missing start falls back to all-day', () => {
+  const b = gcalEventBody(ev({ start: '', end: '' }), OPTS);
+  assert.deepEqual(b.start, { date: '2026-12-05' });
+  assert.deepEqual(b.end, { date: '2026-12-06' });
+});
+test('gcalHash: nested key order does not matter', () => {
+  assert.equal(gcalHash({ a: { x: 1, y: [{ q: 1, r: 2 }] }, b: 2 }), gcalHash({ b: 2, a: { y: [{ r: 2, q: 1 }], x: 1 } }));
 });
