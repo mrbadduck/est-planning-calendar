@@ -74,6 +74,14 @@ after), and lays those writes over the reads it serves. Coda keeps the data
   transition has moved the event on). An Eventbrite step (add, update, publish, cancel,
   unpublish) that fails late keeps what Eventbrite did and says to check it again in a
   minute.
+- **Leaving the page doesn't wait for a background confirm** (Eric, 2026-11-23, after the
+  browser QA pass; this reverses the plan's "keep the guard on while confirming"). The
+  browser's leave prompt (`guardUnload`) asks only while an edit is queued or not yet sent, a
+  request is in flight, a step is under way, or an edit or step that wasn’t overlaid still waits for
+  Coda to apply it (so with `OVERLAY_MODE = "off"` it asks exactly as before). An overlaid
+  edit is saved, so closing the tab while it confirms is fine. Accepted cost: if Coda accepts
+  an overlaid write but never applies it and the tab has been closed, nobody is told (the
+  overlay marks it `failed` and reads go back to Coda's value).
 - **Creating an event still waits.** Coda answers "not found" to any write on a row it
   hasn't created, and the overlay is not a write queue. A new event's panel button reads
   **Creating… (about half a minute)** until the insert applies, then the app says

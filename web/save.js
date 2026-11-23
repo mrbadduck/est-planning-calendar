@@ -72,14 +72,13 @@ function applied(requestId, eventId, opts={}){
 // copy over a read that missed the overlay and the event's actions go out flagged
 // unconfirmed (hasUnconfirmed); then its _recent hold is renewed. onFail(err): the
 // overlay or Coda gave up on it.
-// The leave guard stays on meanwhile (guardUnload).
+// The leave guard doesn't wait for it (guardUnload): the write is saved. Accepted
+// cost (0012): if Coda never applies it and the tab is closed, nobody is told.
 function confirmLater(requestId, id, onFail){
   if(!requestId) return;
   _confirming.track(id, applied(requestId, id, { counted:false, background:true })).then(
     ()=>{ const r=_recent.get(id); if(r){ const { until, ...rec }=r; markRecent(id, rec); } },
-    err=>{ console.warn('overlaid write not confirmed:', err); if(onFail) onFail(err); })
-    .finally(guardUnload);
-  guardUnload();
+    err=>{ console.warn('overlaid write not confirmed:', err); if(onFail) onFail(err); });
 }
 // An overlaid write to this event is still confirming: publish / cancel / unpublish /
 // delete tell the Worker (it refuses while it can't reach the overlay).
@@ -213,11 +212,11 @@ document.addEventListener('est:identity', ()=>{
 // beforeunload listener keeps some browsers from caching the page for Back.
 function onBeforeUnload(e){
   if(_form) autosaveEditor();
-  if(_unsaved.size || _busy.size || _confirming.size()){ e.preventDefault(); e.returnValue=''; }   // _busy: a delete/transition still waiting on Coda; _confirming: an overlaid change still confirming
+  if(_unsaved.size || _busy.size){ e.preventDefault(); e.returnValue=''; }   // _busy: a delete/transition still waiting on Coda. An overlaid change still confirming (_confirming) is saved: no prompt (0012)
 }
 let _unloadGuarded=false;
 function guardUnload(){
-  const need=!!_form || _unsaved.size>0 || _busy.size>0 || _confirming.size()>0;
+  const need=!!_form || _unsaved.size>0 || _busy.size>0;
   if(need===_unloadGuarded) return;
   _unloadGuarded=need;
   if(need) window.addEventListener('beforeunload', onBeforeUnload); else window.removeEventListener('beforeunload', onBeforeUnload);

@@ -213,8 +213,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   answers `overlaid: true`, the queue's write resolves on the 202 and the confirm runs in
   the background (`confirmLater`, counted in `_confirming`, a `SaveQueue.tracker()`, never
   in `pendingFor`). Meanwhile `loadEvents` keeps the `_recent` local copy, the event's
-  publish/cancel/unpublish/delete calls carry `unconfirmed` (`hasUnconfirmed`) and the leave
-  guard stays on. A failed background confirm puts the edit back through
+  publish/cancel/unpublish/delete calls carry `unconfirmed` (`hasUnconfirmed`); the leave
+  guard doesn't wait for it (the change is saved; 0012). A failed background confirm puts the edit back through
   `saveQueue.fail(token)` (`reopenEdits`): **Save failed — retry** with the editor open,
   else `dropFailedEdits`' toast. `overlaid: false` keeps the old wait (`applied`). A new
   event always waits for its insert (`trackCreate` → `_createApply`; the primary reads
@@ -228,9 +228,9 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   **Save failed — retry** (click to retry); when nothing says Saving, it's saved.
   `leaveEventPage()` (← Calendar) — and every opener that replaces the page or the
   modal, via `leaveForm()` — queues a pending edit so a fast exit can't drop the last change;
-  `beforeunload` (listened for only while an editor is open, a save is pending, a step is
-  under way or an overlaid change is still confirming — `guardUnload`) queues the form and
-  asks when something is unsaved, under way or confirming. Typeahead/venue pickers take an
+  `beforeunload` (listened for only while an editor is open, a save is pending or a step is
+  under way — `guardUnload`) queues the form and asks when something is unsaved or under
+  way. A background confirm (`_confirming`) doesn't count: the change is already saved. Typeahead/venue pickers take an
   `onChange` (guarded against initial seeding) so chip/segment mutations schedule
   a save. Transitions/Cancel/Delete hold the event they started on (never
   `editing`, which can change mid-await; `_busy` per event) and wait for its queue
