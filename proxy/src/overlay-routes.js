@@ -4,7 +4,8 @@
  * overlayRead. Kept out of worker.js so the routes stay short. With OVERLAY_MODE off each helper does exactly what
  * the route did before; only `overlaid: false` is added to the write responses.
  */
-import { codaWrite, overlayRead, bustEventCaches } from './worker-io.js';
+import { codaWrite, overlayRead, bustEventCaches, overlayHasLive, mergedRows, REF_TABLES } from './worker-io.js';
+import { venueRefItem } from './publish.js';
 import { claimOwnerId } from './gather.js';
 import { CLAIM_COLS } from './coda-columns.js';
 
@@ -21,7 +22,30 @@ export async function planningWrite(env, { url, method, body, tableId, op, rowId
   if (w.ok) await bustEventCaches(env);
   return w;
 }
-export const gatherWrite = planningWrite;   // slots and claims: the same write + one bust
+// Slots and claims: the same write and bust. Not overlaid (OVERLAY_MODE off, or the overlay
+// down), a gather read in the ~28 s before Coda applies the write would refill the snapshot
+// without it, so the snapshots are busted again after the apply, as before 0012. Overlaid,
+// one bust: the overlay covers the gap.
+export const APPLY_WAIT_MS = 28_000;
+export async function gatherWrite(env, ctx, args) {
+  const w = await planningWrite(env, args);
+  if (w.ok && !w.overlaid && ctx) ctx.waitUntil(new Promise((r) => setTimeout(r, APPLY_WAIT_MS)).then(() => bustEventCaches(env)));
+  return w;
+}
+
+// /ref/venues. The KV value is Coda's projection with its `at` (venueRefItem: no addresses,
+// R12), never the merged view, so a write that later fails never lingers in it. At serve
+// time: no live venue entry against that `at` -> the cached projection. Otherwise (and for
+// ?fresh=1, cached = null) read the venues table once, store Coda's projection, and serve
+// it with the overlay merged (a just-saved address). readRaw(): the raw by-id rows (throws);
+// put(at, items): store a projection.
+export async function refVenues(env, { cached, readRaw, put }) {
+  if (cached && !(await overlayHasLive(env, REF_TABLES.venues, cached.at))) return cached.data;
+  const at = Date.now();
+  const raw = await readRaw();
+  await put(at, raw.map(venueRefItem));
+  return (await mergedRows(env, REF_TABLES.venues, raw, at, { shape: 'id', want: ['venueTypes'] })).map(venueRefItem);
+}
 
 // A route's row write-backs (publish, cancel, unpublish). requestId: the last one Coda gave
 // (the app waits on it, D3). overlaid: true only when every write in the call was overlaid.

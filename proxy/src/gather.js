@@ -338,3 +338,27 @@ export function gatherSnapshot(eventRows, slotRows, claimRows, todayIso) {
   }
   return { events, slotsByEvent, claimsBySlot };
 }
+
+// Trim gather's raw KV value ({events, slots, claims}) before it's cached: planning rows whose
+// effective date is more than `days` before today go (undated rows stay), and with them the
+// slots of dropped events and the claims of dropped slots. Members only ever see events from
+// today on (isPublishedUpcoming / isApprovedUpcoming), so a dropped row can only come back
+// through a date edit. A Worker edit busts this snapshot (planningWrite) and the refill after
+// Coda applies it brings the row back; the one gap: in the ~28 s before that apply, a row moved
+// from 7+ days past into the future isn't in the snapshot, so the overlay can't show it yet.
+// The 7-day margin also covers time zones and clock skew around "today".
+export function pruneGatherRaw(eventRows, slotRows, claimRows, todayIso, days = 7) {
+  const d = new Date(`${String(todayIso).slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  const cutoff = d.toISOString().slice(0, 10);
+  const events = (eventRows || []).filter((r) => {
+    const v = (r && r.values) || {};
+    const eff = plain(v[PLANNING_COLS.date]) || plain(v[PLANNING_COLS.windowEnd]) || plain(v[PLANNING_COLS.windowStart]) || null;
+    return !eff || String(eff).slice(0, 10) >= cutoff;
+  });
+  const keep = new Set(events.map((r) => r.id));
+  const slots = (slotRows || []).filter((s) => keep.has(relId(s.values && s.values[SLOT_COLS.event])));
+  const kept = new Set(slots.map((s) => s.id));
+  const claims = (claimRows || []).filter((c) => kept.has(relId(c.values && c.values[CLAIM_COLS.slot])));
+  return { events, slots, claims };
+}

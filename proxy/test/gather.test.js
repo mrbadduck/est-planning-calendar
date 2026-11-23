@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  pruneGatherRaw,
   slotRemaining, normNeededQty, validateClaimInput, projectEventForMember,
   relName, relId, splitName, findPersonByEmail, personCreateCells,
   claimCreateCells, claimOwnerId, slotCells, isPublishedUpcoming,
@@ -414,4 +415,16 @@ test('gatherSnapshot keeps upcoming published/approved events with their slots a
   assert.deepEqual(Object.keys(snap.claimsBySlot), ['s1']);
   assert.deepEqual(snap.claimsBySlot.s1.map((c) => c.id), ['c1']);
   assert.deepEqual(JSON.parse(JSON.stringify(snap)), snap);
+});
+
+test('pruneGatherRaw keeps events dated from 7 days back (and undated ones), with their slots and claims', () => {
+  const ev = (id, date) => ({ id, values: date ? { [PLANNING_COLS.date]: date } : {} });
+  const events = [ev('a', '2026-11-16T00:00:00.000-06:00'), ev('b', '2026-11-15T00:00:00.000-06:00'), ev('c'), ev('d', '2026-12-01T00:00:00.000-06:00'),
+    { id: 'w', values: { [PLANNING_COLS.windowEnd]: '2026-11-20T00:00:00.000-06:00' } }];
+  const slots = [{ id: 's-a', values: { [SLOT_COLS.event]: [{ rowId: 'a' }] } }, { id: 's-b', values: { [SLOT_COLS.event]: [{ rowId: 'b' }] } }];
+  const claims = [{ id: 'c-a', values: { [CLAIM_COLS.slot]: [{ rowId: 's-a' }] } }, { id: 'c-b', values: { [CLAIM_COLS.slot]: [{ rowId: 's-b' }] } }];
+  const out = pruneGatherRaw(events, slots, claims, '2026-11-23');
+  assert.deepEqual(out.events.map((r) => r.id), ['a', 'c', 'd', 'w']);
+  assert.deepEqual(out.slots.map((r) => r.id), ['s-a']);
+  assert.deepEqual(out.claims.map((r) => r.id), ['c-a']);
 });

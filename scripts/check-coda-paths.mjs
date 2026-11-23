@@ -49,7 +49,7 @@ export const ALLOW = [
   { file: 'proxy/src/worker.js', match: 'readAllRows(rowsUrl, auth)',
     reason: '/rows: the snapshot planningList merges the overlay into', count: 1 },
   { file: 'proxy/src/worker-io.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`',
-    reason: 'fetchRefItems: /ref/venues merges the overlay before venueRefItem (programs and venue types are not guarded)', count: 1 },
+    reason: 'fetchRefItems: Coda\'s venue rows, which refVenues merges at serve time (programs and venue types are not guarded)', count: 1 },
   { file: 'proxy/src/worker.js', match: 'readAllRows(venuesUrl', reason: 'POST /venues: the duplicate-name read mergedRows merges into', count: 1 },
   { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`', reason: 'publish: the Venues read mergedRows merges into', count: 1 },
   { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`', reason: 'slots reads mergedRows merges into (roster, /slots, buildMyClaims)', count: 3 },

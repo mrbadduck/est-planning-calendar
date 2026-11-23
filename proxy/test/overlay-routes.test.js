@@ -496,7 +496,14 @@ test('/venues PUT answers overlaid:true and /ref/venues shows the new address be
   codaRoute = null;
 });
 
-test('PR B with OVERLAY_MODE=off: writes answer overlaid:false and the DO is never called', async () => {
+// Runs fn with every timer of 20 s or more fired at once; returns the long delays seen.
+async function fastTimers(fn) {
+  const long = [], st0 = globalThis.setTimeout;
+  globalThis.setTimeout = (f, ms, ...a) => { if (ms >= 20_000) { long.push(ms); return st0(f, 0, ...a); } return st0(f, ms, ...a); };
+  try { await fn(); } finally { globalThis.setTimeout = st0; }
+  return long;
+}
+test('PR B with OVERLAY_MODE=off: writes answer overlaid:false and the DO is never called', async () => { await fastTimers(async () => {
   skew = 0; const c = gatherCoda(); codaRoute = c.route;
   const d = overlayDO();
   const e = env({ ALLOW_WRITES: 'true', OVERLAY_MODE: 'off', OVERLAY: d.ns, ...GT });
@@ -508,5 +515,85 @@ test('PR B with OVERLAY_MODE=off: writes answer overlaid:false and the DO is nev
   const v = await call(e, 'PUT', '/venues/i-v', { body: { street: '1 Main St', city: 'Nashville', state: 'TN', zip: '37206' } });
   assert.equal(v.body.overlaid, false);
   assert.equal(d.calls.length, 0);
+  codaRoute = null;
+}); });
+
+// ── Task 7 fix round 1 ─────────────────────────────────────────────────────────────
+const failReq = async (d, rid) => { const q = await d.core.storage.get(`q:${rid}`); await d.core.setState(rid, q, 'failed', Date.now()); };
+const bustCount = (e) => { const gone = []; const del0 = e.CACHE.delete; e.CACHE.delete = async (k) => { gone.push(k); return del0(k); }; return gone; };
+
+test('a claim or slot write not overlaid (OVERLAY_MODE off) busts now and once more after the apply wait', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const e = env({ ALLOW_WRITES: 'true', OVERLAY_MODE: 'off', ...GT });
+  const gone = bustCount(e);
+  const long = await fastTimers(() => call(e, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot' } }));
+  assert.deepEqual(long, [28_000]);
+  assert.equal(gone.filter((k) => k === io.GATHER_KV_KEY).length, 2, 'one bust now, one after ~28 s');
+  gone.length = 0;
+  const long2 = await fastTimers(() => call(e, 'PUT', '/slots/i-slot', { body: { label: 'X' } }));
+  assert.deepEqual(long2, [28_000]); assert.equal(gone.filter((k) => k === io.GATHER_KV_KEY).length, 2);
+  const { e: le } = gLive();   // overlaid: exactly one bust, nothing scheduled
+  const lgone = bustCount(le);
+  const llong = await fastTimers(() => call(le, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot' } }));
+  assert.deepEqual(llong, []); assert.equal(lgone.filter((k) => k === io.GATHER_KV_KEY).length, 1);
+  codaRoute = null;
+});
+
+test('the roster caches raw rows: a live claim shows, and once its write has failed it no longer does', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { d, e } = gLive({ EVENTBRITE_TOKEN: 'eb' });
+  await call(e, 'POST', '/claims', { email: 'mem@x.org', body: { slot: 'i-slot' } });
+  let ro = await call(e, 'GET', '/roster/i-pub', { email: 'lead@x.org' });
+  assert.equal(ro.body.rows[0].claims.length, 2);
+  const cached = JSON.parse(await e.CACHE.get('roster-v2:i-pub'));
+  assert.deepEqual(cached.data.claims.map((x) => x.id), ['i-old'], "KV holds Coda's rows only");
+  await failReq(d, 'req-1');
+  ro = await call(e, 'GET', '/roster/i-pub', { email: 'lead@x.org' });   // same cached snapshot
+  assert.equal(ro.body.rows[0].claims.length, 1);
+  codaRoute = null;
+});
+
+test('/ref/venues caches Coda\'s projection: a live address shows, and once its write has failed it no longer does', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { d, e } = gLive();
+  await call(e, 'GET', '/ref/venues?fresh=1');
+  await call(e, 'PUT', '/venues/i-v', { body: { street: '1 Main St', city: 'Nashville', state: 'TN', zip: '37206' } });
+  let ref = await call(e, 'GET', '/ref/venues');
+  assert.equal(ref.body.items.find((x) => x.id === 'i-v').hasAddress, true);
+  const kvv = JSON.parse(await e.CACHE.get(io.VENUES_KV_KEY));
+  assert.equal(kvv.data.find((x) => x.id === 'i-v').hasAddress, false, "KV holds Coda's projection");
+  ref = await call(e, 'GET', '/ref/venues?fresh=1');
+  assert.equal(ref.body.items.find((x) => x.id === 'i-v').hasAddress, true, '?fresh=1 serves merged');
+  assert.equal(JSON.parse(await e.CACHE.get(io.VENUES_KV_KEY)).data.find((x) => x.id === 'i-v').hasAddress, false, '…and stores Coda\'s view');
+  await failReq(d, 'req-1');
+  ref = await call(e, 'GET', '/ref/venues');
+  assert.equal(ref.body.items.find((x) => x.id === 'i-v').hasAddress, false);
+  codaRoute = null;
+});
+
+test('slot writes bust their event\'s roster after the write', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  const { e } = gLive({ EVENTBRITE_TOKEN: 'eb' });
+  for (const [method, path, body] of [['POST', '/slots', { event: 'i-pub', label: 'Drinks' }], ['PUT', '/slots/i-slot', { label: 'X' }], ['DELETE', '/slots/i-slot']]) {
+    await call(e, 'GET', '/roster/i-pub', { email: 'lead@x.org' });
+    assert.ok(await e.CACHE.get('roster-v2:i-pub'), 'cached');
+    const w = await call(e, method, path, { body });
+    assert.ok(w.status < 300, path);
+    assert.equal(await e.CACHE.get('roster-v2:i-pub'), null, `${method} ${path} busts the roster`);
+  }
+  codaRoute = null;
+});
+
+test('gather caches only rows from 7 days back on: an old event, its slots and claims are pruned', async () => {
+  skew = 0; const c = gatherCoda(); codaRoute = c.route;
+  c.t['grid-plan'].set('i-past', { id: 'i-past', values: { [PC.title]: fenced('Old'), [PC.date]: '2020-01-01T00:00:00.000-06:00', [PC.published]: true } });
+  c.t['grid-slots'].set('i-ps', { id: 'i-ps', values: { [SC.event]: [{ rowId: 'i-past', name: 'Old' }] } });
+  c.t['grid-claims'].set('i-pc', { id: 'i-pc', values: { [CC.slot]: [{ rowId: 'i-ps', name: '' }] } });
+  const { e } = gLive();
+  await call(e, 'GET', '/events', { email: 'mem@x.org' });
+  const snap = JSON.parse(await e.CACHE.get(io.GATHER_KV_KEY)).data;
+  assert.deepEqual(snap.events.map((x) => x.id).sort(), ['i-prop', 'i-pub']);
+  assert.deepEqual(snap.slots.map((x) => x.id), ['i-slot']);
+  assert.deepEqual(snap.claims.map((x) => x.id), ['i-old']);
   codaRoute = null;
 });

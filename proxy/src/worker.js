@@ -34,7 +34,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, logPublish, overlayStatus, planningColMap, passWrite, codaWrite, mergedRows, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, swrBust, overlayOn, readAllRows, ebFetch, readEbPending, writeEbPending, logPublish, overlayStatus, planningColMap, passWrite, codaWrite, mergedRows, fetchRefItems, fetchPeopleSlim, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -44,7 +44,7 @@ import { PEOPLE_COLS, PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from '.
 import { venueFromRow, venueForEditor, createCells as venueCreateCells, updateCells as venueUpdateCells } from './venues.js';
 import {
   projectEventForMember, validateClaimInput, findPersonByEmail, personCreateCells,
-  claimCreateCells, claimOwnerId, slotCells, gatherSnapshot, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
+  claimCreateCells, claimOwnerId, slotCells, gatherSnapshot, pruneGatherRaw, isPublishedUpcoming, isApprovedUpcoming, relId, relName, plain,
   friendlyName, claimUpdateCells, splitName, normNeededQty,
 } from './gather.js';
 import { buildRoster } from './roster.js';
@@ -53,7 +53,7 @@ import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js'
 import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
-import { STILL_SAVING, mustWait, planningWrite, planningRowSetter, readPlanningRow, planningList, readRowMerged, readClaimForWrite, gatherWrite } from './overlay-routes.js';   // reads/writes through the overlay
+import { STILL_SAVING, mustWait, planningWrite, planningRowSetter, readPlanningRow, planningList, readRowMerged, readClaimForWrite, gatherWrite, refVenues } from './overlay-routes.js';   // reads/writes through the overlay
 export { WriteOverlay } from './overlay-do.js';   // the write overlay Durable Object (binding OVERLAY)
 const ListingRules = globalThis.ListingRules;
 
@@ -249,7 +249,7 @@ export default {
         // caches, reads Coda and refills them — like /rows?fresh=1.
         const fresh = name === 'venues' && url.searchParams.get('fresh') === '1';
         const hit = REF_CACHE.get(name);
-        if (!fresh && hit && hit.exp > Date.now()) return json({ items: hit.items }, 200, cors);
+        if (!fresh && hit && hit.exp > Date.now() && !(name === 'venues' && overlayOn(env))) return json({ items: hit.items }, 200, cors);   // venues: refVenues checks the overlay
         // People is ~1128 rows x ~50 cols — serve the pickers' {id, name, lead}
         // projection straight from the shared slim People snapshot (id-keyed, so
         // this read is rename-proof too). `lead` = write-authorized leadership:
@@ -268,8 +268,12 @@ export default {
             // Venues are projected (venueRefItem) before caching: the Address column
             // holds private home addresses and /ref is unauthenticated (R12).
             const kvKey = refKvKey(name);
-            const fetchRef = () => fetchRefItems(base, docId, auth, name, env);   // venues by column id, overlay merged, + venueRefItem (worker-io.js)
-            if (fresh) {
+            const fetchRef = () => fetchRefItems(base, docId, auth, name);   // venues by column id + venueRefItem (worker-io.js)
+            if (name === 'venues') {   // KV holds Coda's projection; the overlay is merged at serve time (refVenues)
+              items = await refVenues(env, { cached: fresh ? null : await swrGetAt(env, ctx, kvKey, 5 * 60_000, 24 * 3600_000, fetchRef),
+                readRaw: () => fetchRefItems(base, docId, auth, name, { raw: true }),
+                put: async (at, data) => { if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at, data })); } catch (_) {} } } });
+            } else if (fresh) {
               const at = Date.now(); items = await fetchRef();
               if (env.CACHE) { try { await env.CACHE.put(kvKey, JSON.stringify({ at, data: items })); } catch (_) {} }
             } else {
@@ -864,41 +868,39 @@ export default {
         // the same rule Coda's Orders sync uses) + the Active Member? flag.
         // Emails ARE returned — this is plan-only (canWrite), never a member route;
         // gather's projection stays email-free. Live from Eventbrite, KV-cached per
-        // event (soft 60s / hard 5m; busted on claim writes); ?fresh=1 bypasses.
+        // event (soft 60s / hard 5m; busted after claim and slot writes); ?fresh=1 bypasses.
         let id; try { id = await authIdentity(request, env, base, docId, auth, ctx); } catch (e) { return json({ error: 'invalid token' }, 401, cors); }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         if (!env.EVENTBRITE_TOKEN) return json({ configured: false }, 200, cors);
         const rowId = decodeURIComponent(parts[1]);
-        const build = async () => {
+        // KV holds the raw rows (orders, this event's slots and their claims); the overlay is
+        // merged and buildRoster runs at serve time, so a write that later fails never lingers.
+        const fill = async () => {
           const one = await readRowMerged(env, { base, docId, tableId, auth, rowId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', planning: { base, docId, auth } });
           if (!one.ok) throw new Error(`event not found (${one.status})`);
-          const ebId = plain((one.row.values || {})[PLANNING_COLS.eventbriteId]) || '';
-          const at = Date.now();   // the slots and claims snapshot, merged before buildRoster
-          const [orders, sl, cl, people] = await Promise.all([
+          const ebId = plain((one.row.values || {})[PLANNING_COLS.eventbriteId]) || '';   // which orders to fetch
+          const [orders, sl, cl] = await Promise.all([
             ebId ? ebAllOrders(env, ebId) : [],
             gatherTablesOk ? readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`, auth, { rich: true }) : { ok: true, items: [] },
             gatherTablesOk ? readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, auth, { rich: true }) : { ok: true, items: [] },
-            peopleRows(base, docId, auth, env, ctx),
           ]);
           if (!sl.ok) throw new Error(`slots read failed (${sl.resp.status})`);
-          const slots = (await mergedRows(env, env.CODA_SLOTS_TABLE, sl.items, at, { shape: 'rich', want: [] })).filter((s) => relId(s.values[SLOT_COLS.event]) === rowId);
-          const claimsBySlot = {};
-          for (const c of (cl.ok ? await mergedRows(env, env.CODA_CLAIMS_TABLE, cl.items, at, { shape: 'rich', want: ['people'] }) : [])) {
-            const sid = relId(c.values[CLAIM_COLS.slot]);
-            if (sid) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c);
-          }
-          const { rows, summary } = buildRoster({ orders, slots, claimsBySlot, people, cols: PEOPLE_COLS });
-          return { configured: true, ebLinked: !!ebId, fetchedAt: new Date().toISOString(), summary, rows };
+          const slots = sl.items.filter((s) => relId(s.values[SLOT_COLS.event]) === rowId), sids = new Set(slots.map((s) => s.id));
+          return { ebId, fetchedAt: new Date().toISOString(), orders, slots, claims: (cl.ok ? cl.items : []).filter((c) => sids.has(relId(c.values[CLAIM_COLS.slot]))) };
         };
         const key = rosterKvKey(rowId);
-        let data;
+        let snap;
         if (url.searchParams.get('fresh') === '1') {
-          const at = Date.now(); data = await build();            // refresh button: bypass + rewrite the snapshot
-          if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify({ at, data })); } catch (_) {} }
-        } else {
-          data = await swrGet(env, ctx, key, 60_000, 300_000, build);
-        }
-        return json(data, 200, cors);
+          snap = { at: Date.now(), data: await fill() };            // refresh button: bypass + rewrite the snapshot
+          if (env.CACHE) { try { await env.CACHE.put(key, JSON.stringify(snap)); } catch (_) {} }
+        } else snap = await swrGetAt(env, ctx, key, 60_000, 300_000, fill);
+        const d = snap.data;
+        const [slots, claims, people] = await Promise.all([mergedRows(env, env.CODA_SLOTS_TABLE, d.slots, snap.at, { shape: 'rich', want: [] }),
+          mergedRows(env, env.CODA_CLAIMS_TABLE, d.claims, snap.at, { shape: 'rich', want: ['people'] }), peopleRows(base, docId, auth, env, ctx)]);
+        const claimsBySlot = {};
+        for (const c of claims) { const sid = relId(c.values[CLAIM_COLS.slot]); if (sid) (claimsBySlot[sid] = claimsBySlot[sid] || []).push(c); }
+        const { rows, summary } = buildRoster({ orders: d.orders, slots: slots.filter((s) => relId(s.values[SLOT_COLS.event]) === rowId), claimsBySlot, people, cols: PEOPLE_COLS });
+        return json({ configured: true, ebLinked: !!d.ebId, fetchedAt: d.fetchedAt, summary, rows }, 200, cors);
       }
 
       if (parts[0] === 'member' && parts[1] === 'me' && parts.length === 2 && request.method === 'GET') {
@@ -998,7 +1000,7 @@ export default {
         }
         const cells = claimCreateCells(input, memberId, CLAIM_COLS);
         // gatherWrite busts the gather snapshot once; the overlay covers the apply gap.
-        const w = await gatherWrite(env, { url: `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, method: 'POST', body: { rows: [{ cells }] }, tableId: env.CODA_CLAIMS_TABLE, op: 'insert', auth });
+        const w = await gatherWrite(env, ctx, { url: `${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, method: 'POST', body: { rows: [{ cells }] }, tableId: env.CODA_CLAIMS_TABLE, op: 'insert', auth });
         if (!w.ok) return pass(w.resp, cors);
         if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, input.slot));   // roster (plan Attendees) must see the new claim
         return json({ ok: true, id: w.addedRowIds[0] || null, overlaid: w.overlaid }, 200, cors);
@@ -1020,10 +1022,13 @@ export default {
         // Ownership is read through the overlay; a claim still being inserted answers 409 (readClaimForWrite).
         const got = await readClaimForWrite(env, { base, docId, tableId: env.CODA_CLAIMS_TABLE, auth, claimId }, m);
         if (!got.row) return json({ error: got.error }, got.status, cors);
-        const claimRow = got.row;
-        if (ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, relId(claimRow.values && claimRow.values[CLAIM_COLS.slot])));   // roster must see the change
-        // gatherWrite busts the gather snapshot once, only when Coda accepted; the overlay covers the apply gap.
-        const claimW = (method, body) => gatherWrite(env, { url: `${claimsUrl}/${encodeURIComponent(claimId)}`, method, body, tableId: env.CODA_CLAIMS_TABLE, op: method === 'DELETE' ? 'delete' : 'update', rowId: claimId, auth });
+        const claimSlot = relId(got.row.values && got.row.values[CLAIM_COLS.slot]);
+        // gatherWrite busts the gather snapshot, only when Coda accepted (gatherWrite); then the roster, after the write.
+        const claimW = async (method, body) => {
+          const w = await gatherWrite(env, ctx, { url: `${claimsUrl}/${encodeURIComponent(claimId)}`, method, body, tableId: env.CODA_CLAIMS_TABLE, op: method === 'DELETE' ? 'delete' : 'update', rowId: claimId, auth });
+          if (w.ok && ctx) ctx.waitUntil(bustRosterForSlot(env, base, docId, auth, claimSlot));
+          return w;
+        };
         if (request.method === 'DELETE') return passWrite(await claimW('DELETE'), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         return passWrite(await claimW('PUT', { row: { cells: claimUpdateCells(body, CLAIM_COLS) } }), cors);
@@ -1075,13 +1080,19 @@ export default {
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
         const slotId = parts[1] ? decodeURIComponent(parts[1]) : null;
         const slotsUrl = `${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`;
-        // gatherWrite busts the gather snapshot once; the overlay covers the apply gap.
-        const slotW = (method, body, op) => gatherWrite(env, { url: slotId ? `${slotsUrl}/${encodeURIComponent(slotId)}` : slotsUrl, method, body, tableId: env.CODA_SLOTS_TABLE, op, rowId: slotId, auth });
+        // gatherWrite busts the gather snapshot (gatherWrite); the event's roster is busted after the
+        // write, its event read first (a pending delete would hide the slot afterwards).
+        const eid0 = slotId ? await slotEventId(env, base, docId, auth, slotId) : null;
+        const slotW = async (method, body, op, eid = eid0) => {
+          const w = await gatherWrite(env, ctx, { url: slotId ? `${slotsUrl}/${encodeURIComponent(slotId)}` : slotsUrl, method, body, tableId: env.CODA_SLOTS_TABLE, op, rowId: slotId, auth });
+          if (w.ok && eid && ctx) ctx.waitUntil(swrBust(env, rosterKvKey(eid)));
+          return w;
+        };
         if (request.method === 'DELETE' && slotId) return passWrite(await slotW('DELETE', undefined, 'delete'), cors);
         let body; try { body = JSON.parse((await request.text()) || '{}'); } catch (e) { return json({ error: 'bad body' }, 400, cors); }
         if (request.method === 'POST' && !slotId) {
           if (!body.event) return json({ error: 'event required' }, 400, cors);
-          const w = await slotW('POST', { rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }, 'insert');
+          const w = await slotW('POST', { rows: [{ cells: slotCells(body, SLOT_COLS, { withEvent: true }) }] }, 'insert', body.event);
           if (!w.ok) return pass(w.resp, cors);
           return json({ ok: true, id: w.addedRowIds[0] || null, overlaid: w.overlaid }, 200, cors);
         }
@@ -1312,7 +1323,7 @@ async function ebAttendeeEmailHashes(env, ctx, ebId) {
 // KV key for one event's lead-facing roster snapshot. Raw registrant emails live
 // in this value — KV is server-side only, the same trust boundary as the Coda +
 // Eventbrite tokens; it never feeds a member route.
-const rosterKvKey = (rowId) => `roster-v1:${rowId}`;
+const rosterKvKey = (rowId) => `roster-v2:${rowId}`;   // v2: raw rows, merged at serve time
 // Every ACTIVE order for an event, attendees expanded (one attendee = one
 // ticket), all pages. Quiet logging: order bodies carry registrant PII.
 async function ebAllOrders(env, ebId) {
@@ -1330,13 +1341,17 @@ async function ebAllOrders(env, ebId) {
 // A claim changed under `slotId`: drop that slot's EVENT roster snapshot so the
 // next lead read sees it. Best-effort and off the response path (ctx.waitUntil).
 async function bustRosterForSlot(env, base, docId, auth, slotId) {
-  if (!env.CACHE || !slotId || !env.CODA_SLOTS_TABLE) return;
+  if (!env.CACHE) return;
+  const eid = await slotEventId(env, base, docId, auth, slotId);
+  if (eid) await swrBust(env, rosterKvKey(eid));
+}
+// The event a slot belongs to (a slot just added too), or null; a failed read is logged.
+async function slotEventId(env, base, docId, auth, slotId) {
+  if (!slotId || !env.CODA_SLOTS_TABLE) return null;
   try {
-    const one = await readRowMerged(env, { base, docId, tableId: env.CODA_SLOTS_TABLE, auth, rowId: slotId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', want: [], insertAware: true });   // a slot just added too
-    if (!one.ok) return;
-    const eid = relId((one.row.values || {})[SLOT_COLS.event]);
-    if (eid) await swrBust(env, rosterKvKey(eid));
-  } catch (_) {}
+    const one = await readRowMerged(env, { base, docId, tableId: env.CODA_SLOTS_TABLE, auth, rowId: slotId, query: 'useColumnNames=false&valueFormat=rich', shape: 'rich', want: [], insertAware: true });
+    return one.ok ? relId((one.row.values || {})[SLOT_COLS.event]) : null;
+  } catch (e) { console.error(`roster: slot ${slotId} read failed (${String((e && e.message) || e)}); its roster isn't busted`); return null; }
 }
 // Open signup: match the verified email, else create a self-onboarded People row.
 // Patches the new row into both cache layers so it's matchable immediately after.
@@ -1387,7 +1402,7 @@ async function buildMemberEvents(base, docId, tableId, env, auth, caller, opts =
     const [ev, sl, cl] = await Promise.all([tableId, env.CODA_SLOTS_TABLE, env.CODA_CLAIMS_TABLE].map((t) =>
       readAllRows(`${base}/docs/${docId}/tables/${t}/rows`, auth, { rich: true })));
     for (const x of [ev, sl, cl]) if (!x.ok) throw Object.assign(new Error(`gather read failed (${x.resp.status})`), { resp: x.resp });
-    return { events: ev.items, slots: sl.items, claims: cl.items };
+    return pruneGatherRaw(ev.items, sl.items, cl.items, today);   // keeps the KV value small (gather.js)
   };
   let raw;
   try { raw = await swrGetAt(env, opts.ctx, GATHER_KV_KEY, 30_000, 300_000, fetchSnap); }   // soft 30s / hard 5min

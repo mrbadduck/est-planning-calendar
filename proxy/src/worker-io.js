@@ -147,16 +147,13 @@ export const REF_TABLES = { programs: 'grid-g87NFbtqN8', people: 'grid-X316Eql8d
 // The builders behind the /ref/:name and People slim KV caches (worker.js /ref and peopleRows);
 // overlayNames refills a missing cache with the same one. Each throws on a failed read.
 // Venues are read by column id and projected (venueRefItem): no addresses in the cache (R12).
-// With `env` (the /ref route), venues get the overlay merged before the projection, so a
-// saved address shows at once; overlayNames' refill passes none (a names cache needs no merge).
-export async function fetchRefItems(base, docId, auth, name, env) {
+// opts.raw (venues): the raw by-id rows, for the serve-time overlay merge (overlay-routes.js
+// refVenues); never cached (R12).
+export async function fetchRefItems(base, docId, auth, name, opts = {}) {
   const isVenues = name === 'venues';
-  const at = Date.now();
   const out = await readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`, auth, { byId: isVenues });
   if (!out.ok) throw new Error(`ref read failed (${out.resp.status})`);
-  if (!isVenues) return out.items;
-  const rows = env ? await mergedRows(env, REF_TABLES.venues, out.items, at, { shape: 'id', want: ['venueTypes'] }) : out.items;
-  return rows.map(venueRefItem);
+  return isVenues && !opts.raw ? out.items.map(venueRefItem) : out.items;
 }
 export async function fetchPeopleSlim(base, docId, auth) {
   const out = await readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES.people}/rows`, auth, { byId: true });   // id-keyed: auth/role resolution must survive People column renames
@@ -325,6 +322,17 @@ export async function overlayRead(env, tableId, rows, { shape, snapshotAt, now, 
     catch (e) { console.error(`overlay: column map for ${tableId} failed (${errText(e)}); rows unmerged`); return { rows, stale: ['*'] }; }
   }
   return mergeRows(rows, entries, { shape, snapshotAt, now, colMap, colKinds, names: names || await overlayNames(env, planning, want), tableId });
+}
+
+// Does the overlay hold a live entry for `tableId` against a snapshot taken at `snapshotAt`?
+// false when off; an overlay failure logs and answers false (the caller serves Coda's copy).
+export async function overlayHasLive(env, tableId, snapshotAt) {
+  if (!overlayOn(env)) return false;
+  try {
+    const entries = (await overlayCall(env, '/read', { tableId })).entries || [];
+    const now = Date.now();
+    return entries.some((e) => e.tableId === tableId && isLive(e, { snapshotAt, now }));
+  } catch (e) { console.error(`overlay: read ${tableId} failed (${errText(e)}); Coda's copy served`); return false; }
 }
 
 // A list read (snapshot taken at `snapshotAt`) with the overlay merged; rows that couldn't be
