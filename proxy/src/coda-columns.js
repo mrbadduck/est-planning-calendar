@@ -38,6 +38,7 @@ export const PLANNING_COLS = {
   volunteers:        'c-8_uS1RK9Qx', // Volunteers
   legacyRow:         'c-sUpvHhlGlI', // Linked EST Events SRC row (to be renamed "Legacy EST Events row")
   createdBy:         'c-ueS3RrH9ie', // Created by
+  gcalEventId:       'c-4eceDYOmPM', // gCal Event ID (Worker-written: the Google Calendar event this row put on the calendar)
 };
 
 // EST Events SRC, the legacy events table the one-table backfill reads.

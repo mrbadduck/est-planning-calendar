@@ -108,3 +108,27 @@ export function gcalPlan(ev, storedId, lastHash, opts = {
   if (hash !== lastHash) return { op: 'patch', body, hash };
   return { op: 'none' };
 }
+
+/** What a mode does with an op: off skips, shadow logs it only, live calls Google. 'none' always skips. */
+export function gcalModeAction(mode, op) {
+  if (!op || op === 'none') return 'skip';
+  if (mode === 'live') return 'call';
+  if (mode === 'shadow') return 'log-only';
+  return 'skip';
+}
+
+const gone = (status) => status === 404 || status === 410;
+
+/**
+ * What Google's answer means for the row. `op` is gcalPlan's: insert, patch (sent as a
+ * full-replace update) or delete. A delete Google no longer has counts as done; an
+ * update Google no longer has is inserted again.
+ * @returns {{ok:boolean, storeId?:string, clearId?:true, reinsert?:true}}
+ */
+export function afterGcalResponse(op, status, body) {
+  const ok = status >= 200 && status < 300;
+  if (op === 'insert') return ok && body && body.id ? { ok: true, storeId: String(body.id) } : { ok: false };
+  if (op === 'patch') return ok ? { ok: true } : gone(status) ? { ok: false, reinsert: true } : { ok: false };
+  if (op === 'delete') return ok || gone(status) ? { ok: true, clearId: true } : { ok: false };
+  return { ok: false };
+}

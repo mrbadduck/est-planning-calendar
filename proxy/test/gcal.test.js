@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { onCalendar, inSyncWindow, gcalEventBody, gcalPlan, gcalHash } from '../src/gcal.js';
+import { onCalendar, inSyncWindow, gcalEventBody, gcalPlan, gcalHash, gcalModeAction, afterGcalResponse } from '../src/gcal.js';
 
 const OPTS = { tz: 'America/Chicago', gatherBase: 'https://gather.eastsidetribe.org', area: 'Nashville, TN' };
 const ev = (o = {}) => ({
@@ -123,4 +123,35 @@ test('body: missing start falls back to all-day', () => {
 });
 test('gcalHash: nested key order does not matter', () => {
   assert.equal(gcalHash({ a: { x: 1, y: [{ q: 1, r: 2 }] }, b: 2 }), gcalHash({ b: 2, a: { y: [{ r: 2, q: 1 }], x: 1 } }));
+});
+
+// ── modes and Google's answers (Task 11) ──
+test('gcalModeAction: off skips, shadow logs only, live calls; none always skips', () => {
+  assert.equal(gcalModeAction('shadow', 'insert'), 'log-only');
+  assert.equal(gcalModeAction('live', 'none'), 'skip');
+  assert.equal(gcalModeAction('shadow', 'none'), 'skip');
+  assert.equal(gcalModeAction('off', 'insert'), 'skip');
+  assert.equal(gcalModeAction(undefined, 'delete'), 'skip');
+  assert.equal(gcalModeAction('live', 'patch'), 'call');
+  assert.equal(gcalModeAction('live', 'delete'), 'call');
+  assert.equal(gcalModeAction('LIVE', 'insert'), 'skip', 'exact value only');
+});
+test('afterGcalResponse: an insert stores the new id', () => {
+  assert.deepEqual(afterGcalResponse('insert', 200, { id: 'abc' }), { ok: true, storeId: 'abc' });
+});
+test('afterGcalResponse: an insert with no id in the answer is a failure', () => {
+  assert.deepEqual(afterGcalResponse('insert', 200, {}), { ok: false });
+  assert.deepEqual(afterGcalResponse('insert', 403, { error: {} }), { ok: false });
+});
+test('afterGcalResponse: an update that 404s or 410s re-inserts', () => {
+  assert.deepEqual(afterGcalResponse('patch', 404, null), { ok: false, reinsert: true });
+  assert.deepEqual(afterGcalResponse('patch', 410, null), { ok: false, reinsert: true });
+  assert.deepEqual(afterGcalResponse('patch', 200, { id: 'abc' }), { ok: true });
+  assert.deepEqual(afterGcalResponse('patch', 500, null), { ok: false });
+});
+test('afterGcalResponse: a delete clears the id, also when Google no longer has it', () => {
+  assert.deepEqual(afterGcalResponse('delete', 204, null), { ok: true, clearId: true });
+  assert.deepEqual(afterGcalResponse('delete', 410, null), { ok: true, clearId: true });
+  assert.deepEqual(afterGcalResponse('delete', 404, null), { ok: true, clearId: true });
+  assert.deepEqual(afterGcalResponse('delete', 403, null), { ok: false });
 });
