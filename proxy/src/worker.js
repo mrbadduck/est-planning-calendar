@@ -34,7 +34,7 @@
  *   APP_KEY          (secret)  optional shared secret required in X-App-Key header
  */
 import { parseVEvents } from './ical.js';
-import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish } from './worker-io.js';
+import { ROWS_KV_KEY, GATHER_KV_KEY, bustEventCaches, bustEventCachesNowAndAfterApply, swrBust, readAllRows, ebFetch, readEbPending, writeEbPending, codaRequestId, logPublish, overlayStatus, planningColMap, PEOPLE_KV_KEY, VENUES_KV_KEY, refKvKey, REF_TABLES } from './worker-io.js';
 import {
   eventToEventbritePayload, ticketClassPayload, structuredContentBody, venuePayload, eventbriteWebUrl, nextScVersion,
   ebEventSnapshot, structuredContentText, editedSincePush, activeAttendeeEmails, normText,
@@ -60,23 +60,6 @@ const REF_CACHE = new Map();   // per-isolate cache for /ref/* { name -> {items,
 let REFERENCES_CACHE = null;   // per-isolate { data:{layers,events}, exp } — one global key (config is one table)
 const REFERENCES_TABLE = 'grid-vg-fRbtoyr';   // Reference Calendars SRC (council-managed)
 
-// Resolve a column's CURRENT name from its stable id (cached per isolate) so the
-// app can read a value by id even after the column is renamed in Coda.
-const COL_NAME_CACHE = new Map();   // colId -> { name, exp }
-async function columnName(base, docId, tableId, colId, auth){
-  const hit = COL_NAME_CACHE.get(colId);
-  if (hit && hit.exp > Date.now()) return hit.name;
-  // List columns (limit high enough to cover all of them — the notes column was
-  // added last) and find ours by stable id. The list endpoint is the same family
-  // the /ref reads use; the single-column GET proved unreliable with this token.
-  const r = await fetch(`${base}/docs/${docId}/tables/${tableId}/columns?limit=200`, { headers: auth });
-  if (!r.ok) return null;
-  const j = await r.json();
-  const col = (j.items || []).find(c => c.id === colId);
-  const name = (col && col.name) || null;
-  if (name) COL_NAME_CACHE.set(colId, { name, exp: Date.now() + 5 * 60 * 1000 });
-  return name;
-}
 // --- KV stale-while-revalidate cache -----------------------------------------
 // Coda calls run 100s of ms with multi-second (observed: 60s) tails, and the
 // per-isolate memory caches evaporate whenever Cloudflare recycles an isolate.
@@ -86,24 +69,26 @@ async function columnName(base, docId, tableId, colId, auth){
 // older than `hard` or missing. Degrades to a direct fetch when the binding is
 // absent (tests, local dev without KV). fetcher() must THROW on failure so a
 // bad read never gets cached.
-async function swrGet(env, ctx, key, softMs, hardMs, fetcher) {
+// swrGetAt also returns the snapshot's `at` (the overlay merge is age-aware), stamped
+// before the fetch so a snapshot never looks newer than the read under it.
+async function swrGetAt(env, ctx, key, softMs, hardMs, fetcher) {
   const kv = env.CACHE;
-  if (!kv) return fetcher();
+  if (!kv) { const at = Date.now(); return { data: await fetcher(), at }; }
   let hit = null;
   try { hit = await kv.get(key, 'json'); } catch (_) {}
   const age = (hit && hit.at) ? Date.now() - hit.at : Infinity;
   if (age < hardMs) {
     if (age > softMs && ctx) ctx.waitUntil(swrFill(kv, key, fetcher));
-    return hit.data;
+    return { data: hit.data, at: hit.at };
   }
-  const data = await fetcher();
-  try { await kv.put(key, JSON.stringify({ at: Date.now(), data })); } catch (_) {}
-  return data;
+  const at = Date.now(), data = await fetcher();
+  try { await kv.put(key, JSON.stringify({ at, data })); } catch (_) {}
+  return { data, at };
 }
+const swrGet = async (...a) => (await swrGetAt(...a)).data;
 async function swrFill(kv, key, fetcher) {
-  try { await kv.put(key, JSON.stringify({ at: Date.now(), data: await fetcher() })); } catch (_) { /* keep serving stale */ }
+  try { const at = Date.now(); await kv.put(key, JSON.stringify({ at, data: await fetcher() })); } catch (_) { /* keep serving stale */ }
 }
-const VENUES_KV_KEY = 'ref-venues-v2';   // /ref/venues projection (venueRefItem); bump on a shape change
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -126,8 +111,9 @@ export default {
     const parts = url.pathname.split('/').filter(Boolean); // ['rows'] | ['rows', id]
 
     try {
-      // Has Coda applied a queued mutation? The app polls this so a save shows
-      // "Saved" only once the write is really visible. One Coda subrequest.
+      // Has Coda applied a queued mutation? The app polls this so a save shows "Saved" only
+      // once the write is really visible. The overlay DO first (one call, no Coda): failed =
+      // not applied within FAIL_AFTER_MS, the app's "not confirmed". A miss asks Coda (one more).
       if (parts[0] === 'mutation' && parts[1] && request.method === 'GET') {
         let id;
         try { id = await authIdentity(request, env, base, docId, auth, ctx); }
@@ -138,7 +124,9 @@ export default {
           return json({ error: st === 401 ? 'invalid token' : `could not check who you are (${String((e && e.message) || e)})` }, st, cors);
         }
         if (!id || !id.canWrite) return json({ error: 'not authorized' }, 403, cors);
-        const r = await fetch(`${base}/mutationStatus/${encodeURIComponent(decodeURIComponent(parts[1]))}`, { headers: auth });
+        const reqId = decodeURIComponent(parts[1]), st = await overlayStatus(env, reqId);
+        if (st) return json(st === 'applied' ? { completed: true } : st === 'failed' ? { completed: false, failed: true } : { completed: false }, 200, cors);
+        const r = await fetch(`${base}/mutationStatus/${encodeURIComponent(reqId)}`, { headers: auth });
         let body = null;
         try { body = await r.json(); } catch (_) {}
         const out = mutationResult(r.status, body);
@@ -227,7 +215,7 @@ export default {
             const out = await readAllRows(rowsUrl, auth);
             if (!out.ok) throw new Error(`rows read failed (${out.resp.status})`);
             // Anchor the notes URL to its stable column id, not its (renameable) name.
-            const nm = env.CODA_NOTES_COL_ID ? await columnName(base, docId, tableId, env.CODA_NOTES_COL_ID, auth) : null;
+            const nm = env.CODA_NOTES_COL_ID ? await planningColMap(env, base, docId, tableId, auth).then((m) => m.idToName[env.CODA_NOTES_COL_ID] || null, () => null) : null;
             if (nm) for (const it of out.items) { it.notesDocUrl = (it.values || {})[nm] || null; }
             return out.items;
           };
@@ -248,7 +236,7 @@ export default {
       if (parts[0] === 'ref' && request.method === 'GET') {
         // Read-only reference lists for the editor's relation pickers. Only the
         // allowlisted tables below are reachable — never arbitrary tables.
-        const REF = { programs: 'grid-g87NFbtqN8', people: 'grid-X316Eql8dE', venues: 'grid-foC40iAOaX', 'venue-types': 'grid-idEVRQX7SL' };
+        const REF = REF_TABLES;
         const name = parts[1];
         const refTable = REF[name];
         if (!refTable) return json({ error: 'unknown reference' }, 404, cors);
@@ -276,7 +264,7 @@ export default {
             // Venues are projected (venueRefItem) before caching: the Address column
             // holds private home addresses and /ref is unauthenticated (R12).
             const isVenues = name === 'venues';
-            const kvKey = isVenues ? VENUES_KV_KEY : `ref-${name}-v1`;
+            const kvKey = refKvKey(name);
             const fetchRef = async () => {
               // Venues are read by column id (venueRefItem keys by VENUE_COLS).
               const out = await readAllRows(`${base}/docs/${docId}/tables/${refTable}/rows`, auth, { byId: isVenues });
@@ -1212,7 +1200,6 @@ const APPROVE_STATUSES = ['Tribal Council'];
 // (L2, cross-isolate SWR) — the 1128-row x 6-page Coda read was the dominant
 // cost on sign-in and every authed request.
 let _people = null, _peopleExp = 0;
-const PEOPLE_KV_KEY = 'people-slim-v3';   // v3: + Active Member? (bump on any slim-shape change)
 async function peopleRows(base, docId, auth, env, ctx, opts = {}) {
   if (!opts.force && _people && Date.now() < _peopleExp) return _people;
   const fetchSlim = async () => {

@@ -28,9 +28,11 @@
 //   - Without it (slots, claims, venues: id-keyed, fully covered by RELATION_COLS and the ids
 //     below): KIND_BY_ID, then KIND_BY_NAME, else a plain scalar. An array written to a
 //     column classified this way is stale, never shown as raw ids.
-// No silent drops: if the newest entry for a cell can't be translated, the whole row keeps
-// Coda's copy (no older entry shows) and is stale. `tableId`, when given, ignores entries for
-// other tables.
+// No silent drops, two cases. A key that can't be translated to the reader's keying drops
+// the row's whole overlay (the row keeps Coda's copy) and marks it stale. A cell whose kind
+// is unknown or whose value can't be converted keeps Coda's value for that cell only (the
+// row's other overlaid cells still merge) and marks the row stale. `tableId`, when given,
+// ignores entries for other tables.
 
 import { APPLY_MARGIN_MS, FAIL_AFTER_MS } from './overlay-do.js';
 import { PLANNING_COLS, SLOT_COLS, CLAIM_COLS, VENUE_COLS } from './coda-columns.js';
