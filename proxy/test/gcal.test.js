@@ -195,3 +195,11 @@ test('planGcalRow: a real re-approval during a tombstone inserts (deterministic 
   assert.equal(p.op, 'insert');
   assert.equal(p.storedId, '');
 });
+
+test('body: Removed from Eventbrite -> no registration line, unless an external url is set', () => {
+  const d = gcalEventBody(ev({ publishStatus: 'Removed from Eventbrite', eventbriteUrl: 'https://eb/1' }), OPTS).description;
+  assert.doesNotMatch(d, /Regist/);
+  assert.equal(d, 'Join us.\n\nSign up to help: https://gather.eastsidetribe.org/#/event/i-abc');
+  const x = 'https://example.org/rsvp';
+  assert.match(gcalEventBody(ev({ publishStatus: 'Removed from Eventbrite', externalRegistrationUrl: x }), OPTS).description, new RegExp('Register: ' + x));
+});

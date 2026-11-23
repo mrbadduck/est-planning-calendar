@@ -21,7 +21,7 @@
  *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} | {requestId:null, unchanged:true} (same address: no write) — role-gated
  *   POST   /webhooks/eventbrite/:secret  Eventbrite webhook -> syncEbEvent in waitUntil (eb-sync-run.js); 404 on a wrong secret
  *   (cron) scheduled  Eventbrite sweep every 15 min (runSweep); both gated by EB_SYNC_MODE = off | live
- *   (cron) GCAL_CRON  Google Calendar sweep (sweepGcal, gcal-run.js); publish/cancel/unpublish call syncGcal in waitUntil. GCAL_MODE = off | shadow | live
+ *   (cron) GCAL_CRON  Google Calendar sweep (sweepGcal, gcal-run.js); publish/cancel/unpublish/delete call syncGcal in waitUntil. GCAL_MODE = off | shadow | live
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -191,6 +191,8 @@ export default {
             }
             const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
             if (w.ok) { await bustEventCaches(env); if (env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} } }
+            // gCal: the row's calendar event goes too; the row is gone, so nothing is written to it.
+            if (w.ok && ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), status: 'deleted' }, rowGone: true }));
             await logPublish(env, base, docId, auth, { rowId: w.ok ? '' : rowId, actorId: id.personId, action: 'delete', ok: w.ok, status: w.status, ebId, message: w.ok ? `event deleted (eb: ${ebOutcome}; row ${rowId})` : `row delete failed (eb: ${ebOutcome})` });
             return pass(w, cors);
           }

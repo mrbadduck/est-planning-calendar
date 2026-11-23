@@ -104,7 +104,7 @@ test('syncGcal live insert: POST to Google, id on the row, hash in KV, caches bu
   assert.equal(e.CACHE.m.has('rows-v1'), false, 'caches busted');
   const logs = logRecs();
   assert.equal(logs.length, 1);
-  assert.equal(logs[0].target, 'Google Calendar');
+  assert.equal(logs[0].target, 'gCal');
   assert.equal(logs[0].action, 'gcal-insert');
   assert.equal(logs[0].result, 'ok');
   assert.deepEqual(logs[0].actor, ['p-1']);
@@ -285,7 +285,7 @@ test('sweepGcal live: in-window rows only; inserts, deletes, skips unchanged; on
   assert.equal(calls.filter((c) => LOG.test(c.url)).length, 1, 'one batched log');
   const logs = logRecs();
   assert.equal(logs.length, 3);
-  assert.ok(logs.every((l) => l.target === 'Google Calendar' && l.message.startsWith('[sweep] ')));
+  assert.ok(logs.every((l) => l.target === 'gCal' && l.message.startsWith('[sweep] ')));
   assert.equal(calls.filter((c) => /oauth2/.test(c.url)).length, 0, 'cached token');
 });
 test('sweepGcal: at most GCAL_SWEEP_MAX operations a run, resuming from the cursor', async () => {
@@ -487,4 +487,117 @@ test('scheduled: an unknown cron runs neither sweep', async () => {
   await worker.scheduled({ cron: '0 * * * *' }, env({ GCAL_MODE: 'live', EB_SYNC_MODE: 'live', EVENTBRITE_TOKEN: 'eb', EVENTBRITE_ORG_ID: '42' }), ctx);
   await Promise.all(waits);
   assert.equal(calls.length, 0);
+});
+
+// ── final fix wave (Phase B) ──
+test('syncGcal rowGone: a deleted approved row with a stored id -> one Google DELETE, no row write, KV cleared, tombstone, log without the row', async () => {
+  const e = env();
+  e.CACHE.m.set('gcal-hash:i-1', JSON.stringify({ id: 'g1', hash: 'h', date: dayIso(10) }));
+  on('DELETE', GCAL, () => new Response(null, { status: 204 })); okLog();
+  // as the DELETE /rows/:rowId route passes it
+  const r = await syncGcal(e, 'i-1', { actorId: 'p-1', ev: { ...gcalEventFromRow('i-1', values({ 'gCal Event ID': 'g1' })), status: 'deleted' }, rowGone: true });
+  assert.deepEqual(r, { op: 'delete', ok: true });
+  const g = googleCalls();
+  assert.equal(g.length, 1);
+  assert.equal(g[0].method, 'DELETE');
+  assert.match(g[0].url, /\/events\/g1$/);
+  assert.equal(rowPuts().length, 0, 'the row is gone: no Coda row write');
+  assert.equal(e.CACHE.m.has('gcal-hash:i-1'), false);
+  assert.ok(e.CACHE.m.has('gcal-tomb:i-1'));
+  const l = logRecs();
+  assert.equal(l.length, 1);
+  assert.equal(l[0].action, 'gcal-delete');
+  assert.equal(l[0].result, 'ok');
+  assert.deepEqual(l[0].row, [], 'no Planning Event link to a deleted row');
+  assert.match(l[0].message, /Shabbat Dinner/);
+});
+test('sweepGcal backstop: a stored event whose row is gone (full read) is deleted, without a row write', async () => {
+  const e = env();
+  const put = (id, date) => e.CACHE.put(`gcal-hash:${id}`, JSON.stringify({ id: `g-${id}`, hash: 'h', date }), { metadata: { date } });
+  await put('i-gone', dayIso(3)); await put('i-hist', dayIso(-20));
+  rowsRes([]);
+  on('DELETE', GCAL, () => new Response(null, { status: 204 })); okLog();
+  const out = await sweepGcal(e);
+  assert.equal(out.ops, 1);
+  assert.deepEqual(googleCalls().map((c) => `${c.method} ${c.url.split('/events/')[1]}`), ['DELETE g-i-gone']);
+  assert.equal(rowPuts().length, 0);
+  assert.equal(e.CACHE.m.has('gcal-hash:i-gone'), false);
+  assert.ok(e.CACHE.m.has('gcal-hash:i-hist'), 'history is never touched');
+  const l = logRecs();
+  assert.equal(l.length, 1);
+  assert.equal(l[0].action, 'gcal-delete');
+  assert.deepEqual(l[0].row, []);
+});
+test('sweepGcal backstop: nothing is deleted when the planning read was truncated', async () => {
+  const e = env();
+  await e.CACHE.put('gcal-hash:i-gone', JSON.stringify({ id: 'g-gone', hash: 'h', date: dayIso(3) }), { metadata: { date: dayIso(3) } });
+  on('GET', ROWS, res(200, { items: [], nextPageToken: 'more' }));
+  okLog();
+  await sweepGcal(e);
+  assert.equal(googleCalls().length, 0);
+  assert.ok(e.CACHE.m.has('gcal-hash:i-gone'));
+});
+test('sweepGcal backstop: orphan deletes count against GCAL_SWEEP_MAX', async () => {
+  const e = env();
+  for (let i = 0; i < 20; i++) await e.CACHE.put(`gcal-hash:o-${i}`, JSON.stringify({ id: `g${i}`, hash: 'h', date: dayIso(3) }), { metadata: { date: dayIso(3) } });
+  rowsRes([]);
+  on('DELETE', GCAL, () => new Response(null, { status: 204 })); okLog();
+  const out = await sweepGcal(e);
+  assert.equal(out.ops, 15);
+  assert.equal(googleCalls().length, 15);
+});
+test('syncGcal: an update does not bust the event caches (no planning row written)', async () => {
+  const e = env(); e.CACHE.m.set('rows-v1', 'x');
+  e.CACHE.m.set('gcal-hash:i-1', JSON.stringify({ id: 'g1', hash: 'old' }));
+  on('PUT', GCAL, res(200, { id: 'g1' })); okLog();
+  const r = await syncGcal(e, 'i-1', { ev: ev('i-1', { 'gCal Event ID': 'g1' }) });
+  assert.deepEqual(r, { op: 'patch', ok: true });
+  assert.equal(e.CACHE.m.get('rows-v1'), 'x');
+});
+test('syncGcal: the same error for a row is logged once a day; the console gets every one', async () => {
+  const e = env(), errs = [], realErr = console.error;
+  console.error = (...a) => errs.push(a.join(' '));
+  try {
+    on('POST', GCAL, res(403, { error: { message: 'Forbidden' } })); okLog();
+    await syncGcal(e, 'i-1', { ev: ev() });
+    assert.equal(logRecs().length, 1);
+    const mark = e.CACHE.puts.find(([k]) => k === 'gcal-err:i-1');
+    assert.ok(mark, 'error mark written');
+    assert.equal(mark[2].expirationTtl, 86400);
+    const before = errs.length;
+    calls = [];
+    await syncGcal(e, 'i-1', { ev: ev() });
+    assert.equal(logRecs().length, 0, 'same row, op and status: quiet');
+    assert.ok(errs.length > before && /Forbidden/.test(errs.slice(before).join('\n')), 'console still gets it');
+    calls = []; routes = [];
+    on('POST', GCAL, res(500, { error: { message: 'Backend Error' } })); okLog();
+    await syncGcal(e, 'i-1', { ev: ev() });
+    assert.equal(logRecs().length, 1, 'a different status logs again');
+    // a success clears the mark, so the same error later is logged again
+    calls = []; routes = [];
+    on('POST', GCAL, res(200, { id: 'g1' })); okRowPut(); okLog();
+    await syncGcal(e, 'i-1', { ev: ev() });
+    assert.equal(e.CACHE.m.has('gcal-err:i-1'), false);
+  } finally { console.error = realErr; }
+});
+test('sweepGcal: a repeated error for a row is logged once', async () => {
+  const e = env();
+  rowsRes([{ id: 'i-1', values: values() }]);
+  on('GET', VENUES, res(200, { items: venueRows }));
+  on('POST', GCAL, res(403, { error: { message: 'Forbidden' } })); okLog();
+  await sweepGcal(e);
+  assert.equal(logRecs().length, 1);
+  calls = [];
+  await sweepGcal(e);
+  assert.equal(logRecs().length, 0);
+});
+test('wrangler.toml lists both crons the Worker answers', async () => {
+  const fs = await import('node:fs');
+  const toml = fs.readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const crons = JSON.parse((toml.match(/^crons\s*=\s*(\[.*\])/m) || [])[1] || '[]');
+  const src = fs.readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
+  const EB_SWEEP_CRON = (src.match(/const EB_SWEEP_CRON = '([^']+)'/) || [])[1];
+  assert.ok(EB_SWEEP_CRON, 'EB_SWEEP_CRON found in worker.js');
+  assert.ok(crons.includes(EB_SWEEP_CRON), `EB_SWEEP_CRON ${EB_SWEEP_CRON} in ${crons}`);
+  assert.ok(crons.includes(GCAL_CRON), `GCAL_CRON ${GCAL_CRON} in ${crons}`);
 });

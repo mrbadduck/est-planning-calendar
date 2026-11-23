@@ -54,6 +54,7 @@ function pad2(t) { return String(t).replace(/^(\d):/, '0$1:'); }
 function registrationLine(ev) {
   if (ev.publishStatus === 'Published' && ev.eventbriteUrl) return `Register: ${ev.eventbriteUrl}`;
   if (ev.externalRegistrationUrl) return `Register: ${ev.externalRegistrationUrl}`;
+  if (ev.publishStatus === 'Removed from Eventbrite') return '';   // no listing coming: say nothing
   return 'Registration on Eventbrite coming soon';
 }
 
@@ -77,7 +78,8 @@ export function gcalEventBody(ev, { tz, gatherBase, area }) {
   }
   const parts = [];
   if (ev.publicSummary) parts.push(ev.publicSummary);
-  parts.push(registrationLine(ev));
+  const reg = registrationLine(ev);
+  if (reg) parts.push(reg);
   parts.push(`Sign up to help: ${gatherBase}/#/event/${ev.rowId}`);
   body.description = parts.join('\n\n');
   const location = locationOf(ev, area);

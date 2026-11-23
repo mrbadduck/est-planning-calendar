@@ -21,10 +21,11 @@ const HASH_PREFIX = 'gcal-hash:', TOMB_PREFIX = 'gcal-tomb:', SHADOW_PREFIX = 'g
 const hashKey = (rowId) => `${HASH_PREFIX}${rowId}`;
 const TOMB_TTL = 900;       // gcal-tomb:<rowId> {at}: a delete the row may not show yet (Coda applies ~28 s late)
 const SHADOW_TTL = 86400;   // gcal-shadow:<rowId>: the last op/body shadow mode logged
+const ERR_PREFIX = 'gcal-err:', ERR_TTL = 86400;   // gcal-err:<rowId>: the last error logged for the row (action:status)
 const LIST_MAX_PAGES = 5;
 const VENUES_TABLE = 'grid-foC40iAOaX';         // EST Venues SRC
 const GCAL_API = 'https://www.googleapis.com/calendar/v3';
-const TARGET = 'Google Calendar';
+const TARGET = 'gCal';   // the Publish Log Target option
 const ACTION = { insert: 'gcal-insert', patch: 'gcal-update', delete: 'gcal-delete' };
 const VERB = { insert: 'add', patch: 'update', delete: 'remove' };
 // The free plan allows 50 outbound calls per invocation. The sweep reserves the
@@ -143,13 +144,15 @@ async function setGcalId(g, c, rowId, value) {
 
 // Carry out one plan in live mode -> {op, ok, status, message}. `date` is the event's date,
 // kept with the hash so a date later moved out of the window can still be cleaned up.
-async function runOp(g, c, rowId, plan, date) {
+// `rowGone`: the planning row was deleted, so a delete writes nothing to it.
+async function runOp(g, c, rowId, plan, date, rowGone = false) {
   const env = g.env, storedId = plan.storedId;
   if (plan.op === 'delete') {
     const r = await gfetch(g, 'DELETE', `/${encodeURIComponent(storedId)}`);
     if (!afterGcalResponse('delete', r.status, r.body).ok) return { op: 'delete', ok: false, status: r.status, message: `Could not remove it from Google Calendar: ${googleError(r)}` };
     await kvDelete(env, hashKey(rowId));
     await kvPut(env, `${TOMB_PREFIX}${rowId}`, JSON.stringify({ at: new Date().toISOString() }), { expirationTtl: TOMB_TTL });
+    if (rowGone) return { op: 'delete', ok: true, status: r.status, message: r.status === 404 || r.status === 410 ? `Already gone from Google Calendar (${r.status})` : 'Removed from Google Calendar' };
     const w = await setGcalId(g, c, rowId, '');
     if (!w.ok) return { op: 'delete', ok: false, status: w.status, message: `Removed from Google Calendar but could not clear its id on the row (Coda ${w.status})` };
     return { op: 'delete', ok: true, status: r.status, message: r.status === 404 || r.status === 410 ? `Already gone from Google Calendar (${r.status}); id cleared` : 'Removed from Google Calendar' };
@@ -162,8 +165,7 @@ async function runOp(g, c, rowId, plan, date) {
     const r = await replace(storedId);
     const a = afterGcalResponse('patch', r.status, r.body);
     if (a.ok) {
-      await writeState(env, rowId, { id: storedId, hash: plan.hash, date });
-      await bustEventCaches(env);
+      await writeState(env, rowId, { id: storedId, hash: plan.hash, date });   // no row written: no cache bust
       return { op: 'patch', ok: true, status: r.status, message: 'Updated on Google Calendar' };
     }
     if (!a.reinsert) return { op: 'patch', ok: false, status: r.status, message: `Could not update it on Google Calendar: ${googleError(r)}` };
@@ -196,19 +198,36 @@ async function shadowIsNew(env, rowId, plan) {
   await kvPut(env, key, mark, { expirationTtl: SHADOW_TTL });
   return true;
 }
+// A row's error is logged once a day per action and status (the console gets every one);
+// a success clears the mark, so the same error later is logged again.
+async function errIsNew(env, rowId, rec) {
+  const key = `${ERR_PREFIX}${rowId}`;
+  let last = null;
+  try { last = env.CACHE ? await env.CACHE.get(key) : null; } catch (err) { warn({ kvGet: key, error: errMsg(err) }); }
+  if (rec.ok) { if (last != null) await kvDelete(env, key); return true; }
+  warn({ rowId, action: rec.action, status: rec.status, message: rec.message });
+  const mark = `${rec.action}:${rec.status}`;
+  if (last === mark) return false;
+  await kvPut(env, key, mark, { expirationTtl: ERR_TTL });
+  return true;
+}
+const goneNote = (title, rowId) => ` (row deleted: "${title || rowId}")`;
 const shadowRec = (ev, plan) => ({ action: 'gcal-shadow', ok: true, status: 0, message: `Would ${VERB[plan.op]} "${ev.title}" (${plan.op === 'patch' ? 'update' : plan.op})` });
 
 /**
  * One row, after a lead-facing route succeeds (run it in ctx.waitUntil). `ev` is the
  * event as the route just wrote it (gcalEventFromRow + changes): Coda applies writes
  * ~28 s later, so a fresh read would return the old row. Without `ev.venueAddress`
- * the venue is read here. Logs its one record. Never throws.
+ * the venue is read here. Logs its one record. Never throws. `rowGone`: the DELETE
+ * route removed the row, so its event goes and nothing is written to the row.
  */
-export async function syncGcal(env, rowId, { ev, actorId } = {}) {
+export async function syncGcal(env, rowId, { ev, actorId, rowGone = false } = {}) {
   const mode = gcalMode(env);
   if (mode === 'off') return { op: 'none', ok: true };
   const c = coda(env), logs = [];
-  const log = (r) => logs.push({ target: TARGET, via: 'plan', rowId, actorId, ...r });
+  const log = (r) => logs.push({ target: TARGET, via: 'plan', rowId: rowGone ? '' : rowId, actorId, ...r,
+    message: rowGone ? r.message + goneNote(ev && ev.title, rowId) : r.message });
+  const logResult = async (r) => { if (await errIsNew(env, rowId, r)) log(r); };
   let op = 'none';
   try {
     let e = { ...(ev || {}), rowId };
@@ -220,12 +239,11 @@ export async function syncGcal(env, rowId, { ev, actorId } = {}) {
     const act = gcalModeAction(mode, op);
     if (act === 'skip') return { op, ok: true };
     if (act === 'log-only') { if (await shadowIsNew(env, rowId, plan)) log(shadowRec(e, plan)); return { op, ok: true }; }
-    const r = await runOp(googleClient(env), c, rowId, plan, e.date);
-    log({ action: ACTION[r.op], ok: r.ok, status: r.status, message: r.message });
+    const r = await runOp(googleClient(env), c, rowId, plan, e.date, rowGone);
+    await logResult({ action: ACTION[r.op], ok: r.ok, status: r.status, message: r.message });
     return { op: r.op, ok: r.ok };
   } catch (err) {
-    warn({ rowId, error: errMsg(err) });
-    log({ action: ACTION[op] || 'gcal-sync', ok: false, status: 0, message: errMsg(err) });
+    await logResult({ action: ACTION[op] || 'gcal-sync', ok: false, status: 0, message: errMsg(err) });
     return { op, ok: false };
   } finally {
     await logPublishMany(env, c.base, c.docId, c.auth, logs);
@@ -243,7 +261,8 @@ export async function sweepGcal(env) {
   const mode = gcalMode(env);
   if (mode === 'off') return out;
   const c = coda(env), logs = [];
-  const log = (ev, r) => logs.push({ target: TARGET, via: 'sweep', rowId: ev && ev.rowId, ...r });
+  const log = (ev, r) => logs.push({ target: TARGET, via: 'sweep', rowId: ev && !ev.gone ? ev.rowId : '', ...r,
+    message: ev && ev.gone ? `${r.message} (row ${ev.rowId} is no longer in plan)` : r.message });
   try {
     const sweepError = (message, status = 0) => log(null, { action: 'gcal-sweep', ok: false, status, message });
     const rr = await readAllRows(c.rowsUrl, c.auth);
@@ -259,8 +278,14 @@ export async function sweepGcal(env) {
     const storedDate = new Map((await kvList(env, HASH_PREFIX)).map((k) => [k.rowId, k.metadata && k.metadata.date]));
     const rows = rr.items.map((r) => ({ ev: gcalEventFromRow(r.id, r.values), updatedAt: r.updatedAt || '' }))
       .filter(({ ev }) => inSyncWindow(ev, today) || inSyncWindow({ date: storedDate.get(ev.rowId) }, today));
-    out.checked = rows.length;
-    if (!rows.length) return out;
+    // Backstop for a deleted row: on a full read, an event stored for a row that is gone and
+    // dated in the window is removed (the DELETE route normally does it).
+    const present = new Set(rr.items.map((r) => r.id));
+    const orphanIds = rr.truncated ? [] : [...storedDate].filter(([id, d]) => !present.has(id) && inSyncWindow({ date: d }, today)).map(([id]) => id);
+    const orphans = (await Promise.all(orphanIds.map((id) => readState(env, id)))).flatMap((st, i) => (st && st.id
+      ? [{ ev: { rowId: orphanIds[i], title: '(deleted row)', date: st.date, gone: true }, plan: { op: 'delete', storedId: st.id } }] : []));
+    out.checked = rows.length + orphans.length;
+    if (!out.checked) return out;
     const tombed = new Set((await kvList(env, TOMB_PREFIX)).map((k) => k.rowId));
     const readVenues = rows.some(({ ev }) => onCalendar(ev) && ev.venueName && inSyncWindow(ev, today));
     let venues = [];
@@ -280,6 +305,7 @@ export async function sweepGcal(env) {
       const plan = planGcalRow(full, states[i], { todayIso: today, opts, tomb, reapproved });
       if (plan.op !== 'none') candidates.push({ ev: full, plan });
     });
+    candidates.push(...orphans);
 
     let cursor = null;
     try { cursor = env.CACHE ? await env.CACHE.get(CURSOR_KEY) : null; } catch (err) { warn({ kvGet: CURSOR_KEY, error: errMsg(err) }); }
@@ -295,10 +321,12 @@ export async function sweepGcal(env) {
       if (g.calls + worst > CALL_LIMIT) { note({ sweep: 'call budget reached', done }); break; }
       done++; out.ops++;
       try {
-        const r = await runOp(g, c, ev.rowId, plan, ev.date);
-        log(ev, { action: ACTION[r.op], ok: r.ok, status: r.status, message: r.message });
+        const r = await runOp(g, c, ev.rowId, plan, ev.date, !!ev.gone);
+        const rec = { action: ACTION[r.op], ok: r.ok, status: r.status, message: r.message };
+        if (await errIsNew(env, ev.rowId, rec)) log(ev, rec);
       } catch (err) {
-        log(ev, { action: ACTION[plan.op], ok: false, status: 0, message: g.tokenError ? `Google sign-in failed: ${g.tokenError}` : errMsg(err) });
+        const rec = { action: ACTION[plan.op], ok: false, status: 0, message: g.tokenError ? `Google sign-in failed: ${g.tokenError}` : errMsg(err) };
+        if (await errIsNew(env, ev.rowId, rec)) log(ev, rec);
         if (g.tokenError) { out.ops--; done--; break; }   // nothing can reach Google this run
       }
     }
