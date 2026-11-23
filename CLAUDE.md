@@ -21,7 +21,7 @@ publishes approved events to Eventbrite.
 | `gather/` | Member sign-up app (potluck/volunteer slots), buildless | Netlify (`gather.eastsidetribe.org`, live) |
 | `shared/` | Browser code both apps use; committed mirrors in `web/` + `gather/` (`scripts/sync-shared.sh`) | mirrored |
 | `proxy/` | Cloudflare Worker: holds the tokens, gates by role, publishes to Eventbrite | Cloudflare Workers (CI, on merge) |
-| `scripts/` | `check.sh` (the fast checks), `check-help.mjs` (help guard), `sync-shared.sh` | — |
+| `scripts/` | `check.sh` (the fast checks), `check-help.mjs` (help guard), `check-coda-paths.mjs` (overlay paths, rule 7), `sync-shared.sh` | — |
 | `docs/` | app map, glossary, decisions, roadmap, deployment, specs/plans | — |
 
 ## Where to look
@@ -50,13 +50,17 @@ Each has a page in `docs/decisions/`.
 4. **Auth is phased** (0004): Firebase sign-in; the Worker verifies the JWT, matches
    `EST People SRC` and gates by role (write = Program Lead/Tribal Council, approve =
    Tribal Council).
-5. **"Saved" means Coda applied the write** (0005, D3), **nothing read from Eventbrite is
-   written back** (0006, D4), **no silent fallbacks** (0007, D7).
+5. **"Saved" means Coda accepted the write and the overlay holds it, or, when it isn't
+   overlaid (`OVERLAY_MODE` off or the overlay down), that Coda applied it** (0005, D3,
+   0012); **nothing read from Eventbrite is written back** (0006, D4); **no silent
+   fallbacks** (0007, D7).
 
 ## Hard constraints (learned the hard way)
 
 - **Coda applies writes ~28 s after accepting them**, whatever the doc size (0008).
-  Never act on a read right after a write without waiting for it to apply.
+  Worker reads see the Worker's writes (the write overlay, 0012); Coda-side readers and the
+  sync runners still lag ~28 s. Outside the overlay, never act on a read right after a write
+  without waiting for it to apply.
 - **`web/listing-readiness.js` and `web/venue-address.js` are bundled into the Worker**:
   no DOM or browser globals (checked), and editing either redeploys the Worker.
 - **D1: render into stable containers with `innerHTML`; no `outerHTML` swaps** (checked).
@@ -66,6 +70,10 @@ Each has a page in `docs/decisions/`.
   with `stripRich` (`proxy/src/gather.js`).
 - **A Worker route that changes planning rows must bust `ROWS_KV_KEY`** (reads are
   cached in KV, stale-while-revalidate).
+- **Every Worker write to the planning, slots, claims or venues tables goes through
+  `codaWrite`, every read through `overlayRead`** (`proxy/src/worker-io.js`, 0012).
+  `scripts/check.sh` rule 7 enforces it; the sync runners are allowlisted until the
+  follow-up, and the gather, slot, claim, venue and roster sites until PR B.
 - **The Coda API does not expose row layouts**: build forms from column metadata plus our
   own layout, and deep-link to the doc for rich editing.
 - Calendar grid columns are `minmax(0,1fr)`, never bare `1fr`. The month grid is
@@ -78,7 +86,8 @@ Each has a page in `docs/decisions/`.
   it was verified". Related PRs can stack and release together.
 - **Checks in the loop.** `./scripts/check.sh` runs `node --check` on `web/*.js`, the
   shared-mirror check, the help guard and structural rules (Worker-bundled file stays
-  DOM-free, no `outerHTML`, `web/*.js` ≤ 800 lines). A Claude Code Stop hook runs it and
+  DOM-free, no `outerHTML`, `web/*.js` ≤ 800 lines, Coda calls through the overlay
+  helpers). A Claude Code Stop hook runs it and
   blocks "done" on failure; CI runs it on every PR. Unit tests: `cd proxy && npm test`,
   one run machine-wide (`~/.claude/CLAUDE.md` → test lock).
 - **No live writes from a session without Eric's OK.** No Worker deploys or version

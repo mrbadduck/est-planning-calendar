@@ -209,23 +209,36 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   event stays `_lossy` until every reference list is loaded and its names all
   map, and meanwhile the editor waits ("Loading…", first visit) or shows
   Program(s)/Leads/Where read-only (`relationsReady`) — a picker seeded from a
-  partial map would save a partial list. Saving shows only in the panel's primary
-  button: **Saving…** while anything is pending (`pendingFor`), **Still saving…**
-  after CodaApplied's 20 s slow mark. A step under way (`_busy` + `_busyLabel`:
+  partial map would save a partial list. **Overlaid saves (0012):** when the Worker
+  answers `overlaid: true`, the queue's write resolves on the 202 and the confirm runs in
+  the background (`confirmLater`, counted in `_confirming`, a `SaveQueue.tracker()`, never
+  in `pendingFor`). Meanwhile `loadEvents` keeps the `_recent` local copy, the event's
+  publish/cancel/unpublish/delete calls carry `unconfirmed` (`hasUnconfirmed`) and the leave
+  guard stays on. A failed background confirm puts the edit back through
+  `saveQueue.fail(token)` (`reopenEdits`): **Save failed — retry** with the editor open,
+  else `dropFailedEdits`' toast. `overlaid: false` keeps the old wait (`applied`). A new
+  event always waits for its insert (`trackCreate` → `_createApply`; the primary reads
+  **Creating… (about half a minute)**, `CREATING_LABEL`, then the “*title*” created toast).
+  Saving shows only in the panel's primary button: **Saving…** while anything is pending
+  (`pendingFor`: queued, in flight, or not overlaid and not yet applied), **Still saving…**
+  after CodaApplied's 20 s slow mark (foreground waits only; `SLOW_TIP` *This is taking
+  longer than usual; your change is safe*). A step under way (`_busy` + `_busyLabel`:
   Propose/Approve/Reopen/Cancel/Delete/Unpublish/push) shows there too, with the
   secondary and ⋮ disabled, and no busy toast. The `#saveStatus` pill shows only
   **Save failed — retry** (click to retry); when nothing says Saving, it's saved.
   `leaveEventPage()` (← Calendar) — and every opener that replaces the page or the
   modal, via `leaveForm()` — queues a pending edit so a fast exit can't drop the last change;
-  `beforeunload` (listened for only while an editor is open or a save is pending —
-  `guardUnload`) queues the form and asks. Typeahead/venue pickers take an
+  `beforeunload` (listened for only while an editor is open, a save is pending, a step is
+  under way or an overlaid change is still confirming — `guardUnload`) queues the form and
+  asks when something is unsaved, under way or confirming. Typeahead/venue pickers take an
   `onChange` (guarded against initial seeding) so chip/segment mutations schedule
   a save. Transitions/Cancel/Delete hold the event they started on (never
   `editing`, which can change mid-await; `_busy` per event) and wait for its queue
   first; a still-creating (`tmp-`) event doesn't open. The Eventbrite push
   (`pushToEventbrite`: Add to Eventbrite / Update draft / Publish / Update listing)
-  calls `flushAutosave()`, then waits until `pendingFor` is false (every edit
-  applied), and stops if a save fails (the Worker reads Coda). It adopts the
+  calls `flushAutosave()`, then waits until `pendingFor` is false (every edit's request
+  returned, and applied when it wasn't overlaid), and stops if a save fails (the Worker
+  builds the listing from the row it reads: Coda's, with the overlay merged). It adopts the
   `pushed` snapshot the Worker returns (never recomputed); `refreshEbStatus` reads
   registrants + edited-on-Eventbrite for display only.
   Design/plan:
@@ -326,6 +339,20 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   When adding a Worker write path that mutates
   planning rows, bust `ROWS_KV_KEY`. Cache API is a no-op on workers.dev (no
   Cloudflare zone — DNS stays at Hover), which is why KV.
+- **The write overlay sits on top of those caches (decision 0012).** With
+  `OVERLAY_MODE = "live"`, every planning write goes through `codaWrite`
+  (`planningWrite` / `planningRowSetter` in `proxy/src/overlay-routes.js`, which also bust
+  the snapshot), and the planning reads go through `overlayRead`: `/rows` merges into the
+  KV snapshot (`swrGetAt` returns its `at`, stamped before the fetch), and the single-row
+  reads of `/rows` DELETE, publish, cancel, unpublish and the Eventbrite status and preview
+  routes (`readPlanningRow`) merge with `snapshotAt` = just before the read. The merge is
+  age-aware: a pending entry for 120 s after it was written, an applied one only into a
+  snapshot taken before `appliedAt + 30 s`; so a 5-minute-old snapshot still shows a write
+  however late it's served, and one taken after the apply shows Coda's copy (and any
+  later Coda-side edit). A new event's insert is overlaid too, so `/rows` lists it before
+  Coda applies it. `scripts/check.sh` rule 7 flags a direct Coda call to the planning,
+  slots, claims or venues tables outside the helpers. The gather snapshot, slots, claims,
+  the roster and venues move onto the overlay in PR B.
 - **Coda `valueFormat=rich` fences text values in triple backticks** (```` ```Main dish``` ````)
   and backslash-escapes markdown punctuation. Every rich read must unwrap via
   `stripRich` in `proxy/src/gather.js` — `plain()`/`relName()` already do; never
@@ -355,7 +382,10 @@ from a session). **Doc-scoped read+write** token, `ALLOW_WRITES="true"`,
 (verifies the Firebase ID token → matches email to `EST People SRC` → role),
 `GET /roster/:rowId` (lead-only attendee roster: live Eventbrite orders + gather claims,
 resolved to People by `All Emails`, Active Member? badge from `c-yJfWc0GMsQ`),
-`GET /mutation/:id` (has Coda applied a write), the venue routes (all `canWrite`, read
+`GET /mutation/:id` (has a write applied: the write overlay answers first, with no Coda
+call — `pending` / `applied` / `failed` once an unapplied entry is 120 s old, as
+`{completed:false|true, failed?}` — and Coda answers when the overlay has no record), the
+venue routes (all `canWrite`, read
 and written by column id via `VENUE_COLS`, pure parts in `proxy/src/venues.js`, writes
 bust `ref-venues-v2`): `GET /venues/:rowId` (one venue's structured address for the edit
 form — addresses never go in the shared `/ref/venues` list), `POST /venues` (add a venue:
@@ -365,7 +395,21 @@ and `PUT /venues/:rowId` (change the address; also clears both cached Eventbrite
 returns `{requestId}`, or `{requestId:null, unchanged:true}` without writing when the address is the one already saved); `GET /ref/venues?fresh=1` skips the KV/isolate caches and refills them; every venue write also sets the composed `Address`. `scripts/backfill-venue-address.mjs` is the one-off that split the old `Address` text into the structured columns (ran 2026-11-16, 17 rows). The Eventbrite routes
 (`/publish/eventbrite`, `/cancel/eventbrite`, unpublish, `/eventbrite/preview`), and
 role-gated writes that inject person attribution. Points at `EST Planning Events SRC`
-(`grid--gYIvdD-cE`).
+(`grid--gYIvdD-cE`). Planning writes answer `overlaid: true|false` beside Coda's body
+(`passWrite`).
+
+**The write overlay (decision 0012).** `WriteOverlay` (`proxy/src/overlay-do.js`) is one
+SQLite-backed Durable Object (binding `OVERLAY`, `idFromName('overlay')`) holding each
+Worker write's cells as written (column name or id plus `keying`) until Coda applies them;
+its alarm polls `mutationStatus` every 5 s (10 requestIds a run), marks `applied` or, at
+120 s, `failed`, and deletes everything 5.5 min after. `proxy/src/overlay.js` is the pure
+merge (`mergeRows`: keying, relation names from the KV caches, time/date/rich shapes, the
+age rule, `stale`). `proxy/src/worker-io.js` holds the seam: `overlayOn`, `codaWrite`,
+`passWrite`, `overlayRead`, `overlayStatus`, `planningColMap` (the planning table's
+id ↔ name map and column kinds, one `/columns` call per hour, KV `planning-cols-v1`) and
+`overlayNames`. `proxy/src/overlay-routes.js` is the planning routes' glue
+(`planningWrite`, `planningRowSetter`, `readPlanningRow`, `mustWait`, `planningList`,
+`STILL_SAVING`). `OVERLAY_MODE = "off"` (the default) makes none of these call the DO.
 
 Mission Control doc: `DYAz_wCVfv` (`superhuman://docs/DYAz_wCVfv`). Source tables:
 `EST Planning Events SRC` (`grid--gYIvdD-cE`), `EST Events SRC` (`grid-9TAt5vMMKH`),

@@ -91,7 +91,11 @@ the sixth step the current one.
 
 | Term | Code | Meaning |
 |---|---|---|
-| Saved | `applied`, `CodaApplied` | Coda has *applied* the write, not just accepted it (D3). Takes 25–35 s. |
-| Saving… / Still saving… | `pendingFor(id)` | Something for this event is queued, in flight or not yet applied. "Still saving…" after 20 s. |
-| Save failed — retry | `#saveStatus` | The only save state with its own pill, in the Status & next step panel. Click to retry. |
+| Saved | `overlaid`, `confirmLater`, `applied`, `CodaApplied` | Coda accepted the write and the overlay holds it (`overlaid: true`; shown when the request returns, confirmed in the background), or, when it isn't overlaid, Coda has *applied* it (25–35 s). D3, 0005 as amended by 0012. |
+| Saving… / Still saving… | `pendingFor(id)`, `_slow` | Something for this event is queued or in flight, or written without the overlay and not yet applied. "Still saving…" once a wait for Coda's apply passes 20 s (only when the write wasn't overlaid); its tip says *This is taking longer than usual; your change is safe* (`SLOW_TIP`). |
+| Creating… (about half a minute) | `CREATING_LABEL`, `_createApply` (via `trackCreate`), footer model `creating` | The panel's primary while a new event's insert applies. Creates always wait for Coda, overlay or not; the event stays editable (edits queue behind `afterCreate`) and ⋮ stays live. Then the toast “*title*” created. |
+| overlay / overlaid | `WriteOverlay` (`proxy/src/overlay-do.js`, binding `OVERLAY`), `codaWrite`, `overlayRead`, `mergeRows` | The Worker's memory of its own Coda writes until Coda applies them (plus 30 s, at most ~5.5 min), merged into the planning routes' reads: `/rows` and the row reads of publish, cancel, unpublish, delete and the Eventbrite status and preview routes (PR A; gather, slots, claims, the roster and venues in PR B). A write is *overlaid* when the overlay recorded it. Off unless `OVERLAY_MODE = "live"`. 0012. Never on screen. |
+| OVERLAY_MODE | Worker var | `off` (default: no Durable Object call, saves wait for Coda as before) / `live`. |
+| stale (overlay) | `mergeRows` → `stale`, `mustWait` | A row the merge couldn't fully overlay (an untranslatable or calculated column, a missing name). Internal: publish, cancel, unpublish and delete answer 409 *Your last update is still being saved. Try again in a few seconds.*; `/rows` never returns it. |
+| Save failed — retry | `#saveStatus` | The only save state with its own pill, in the Status & next step panel. Click to retry. Also shown when an overlaid edit's background confirm fails (`reopenEdits`), or a new event's insert never confirms (`_unconfirmed`). |
 | save queue | `saveQueue` (`web/save-queue.js`) | Per event: one write in flight, later edits coalesce. |

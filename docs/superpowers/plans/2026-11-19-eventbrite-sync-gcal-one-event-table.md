@@ -24,6 +24,7 @@ WebCrypto), `node --test`, vanilla JS app (buildless).
 ## Global Constraints
 
 - Coda applies writes ~28 s after accepting them (decision 0008): never act on a read right after a write without the KV marker or a wait.
+  (Since decision 0012, Worker app routes read their own writes through the write overlay; the sync runners this plan built still don't, so this holds for them.)
 - Every Worker route or job that changes planning rows busts `ROWS_KV_KEY`.
 - New code references Coda columns by id via `proxy/src/coda-columns.js`; read rows id-keyed (`useColumnNames=false`).
 - Nothing matches records by searching names or descriptions. Links are by Eventbrite event id, gCal event id, Coda row id, or stored Eventbrite venue id.
