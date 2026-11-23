@@ -15,7 +15,7 @@ async function transitionTo(status){
   if(status==='approved' && isPastEvent(ev) && !confirm('This event’s date has passed. Once it’s approved, its details lock and it can’t be cancelled or deleted. Approve anyway?')) return;
   autosaveEditor();                            // queue any field edit still in the form
   _busy.add(ev.id); guardUnload();
-  const prev=ev.status;
+  const prev={ status:ev.status, approvedBy:ev.approvedBy, approvedAt:ev.approvedAt };
   ev.status=status;
   ev.editedBy=(state.identity && state.identity.name) || ev.editedBy;
   applyLocal(ev); rerender(); renderStatusPanel();   // in flight: the panel's button says Saving… (R21), no toast
@@ -26,7 +26,12 @@ async function transitionTo(status){
     const w=await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
     // Approve → Add to Eventbrite reads the Status through the overlay: wait for the
     // apply only when the write wasn't overlaid.
-    if(w && w.overlaid) confirmLater(w.requestId, ev.id, ()=>{ toast('The change didn’t confirm. Check again in a minute.','err'); scheduleReconcile(); });
+    // A background failure reverts it like a failed wait does (below).
+    if(w && w.overlaid) confirmLater(w.requestId, ev.id, ()=>{
+      Object.assign(ev, prev); applyLocal(ev); markRecent(ev.id, {e:ev}); rerender();
+      toast('The change didn’t confirm. Check again in a minute.','err'); scheduleReconcile();
+      if(editing===ev && !_busy.has(ev.id)) openEditor(ev, activeSection, 'none');
+    });
     else await applied(w && w.requestId, ev.id);
     if(status==='approved'){                    // the Approved step note, until the next read brings Coda's (display only, never written)
       ev.approvedBy=(state.identity && state.identity.name) || ev.approvedBy;
@@ -35,7 +40,7 @@ async function transitionTo(status){
     markRecent(ev.id, {e:ev}); scheduleReconcile(); clearEbBlock(ev.id);
     toast(status==='approved'?'Approved':(status==='draft'?'Reopened':'Proposed'),'ok');
   }catch(err){
-    ev.status=prev; applyLocal(ev); rerender();
+    Object.assign(ev, prev); applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
     else {
       const unconfirmed = !fieldsFailed && err && err.message==='save not confirmed';   // accepted, but Coda never said it applied

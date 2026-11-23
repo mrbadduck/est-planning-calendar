@@ -7,8 +7,9 @@
    Loaded after: transitions.js (file-map order; no load-time dependency) */
 
 /* ---- Eventbrite push: Add to Eventbrite / Update draft / Publish / Update listing
-   (spec 5.3–5.6, D8). The Worker builds the listing from what Coda has, so every
-   edit must be applied first; it re-checks readiness and answers 409 {error,
+   (spec 5.3–5.6, D8). The Worker builds the listing from the row it reads (Coda's,
+   with overlaid writes merged in), so every edit must have reached it first (and,
+   when not overlaid, applied: settledForPush); it re-checks readiness and answers 409 {error,
    checks} or 409 {conflict} (Eventbrite edited since our last push). On success
    it returns the snapshot it stored (`pushed`, R15), which the app adopts as-is.
    Nothing from the live status is ever put into the form or written (D4). */

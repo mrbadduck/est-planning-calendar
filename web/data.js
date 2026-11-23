@@ -309,7 +309,7 @@ const CodaSource = {
   // means every read through the Worker already returns the write, so applied() runs
   // in the background (confirmLater); not overlaid, the app waits for it. Creates
   // always wait (trackCreate).
-  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; e._requestId=(j&&j.requestId)||''; e._overlaid=!!(j&&j.overlaid); }catch(_){} return e; },
+  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; e._requestId=(j&&j.requestId)||''; }catch(_){} return e; },
   // Writes ONLY the given cells — Coda leaves every other column of the row as it is.
   async update(id, cells){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells}})}); if(!r.ok) await this._fail(r); const j=await r.json().catch(()=>null); return { requestId:(j&&j.requestId)||'', overlaid:!!(j&&j.overlaid) }; },
   // Has Coda applied this write yet? /mutation asks the write overlay first (no Coda

@@ -1,7 +1,7 @@
 /* status-panel.js — the event page's Status & next step panel: ListingRules.footerModel painted into stable containers, the ⋮ menu, field focus.
    Owns: _menuOpen, editorFooterModel, paintInner, statusPanelHTML, renderStatusPanel, kebabMenu, toggleSteps, epLayout, placePhoneBar, layoutEventPage, focusField
    Reads: editing, activeSection (editor-tabs.js); _ctx, pageOpen (editor.js); PageRules (page-rules.js); layoutSticky (shell.js; at call time);
-          _busy, _busyLabel, _slow, _createApply (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged, _conflictShown, ebConflict, EB_CONFLICT_NOTICE (eventbrite.js);
+          _busy, _busyLabel, _slow, _createApply, CREATING_LABEL (save.js); _ebStatus, _pushChecks, _pushing, _sending, _justChanged, _conflictShown, ebConflict, EB_CONFLICT_NOTICE (eventbrite.js);
           paintFieldMarks (field-markers.js; call time); openVenueFormFor (venue-form.js; call time); headMenu (editor-close.js; call time); badgesHTML (editor.js; call time)
    Writes: _conflictShown (eventbrite.js; add/delete)
    Loaded after: save.js (file-map order; no load-time dependency) */
@@ -12,7 +12,7 @@
    repaints, so the primary slot follows pendingFor: "Saving…" (disabled) until
    every queued edit's request returns (and, when it wasn't overlaid, until Coda
    applies it). A new event's primary reads "Creating… (about half a minute)" until
-   its insert applies (_createApply, _busyLabel). */
+   its insert applies (_createApply), with ⋮ still live. */
 const KEBAB_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>`;
 const SPIN_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>`;
 let _menuOpen=false;
@@ -26,7 +26,8 @@ function editorFooterModel(ev, ctx){
     checks: mergePushChecks(local, wc),
     pending: pendingFor(ev.id) || _pushing.has(ev.id),   // a push under way holds the primary at Saving… (pendingFor: until the request returns, or applies when not overlaid)
     sending: _sending.has(ev.id),                        // …then Sending to Eventbrite… during the Worker call
-    busy: (_busy.has(ev.id) || _createApply.has(ev.id)) ? (_busyLabel.get(ev.id) || true) : null,   // a transition/cancel/delete in flight, or a create applying (its label)
+    busy: _busy.has(ev.id) ? (_busyLabel.get(ev.id) || true) : null,   // a transition/cancel/delete in flight
+    creating: _createApply.has(ev.id) ? CREATING_LABEL : null,         // a new event's insert applying (⋮ stays live)
     slow: _slow.has(ev.id),                              // past CodaApplied's slow mark: "Still saving…"
     unpushed: R.unpushedFields(ev, ev.pushed || null),
     pushed: ev.pushed || null,     // null: pushed before the snapshot existed — offer the update (not compared)

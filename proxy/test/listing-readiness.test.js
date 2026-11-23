@@ -333,11 +333,20 @@ test('footerModel busy (a transition/cancel/delete in flight) holds the primary 
   assert.equal(fm({ stage: 'proposed', role: COUNCIL, busy: true, slow: true }).primary.label, 'Still saving…');
   // a named busy label never turns into Still saving…
   assert.equal(fm({ stage: 'draft', busy: 'Deleting…', slow: true }).primary.label, 'Deleting…');
-  // a new event's create label holds through the slow mark too
-  assert.deepEqual(fm({ stage: 'draft', busy: 'Creating… (about half a minute)', slow: true }).primary,
-    { label: 'Creating… (about half a minute)', act: null, enabled: false, tone: 'primary' });
+
   // read-only viewers see nothing in flight
   assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, busy: true }).primary, null);
+});
+
+test('footerModel creating: the primary reads the create label, through the slow mark, and ⋮ stays live', () => {
+  const m = fm({ stage: 'draft', creating: 'Creating… (about half a minute)', slow: true });
+  assert.deepEqual(m.primary, { label: 'Creating… (about half a minute)', act: null, enabled: false, tone: 'primary' });
+  assert.equal(m.busy, false);   // Delete in ⋮ stays live (it waits on the insert itself)
+  assert.ok(acts(m).includes('delete'));
+  // a transition/cancel/delete in flight wins over the create label
+  assert.equal(fm({ stage: 'draft', creating: 'Creating… (about half a minute)', busy: 'Deleting…' }).primary.label, 'Deleting…');
+  // read-only viewers see nothing in flight
+  assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, creating: 'Creating… (about half a minute)' }).primary, null);
 });
 
 test('footerModel busy marks the footer busy (secondary and ⋮ get disabled); idle and sending-only do not', () => {

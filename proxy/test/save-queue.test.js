@@ -285,3 +285,57 @@ test('tracker: has(id) while a tracked promise is unsettled, per event', async (
   assert.equal(t.has('e2'), false);
   assert.equal(t.has(''), false);
 });
+
+// An overlaid write resolved on the 202, then its background confirm failed: fail(token)
+// puts its cells back into the error state, exactly as a failed write does.
+function tokenWriter() {
+  const calls = [];
+  const write = (id, cells, token) => new Promise((resolve, reject) => calls.push({ id, cells, token, resolve, reject }));
+  return { calls, write };
+}
+test('fail(token): a background failure puts the cells back as an error; a retry re-sends them', async () => {
+  const w = tokenWriter(), states = [];
+  const q = create({ write: w.write, onState: (id, st) => states.push(st) });
+  q.stage('e1', [{ column: 'Title', value: 'A' }, { column: 'Capacity', value: 20 }]);
+  w.calls[0].resolve(); await tick();
+  assert.equal(q.status('e1'), 'idle');
+  assert.equal(q.fail(w.calls[0].token, new Error('save not confirmed')), true);
+  assert.equal(q.status('e1'), 'error');
+  assert.equal(states.at(-1), 'error');
+  const s = q.settle('e1');                       // the retry (retryFailedSave / the pill)
+  assert.equal(w.calls.length, 2);
+  assert.deepEqual(cols(w.calls[1].cells), { Title: 'A', Capacity: 20 });
+  w.calls[1].resolve(); await s;
+  assert.equal(q.status('e1'), 'idle');
+});
+
+test('fail(token): a column written again since is not put back; newer staged values win', async () => {
+  const w = tokenWriter();
+  const q = create({ write: w.write });
+  q.stage('e1', [{ column: 'Title', value: 'A' }, { column: 'Capacity', value: 20 }]);
+  w.calls[0].resolve(); await tick();
+  q.stage('e1', [{ column: 'Title', value: 'B' }]);   // Title written again (in flight)
+  q.fail(w.calls[0].token, new Error('save not confirmed'));
+  assert.equal(q.status('e1'), 'saving');              // rides along with the next write
+  w.calls[1].resolve(); await tick();
+  assert.equal(w.calls.length, 3);
+  assert.deepEqual(cols(w.calls[2].cells), { Capacity: 20 });   // Title: B already went out after A
+  w.calls[2].resolve(); await tick();
+  assert.equal(q.status('e1'), 'idle');
+});
+
+test('fail(token): nothing left to put back, or the edits were discarded → no error', async () => {
+  const w = tokenWriter();
+  const q = create({ write: w.write });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  w.calls[0].resolve(); await tick();
+  q.stage('e1', [{ column: 'Title', value: 'B' }]);
+  w.calls[1].resolve(); await tick();
+  assert.equal(q.fail(w.calls[0].token, new Error('x')), false);   // superseded by B
+  assert.equal(q.status('e1'), 'idle');
+  q.stage('e2', [{ column: 'Title', value: 'A' }]);
+  w.calls[2].resolve(); await tick();
+  await q.discard('e2');                              // the event was deleted
+  assert.equal(q.fail(w.calls[2].token, new Error('x')), false);
+  assert.equal(q.status('e2'), 'idle');
+});

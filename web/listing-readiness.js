@@ -300,7 +300,8 @@
       out.secondary = { label: 'Not now', act: 'dismiss-notice' };
     }
     // In flight, the primary button is the one place that says so (R21): a push,
-    // a transition/cancel/delete (`busy`: true → "Saving…", or its own label) or
+    // a transition/cancel/delete (`busy`: true → "Saving…", or its own label), a new
+    // event's insert applying (`creating`: its label; ⋮ stays live — Delete waits on it) or
     // queued edits (`pending`, only where there's an action to hold back). After
     // CodaApplied's slow mark (`slow`: the fallback wait for Coda's apply, when a
     // write wasn't overlaid), "Saving…" reads "Still saving…"; a named label
@@ -309,6 +310,7 @@
     out.busy = !!busy && canEdit;   // the renderer disables the secondary and ⋮ meanwhile
     if (sending && out.primary) out.primary = prim('Sending to Eventbrite…', null, false, 'primary');   // a push in flight
     else if (busy && canEdit) out.primary = prim(typeof busy === 'string' ? busy : 'Saving…', null, false, 'primary');
+    else if (input.creating && canEdit) out.primary = prim(input.creating, null, false, 'primary');
     else if (pending && out.primary) out.primary = prim('Saving…', null, false, 'primary');   // no action to hold back → nothing to show
     if (input.slow && out.primary && out.primary.label === 'Saving…' && !out.primary.act)
       out.primary = Object.assign(prim('Still saving…', null, false, 'primary'), { tip: SLOW_TIP });
