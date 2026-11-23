@@ -123,12 +123,43 @@ const gone = (status) => status === 404 || status === 410;
  * What Google's answer means for the row. `op` is gcalPlan's: insert, patch (sent as a
  * full-replace update) or delete. A delete Google no longer has counts as done; an
  * update Google no longer has is inserted again.
- * @returns {{ok:boolean, storeId?:string, clearId?:true, reinsert?:true}}
+ * An insert answered 409 means the deterministic id already exists (`exists`).
+ * @returns {{ok:boolean, storeId?:string, clearId?:true, reinsert?:true, exists?:true}}
  */
 export function afterGcalResponse(op, status, body) {
   const ok = status >= 200 && status < 300;
-  if (op === 'insert') return ok && body && body.id ? { ok: true, storeId: String(body.id) } : { ok: false };
+  if (op === 'insert') {
+    if (ok && body && body.id) return { ok: true, storeId: String(body.id) };
+    return status === 409 ? { ok: false, exists: true } : { ok: false };   // our deterministic id is taken: it's ours
+  }
   if (op === 'patch') return ok ? { ok: true } : gone(status) ? { ok: false, reinsert: true } : { ok: false };
   if (op === 'delete') return ok || gone(status) ? { ok: true, clearId: true } : { ok: false };
   return { ok: false };
+}
+
+/**
+ * The Google event id the Worker inserts with: lowercase hex of the row id's UTF-8 bytes
+ * (base32hex, 5-1024 chars). Two writers inserting the same row get a 409, not a duplicate.
+ */
+export function gcalEventIdFor(rowId) {
+  return Array.from(new TextEncoder().encode(String(rowId)), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * One row's plan for a sync: gcalPlan inside the sync window, plus two rules around it.
+ * `st` is the KV state {id, hash, date} the Worker last wrote (or null).
+ * - Out of the window (date moved back or cleared) with a stored id and a stored date
+ *   still in the window: delete. A stored date already past is history: never touched.
+ * - `tomb` (a delete in the last 15 minutes): no stored id, and no insert unless
+ *   `reapproved` (the row changed after the delete, or a lead acted on it).
+ * @returns {{op:string, body?:object, hash?:string, storedId:string}}
+ */
+export function planGcalRow(ev, st, { todayIso, opts, tomb = null, reapproved = false }) {
+  const storedId = tomb ? '' : (st && st.id) || (ev && ev.gcalEventId) || '';
+  if (!inSyncWindow(ev, todayIso)) {
+    const wasUp = st && st.date && inSyncWindow({ date: st.date }, todayIso);
+    return storedId && wasUp ? { op: 'delete', storedId } : { op: 'none', storedId };
+  }
+  if (tomb && !reapproved) return { op: 'none', storedId };
+  return { ...gcalPlan(ev, storedId, st && st.hash, opts), storedId };
 }

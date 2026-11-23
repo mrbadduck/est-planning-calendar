@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_SWEEP_MAX, GCAL_CRON } from '../src/gcal-run.js';
-import { gcalEventBody, gcalHash } from '../src/gcal.js';
+import { gcalEventBody, gcalHash, gcalEventIdFor } from '../src/gcal.js';
 import { PLANNING_COLS as C, VENUE_COLS as VC } from '../src/coda-columns.js';
 
 // ── stubs: a KV and a fetch that routes by URL (as eb-sync-run.test.js) ──
@@ -10,8 +10,10 @@ function kvStub(init = {}) {
   return {
     m, puts: [], deletes: [],
     async get(k, t) { const v = m.get(k); if (v == null) return null; return t === 'json' ? JSON.parse(v) : v; },
-    async put(k, v, o) { m.set(k, v); this.puts.push([k, v, o]); },
-    async delete(k) { m.delete(k); this.deletes.push(k); },
+    meta: new Map(),
+    async put(k, v, o) { m.set(k, v); this.puts.push([k, v, o]); if (o && o.metadata) this.meta.set(k, o.metadata); else this.meta.delete(k); },
+    async delete(k) { m.delete(k); this.meta.delete(k); this.deletes.push(k); },
+    async list({ prefix }) { return { keys: [...m.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name, metadata: this.meta.get(name) })), list_complete: true }; },
   };
 }
 const res = (status, body) => new Response(body == null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -92,12 +94,13 @@ test('syncGcal live insert: POST to Google, id on the row, hash in KV, caches bu
   assert.equal(g.length, 1);
   assert.equal(g[0].method, 'POST');
   assert.equal(g[0].headers.Authorization, 'Bearer gt');
-  assert.deepEqual(g[0].body, gcalEventBody(ev(), OPTS));
+  assert.deepEqual(g[0].body, { ...gcalEventBody(ev(), OPTS), id: gcalEventIdFor('i-1') }, 'deterministic id');
   const put = rowPuts();
   assert.equal(put.length, 1);
   assert.match(put[0].url, /rows\/i-1$/);
   assert.deepEqual(put[0].body.row.cells, [{ column: C.gcalEventId, value: 'g1' }]);
-  assert.deepEqual(JSON.parse(e.CACHE.m.get('gcal-hash:i-1')), { id: 'g1', hash: gcalHash(gcalEventBody(ev(), OPTS)) });
+  assert.deepEqual(JSON.parse(e.CACHE.m.get('gcal-hash:i-1')), { id: 'g1', hash: gcalHash(gcalEventBody(ev(), OPTS)), date: dayIso(10) });
+  assert.deepEqual(e.CACHE.meta.get('gcal-hash:i-1'), { date: dayIso(10) }, 'date in metadata for the stale-date scan');
   assert.equal(e.CACHE.m.has('rows-v1'), false, 'caches busted');
   const logs = logRecs();
   assert.equal(logs.length, 1);
@@ -227,7 +230,7 @@ test('syncGcal: shadow logs what it would do, with no Google call and no writes'
   assert.deepEqual(r, { op: 'insert', ok: true });
   assert.equal(googleCalls().length, 0);
   assert.equal(rowPuts().length, 0);
-  assert.equal(e.CACHE.puts.length, 0);
+  assert.deepEqual(e.CACHE.puts.map(([k]) => k), ['gcal-shadow:i-1'], 'only the shadow mark: no hash, no id');
   const l = logRecs();
   assert.equal(l.length, 1);
   assert.equal(l[0].action, 'gcal-shadow');
@@ -330,11 +333,27 @@ test('sweepGcal shadow: logs every op, no Google call, no hash or row write', as
   assert.ok(!e.CACHE.puts.some(([k]) => k.startsWith('gcal-hash:')));
   assert.deepEqual(logRecs().map((l) => l.action), ['gcal-shadow', 'gcal-shadow']);
 });
-test('sweepGcal: a failed row read logs nothing to Google and never throws', async () => {
+test('sweepGcal: a failed row read writes one gcal-sweep error record and never throws', async () => {
   on('GET', ROWS, res(500, {})); okLog();
   const out = await sweepGcal(env());
   assert.deepEqual(out, { checked: 0, ops: 0 });
   assert.equal(googleCalls().length, 0);
+  const l = logRecs();
+  assert.equal(l.length, 1);
+  assert.equal(l[0].action, 'gcal-sweep');
+  assert.equal(l[0].result, 'error');
+  assert.match(l[0].message, /500/);
+});
+test('sweepGcal: a failed Venues read writes one gcal-sweep error record', async () => {
+  rowsRes([{ id: 'i-1', values: values() }]);
+  on('GET', VENUES, res(503, {})); okLog();
+  const out = await sweepGcal(env());
+  assert.equal(out.ops, 0);
+  assert.equal(googleCalls().length, 0);
+  const l = logRecs();
+  assert.equal(l.length, 1);
+  assert.equal(l[0].action, 'gcal-sweep');
+  assert.match(l[0].message, /Venues/);
 });
 test('sweepGcal: a token failure stops the run with one error record', async () => {
   const e = env({ CACHE: kvStub() });   // no cached token, no key
@@ -367,4 +386,105 @@ test('scheduled: the gCal cron runs only the gCal sweep; the Eventbrite cron onl
   await Promise.all(waits);
   assert.ok(calls.some((c) => /eventbriteapi/.test(c.url)));
   assert.equal(googleCalls().length, 0);
+});
+
+// ── fix round 1 ──
+test('syncGcal: an insert answered 409 replaces the event at the deterministic id and stores it', async () => {
+  const e = env();
+  const det = gcalEventIdFor('i-1');
+  on('POST', GCAL, res(409, { error: { message: 'The requested identifier already exists.' } }));
+  on('PUT', GCAL, res(200, { id: det })); okRowPut(); okLog();
+  const r = await syncGcal(e, 'i-1', { ev: ev() });
+  assert.deepEqual(r, { op: 'insert', ok: true });
+  const g = googleCalls();
+  assert.deepEqual(g.map((c) => c.method), ['POST', 'PUT']);
+  assert.match(g[1].url, new RegExp(`/events/${det}$`));
+  assert.equal(g[1].body.status, 'confirmed');
+  assert.deepEqual(rowPuts()[0].body.row.cells, [{ column: C.gcalEventId, value: det }]);
+  assert.equal(JSON.parse(e.CACHE.m.get('gcal-hash:i-1')).id, det);
+  assert.equal(logRecs().length, 1);
+});
+test('syncGcal: re-inserting after a 404 uses the deterministic id (409 -> PUT restores it)', async () => {
+  const e = env();
+  const det = gcalEventIdFor('i-1');
+  e.CACHE.m.set('gcal-hash:i-1', JSON.stringify({ id: det, hash: 'old', date: dayIso(10) }));
+  let puts = 0;
+  on('PUT', GCAL, () => (++puts === 1 ? res(404, {}) : res(200, { id: det })));
+  on('POST', GCAL, res(409, {})); okRowPut(); okLog();
+  const r = await syncGcal(e, 'i-1', { ev: ev() });
+  assert.deepEqual(r, { op: 'insert', ok: true });
+  const g = googleCalls();
+  assert.deepEqual(g.map((c) => c.method), ['PUT', 'POST', 'PUT']);
+  assert.equal(g[1].body.id, det);
+});
+test('syncGcal: a successful delete leaves a 15-minute tombstone', async () => {
+  const e = env();
+  on('DELETE', GCAL, () => new Response(null, { status: 204 })); okRowPut(); okLog();
+  await syncGcal(e, 'i-1', { ev: ev('i-1', { Status: 'Cancelled', 'gCal Event ID': 'g1' }) });
+  const tomb = e.CACHE.puts.find(([k]) => k === 'gcal-tomb:i-1');
+  assert.ok(tomb, 'tombstone written');
+  assert.equal(tomb[2].expirationTtl, 900);
+});
+test('sweepGcal: a tombstoned row Coda still shows as approved is left alone', async () => {
+  const e = env();
+  e.CACHE.m.set('gcal-tomb:i-1', JSON.stringify({ at: new Date(Date.now() - 60_000).toISOString() }));
+  rowsRes([{ id: 'i-1', updatedAt: new Date(Date.now() - 600_000).toISOString(), values: values({ 'gCal Event ID': 'g1' }) }]);
+  on('GET', VENUES, res(200, { items: venueRows })); okLog();
+  const out = await sweepGcal(e);
+  assert.equal(out.ops, 0);
+  assert.equal(googleCalls().length, 0);
+  assert.equal(logRecs().length, 0);
+});
+test('sweepGcal: a row changed after its tombstone (re-approved) goes back on', async () => {
+  const e = env();
+  e.CACHE.m.set('gcal-tomb:i-1', JSON.stringify({ at: new Date(Date.now() - 600_000).toISOString() }));
+  rowsRes([{ id: 'i-1', updatedAt: new Date(Date.now() - 60_000).toISOString(), values: values({ 'gCal Event ID': 'g1' }) }]);
+  on('GET', VENUES, res(200, { items: venueRows }));
+  on('POST', GCAL, res(200, { id: gcalEventIdFor('i-1') })); okRowPut(); okLog();
+  const out = await sweepGcal(e);
+  assert.equal(out.ops, 1);
+  assert.equal(googleCalls()[0].method, 'POST');
+  assert.equal(googleCalls()[0].body.id, gcalEventIdFor('i-1'));
+});
+test('sweepGcal: a date moved back or cleared deletes the event; history is never touched', async () => {
+  const e = env();
+  const put = (id, date) => e.CACHE.put(`gcal-hash:${id}`, JSON.stringify({ id: `g-${id}`, hash: 'h', date }), { metadata: { date } });
+  await put('i-moved', dayIso(5)); await put('i-cleared', dayIso(0)); await put('i-hist', dayIso(-20));
+  e.CACHE.puts.length = 0;
+  rowsRes([
+    { id: 'i-moved', values: values({ Date: dayIso(-10), 'gCal Event ID': 'g-i-moved' }) },
+    { id: 'i-cleared', values: values({ Date: '', 'gCal Event ID': 'g-i-cleared' }) },
+    { id: 'i-hist', values: values({ Date: dayIso(-20), 'gCal Event ID': 'g-i-hist' }) },
+  ]);
+  on('DELETE', GCAL, () => new Response(null, { status: 204 })); okRowPut(); okLog();
+  const out = await sweepGcal(e);
+  assert.equal(out.ops, 2);
+  const urls = googleCalls().map((c) => `${c.method} ${c.url.split('/events/')[1]}`).sort();
+  assert.deepEqual(urls, ['DELETE g-i-cleared', 'DELETE g-i-moved']);
+  assert.deepEqual(logRecs().map((l) => l.action), ['gcal-delete', 'gcal-delete']);
+});
+test('sweepGcal shadow: an op already logged for the same body is not logged again', async () => {
+  const e = env({ GCAL_MODE: 'shadow' });
+  rowsRes([{ id: 'i-new', values: values() }]);
+  on('GET', VENUES, res(200, { items: venueRows })); okLog();
+  await sweepGcal(e);
+  assert.equal(logRecs().length, 1);
+  const mark = e.CACHE.puts.find(([k]) => k === 'gcal-shadow:i-new');
+  assert.equal(mark[2].expirationTtl, 86400);
+  calls = [];
+  await sweepGcal(e);
+  assert.equal(logRecs().length, 0, 'same op, same body: quiet');
+  calls = []; routes = [];
+  rowsRes([{ id: 'i-new', values: values({ Title: 'Renamed' }) }]);
+  on('GET', VENUES, res(200, { items: venueRows })); okLog();
+  await sweepGcal(e);
+  assert.equal(logRecs().length, 1, 'a new body logs again');
+});
+test('scheduled: an unknown cron runs neither sweep', async () => {
+  const { default: worker } = await import('../src/worker.js');
+  const waits = [];
+  const ctx = { waitUntil: (p) => waits.push(p) };
+  await worker.scheduled({ cron: '0 * * * *' }, env({ GCAL_MODE: 'live', EB_SYNC_MODE: 'live', EVENTBRITE_TOKEN: 'eb', EVENTBRITE_ORG_ID: '42' }), ctx);
+  await Promise.all(waits);
+  assert.equal(calls.length, 0);
 });

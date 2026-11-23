@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { onCalendar, inSyncWindow, gcalEventBody, gcalPlan, gcalHash, gcalModeAction, afterGcalResponse } from '../src/gcal.js';
+import { onCalendar, inSyncWindow, gcalEventBody, gcalPlan, gcalHash, gcalModeAction, afterGcalResponse, gcalEventIdFor, planGcalRow } from '../src/gcal.js';
 
 const OPTS = { tz: 'America/Chicago', gatherBase: 'https://gather.eastsidetribe.org', area: 'Nashville, TN' };
 const ev = (o = {}) => ({
@@ -154,4 +154,44 @@ test('afterGcalResponse: a delete clears the id, also when Google no longer has 
   assert.deepEqual(afterGcalResponse('delete', 410, null), { ok: true, clearId: true });
   assert.deepEqual(afterGcalResponse('delete', 404, null), { ok: true, clearId: true });
   assert.deepEqual(afterGcalResponse('delete', 403, null), { ok: false });
+});
+
+// ── fix round 1: one event per row, stale dates, tombstones ──
+test('gcalEventIdFor: lowercase hex of the UTF-8 row id, valid base32hex', () => {
+  assert.equal(gcalEventIdFor('i-abc'), '692d616263');
+  assert.equal(gcalEventIdFor('i-é'), '692dc3a9');
+  assert.match(gcalEventIdFor('i-Zx_9-Q'), /^[0-9a-v]{5,1024}$/);
+  assert.equal(gcalEventIdFor('i-abc'), gcalEventIdFor('i-abc'), 'deterministic');
+});
+test('afterGcalResponse: an insert answered 409 means the event already exists', () => {
+  assert.deepEqual(afterGcalResponse('insert', 409, { error: { message: 'The requested identifier already exists.' } }), { ok: false, exists: true });
+});
+const P = (e, st, o = {}) => planGcalRow(e, st, { todayIso: TODAY, opts: OPTS, tomb: null, reapproved: false, ...o });
+test('planGcalRow: in the window it is gcalPlan, with the stored id (KV first, then the row)', () => {
+  const p = P(ev({ gcalEventId: 'row-id' }), { id: 'kv-id', hash: 'old', date: '2026-12-05' });
+  assert.equal(p.op, 'patch');
+  assert.equal(p.storedId, 'kv-id');
+  assert.equal(P(ev({ gcalEventId: 'row-id' }), null).storedId, 'row-id');
+  assert.equal(P(ev(), null).op, 'insert');
+});
+test('planGcalRow: a date moved back out of the window deletes the event the Worker put up', () => {
+  const p = P(ev({ date: '2026-11-10', gcalEventId: 'g1' }), { id: 'g1', hash: 'h', date: '2026-12-05' });
+  assert.deepEqual(p, { op: 'delete', storedId: 'g1' });
+});
+test('planGcalRow: a cleared date deletes too', () => {
+  assert.deepEqual(P(ev({ date: '' }), { id: 'g1', hash: 'h', date: '2026-11-21' }), { op: 'delete', storedId: 'g1' });
+});
+test('planGcalRow: history (stored date already past) is never touched', () => {
+  assert.equal(P(ev({ date: '2026-11-01', gcalEventId: 'g1' }), { id: 'g1', hash: 'h', date: '2026-11-01' }).op, 'none');
+  assert.equal(P(ev({ date: '2026-11-01', status: 'cancelled', gcalEventId: 'g1' }), null).op, 'none');
+});
+test('planGcalRow: a tombstone hides the stale row (no update, no insert)', () => {
+  const stale = ev({ gcalEventId: 'g1' });   // the cancel has not applied in Coda yet
+  assert.equal(P(stale, null, { tomb: { at: 'x' } }).op, 'none');
+  assert.equal(P(ev({ status: 'cancelled', gcalEventId: 'g1' }), null, { tomb: { at: 'x' } }).op, 'none');
+});
+test('planGcalRow: a real re-approval during a tombstone inserts (deterministic id)', () => {
+  const p = P(ev({ gcalEventId: 'g1' }), null, { tomb: { at: 'x' }, reapproved: true });
+  assert.equal(p.op, 'insert');
+  assert.equal(p.storedId, '');
 });

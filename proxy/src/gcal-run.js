@@ -2,7 +2,7 @@
 // route succeeds (syncGcal) and the cron sweep (sweepGcal). The rules are pure, in gcal.js.
 // Worker var GCAL_MODE = off | shadow | live (default off); GCAL_CALENDAR_ID unset counts as off.
 // Neither function throws: every failure ends in a Publish Log record or a console line.
-import { onCalendar, inSyncWindow, gcalPlan, gcalModeAction, afterGcalResponse } from './gcal.js';
+import { onCalendar, inSyncWindow, planGcalRow, gcalModeAction, afterGcalResponse, gcalEventIdFor } from './gcal.js';
 import { googleAccessToken } from './google-auth.js';
 import { sweepBatch } from './eb-sync.js';
 import { PLANNING_COLS as C } from './coda-columns.js';
@@ -15,7 +15,13 @@ export const GCAL_SWEEP_MAX = 15;               // operations per sweep run
 export const GCAL_CRON = '3,18,33,48 * * * *';  // its own invocation, never the Eventbrite sweep's
 const CURSOR_KEY = 'gcal-sweep-cursor';
 const TOKEN_KEY = 'gcal-token';                 // google-auth.js caches the access token here
-const hashKey = (rowId) => `gcal-hash:${rowId}`;   // {id, hash}: the event and body the Worker last wrote
+const HASH_PREFIX = 'gcal-hash:', TOMB_PREFIX = 'gcal-tomb:', SHADOW_PREFIX = 'gcal-shadow:';
+// {id, hash, date}: the event, body and date the Worker last wrote; metadata {date} lets one
+// KV list find rows whose date moved out of the window.
+const hashKey = (rowId) => `${HASH_PREFIX}${rowId}`;
+const TOMB_TTL = 900;       // gcal-tomb:<rowId> {at}: a delete the row may not show yet (Coda applies ~28 s late)
+const SHADOW_TTL = 86400;   // gcal-shadow:<rowId>: the last op/body shadow mode logged
+const LIST_MAX_PAGES = 5;
 const VENUES_TABLE = 'grid-foC40iAOaX';         // EST Venues SRC
 const GCAL_API = 'https://www.googleapis.com/calendar/v3';
 const TARGET = 'Google Calendar';
@@ -25,6 +31,7 @@ const VERB = { insert: 'add', patch: 'update', delete: 'remove' };
 // worst case up front: readAllRows' 6 row pages, 1 Venues page, 1 Publish Log insert.
 const CALL_LIMIT = 50;
 const ROW_READ_CALLS = 6;
+const OP_WORST = 4;   // update 404 -> insert 409 -> full PUT -> row PUT
 
 const str = (v) => (v == null ? '' : Array.isArray(v) ? str(v[0]) : typeof v === 'object' ? String(v.url || v.name || '') : String(v));
 const warn = (o) => { try { console.error('gcal', JSON.stringify(o)); } catch (_) {} };
@@ -76,9 +83,28 @@ async function readState(env, rowId) {
   const kv = env.CACHE; if (!kv) return null;
   try { return await kv.get(hashKey(rowId), 'json'); } catch (err) { warn({ kvGet: hashKey(rowId), error: errMsg(err) }); return null; }
 }
-async function kvPut(env, key, value) {
+async function kvGetJson(env, key) {
+  const kv = env.CACHE; if (!kv) return null;
+  try { return await kv.get(key, 'json'); } catch (err) { warn({ kvGet: key, error: errMsg(err) }); return null; }
+}
+async function kvPut(env, key, value, opts) {
   const kv = env.CACHE; if (!kv) return;
-  try { await kv.put(key, value); } catch (err) { warn({ kvPut: key, error: errMsg(err) }); }
+  try { await kv.put(key, value, opts); } catch (err) { warn({ kvPut: key, error: errMsg(err) }); }
+}
+const writeState = (env, rowId, st) => kvPut(env, hashKey(rowId), JSON.stringify(st), { metadata: { date: st.date || '' } });
+const readTomb = (env, rowId) => kvGetJson(env, `${TOMB_PREFIX}${rowId}`);
+// Every key under a prefix (one KV operation per page), with its metadata.
+async function kvList(env, prefix) {
+  const kv = env.CACHE, out = []; if (!kv || !kv.list) return out;
+  try {
+    let cursor, pages = 0;
+    do {
+      const r = await kv.list({ prefix, cursor });
+      for (const k of (r && r.keys) || []) out.push({ rowId: k.name.slice(prefix.length), metadata: k.metadata || null });
+      cursor = r && !r.list_complete ? r.cursor : null;
+    } while (cursor && ++pages < LIST_MAX_PAGES);
+  } catch (err) { warn({ kvList: prefix, error: errMsg(err) }); }
+  return out;
 }
 async function kvDelete(env, key) {
   const kv = env.CACHE; if (!kv) return;
@@ -115,41 +141,61 @@ async function setGcalId(g, c, rowId, value) {
   return r;
 }
 
-// Carry out one plan in live mode -> {op, ok, status, message}.
-async function runOp(g, c, rowId, plan, storedId) {
-  const env = g.env;
+// Carry out one plan in live mode -> {op, ok, status, message}. `date` is the event's date,
+// kept with the hash so a date later moved out of the window can still be cleaned up.
+async function runOp(g, c, rowId, plan, date) {
+  const env = g.env, storedId = plan.storedId;
   if (plan.op === 'delete') {
     const r = await gfetch(g, 'DELETE', `/${encodeURIComponent(storedId)}`);
     if (!afterGcalResponse('delete', r.status, r.body).ok) return { op: 'delete', ok: false, status: r.status, message: `Could not remove it from Google Calendar: ${googleError(r)}` };
     await kvDelete(env, hashKey(rowId));
+    await kvPut(env, `${TOMB_PREFIX}${rowId}`, JSON.stringify({ at: new Date().toISOString() }), { expirationTtl: TOMB_TTL });
     const w = await setGcalId(g, c, rowId, '');
     if (!w.ok) return { op: 'delete', ok: false, status: w.status, message: `Removed from Google Calendar but could not clear its id on the row (Coda ${w.status})` };
     return { op: 'delete', ok: true, status: r.status, message: r.status === 404 || r.status === 410 ? `Already gone from Google Calendar (${r.status}); id cleared` : 'Removed from Google Calendar' };
   }
+  // events.update, the whole body: PATCH can't clear a location or switch timed <-> all-day.
+  // status: a trashed (cancelled) event comes back.
+  const replace = (id) => gfetch(g, 'PUT', `/${encodeURIComponent(id)}`, { ...plan.body, status: 'confirmed' });
   let missing = 0;
   if (plan.op === 'patch') {
-    // events.update, the whole body: PATCH can't clear a location or switch timed <-> all-day.
-    // status: a trashed event (cancelled in Google) comes back.
-    const r = await gfetch(g, 'PUT', `/${encodeURIComponent(storedId)}`, { ...plan.body, status: 'confirmed' });
+    const r = await replace(storedId);
     const a = afterGcalResponse('patch', r.status, r.body);
     if (a.ok) {
-      await kvPut(env, hashKey(rowId), JSON.stringify({ id: storedId, hash: plan.hash }));
+      await writeState(env, rowId, { id: storedId, hash: plan.hash, date });
       await bustEventCaches(env);
       return { op: 'patch', ok: true, status: r.status, message: 'Updated on Google Calendar' };
     }
     if (!a.reinsert) return { op: 'patch', ok: false, status: r.status, message: `Could not update it on Google Calendar: ${googleError(r)}` };
     missing = r.status;
   }
-  const r = await gfetch(g, 'POST', '', plan.body);
-  const a = afterGcalResponse('insert', r.status, r.body);
+  // Insert at the row's own id: a second writer (sweep vs a lead route) gets a 409, not a duplicate.
+  const det = gcalEventIdFor(rowId);
+  let r = await gfetch(g, 'POST', '', { ...plan.body, id: det });
+  let a = afterGcalResponse('insert', r.status, r.body), existed = false;
+  if (a.exists) {
+    existed = true;
+    r = await replace(det);
+    a = afterGcalResponse('patch', r.status, r.body).ok ? { ok: true, storeId: det } : { ok: false };
+  }
   if (!a.ok) return { op: 'insert', ok: false, status: r.status, message: `Could not add it to Google Calendar: ${googleError(r)}` };
   // KV first: if the row write fails (or hasn't applied), the next sync still finds the event.
-  await kvPut(env, hashKey(rowId), JSON.stringify({ id: a.storeId, hash: plan.hash }));
+  await writeState(env, rowId, { id: a.storeId, hash: plan.hash, date });
   const w = await setGcalId(g, c, rowId, a.storeId);
   if (!w.ok) return { op: 'insert', ok: false, status: w.status, message: `Added to Google Calendar (${a.storeId}) but could not save its id to the row (Coda ${w.status}); the Worker remembers it` };
-  return { op: 'insert', ok: true, status: r.status, message: missing ? `Not on Google Calendar any more (${missing}); added again` : 'Added to Google Calendar' };
+  const how = missing ? `Not on Google Calendar any more (${missing}); added again` : existed ? 'Already on Google Calendar; replaced' : 'Added to Google Calendar';
+  return { op: 'insert', ok: true, status: r.status, message: how };
 }
 
+// Shadow mode logs an op only the first time it sees it for a row (same op, same body).
+async function shadowIsNew(env, rowId, plan) {
+  const key = `${SHADOW_PREFIX}${rowId}`, mark = `${plan.op}:${plan.hash || plan.storedId || ''}`;
+  let last = null;
+  try { last = env.CACHE ? await env.CACHE.get(key) : null; } catch (err) { warn({ kvGet: key, error: errMsg(err) }); }
+  if (last === mark) return false;
+  await kvPut(env, key, mark, { expirationTtl: SHADOW_TTL });
+  return true;
+}
 const shadowRec = (ev, plan) => ({ action: 'gcal-shadow', ok: true, status: 0, message: `Would ${VERB[plan.op]} "${ev.title}" (${plan.op === 'patch' ? 'update' : plan.op})` });
 
 /**
@@ -167,14 +213,14 @@ export async function syncGcal(env, rowId, { ev, actorId } = {}) {
   try {
     let e = { ...(ev || {}), rowId };
     if (onCalendar(e) && e.venueAddress === undefined) e = withVenue(e, await loadVenues(c));
-    const st = await readState(env, rowId);
-    const storedId = (st && st.id) || e.gcalEventId || '';
-    const plan = gcalPlan(e, storedId, st && st.hash, gcalOpts(env));
+    const [st, tomb] = await Promise.all([readState(env, rowId), readTomb(env, rowId)]);
+    // A lead acting on the row now is a real decision: it overrides a tombstone.
+    const plan = planGcalRow(e, st, { todayIso: todayIn(env.EVENTBRITE_TZ), opts: gcalOpts(env), tomb, reapproved: true });
     op = plan.op;
     const act = gcalModeAction(mode, op);
     if (act === 'skip') return { op, ok: true };
-    if (act === 'log-only') { log(shadowRec(e, plan)); return { op, ok: true }; }
-    const r = await runOp(googleClient(env), c, rowId, plan, storedId);
+    if (act === 'log-only') { if (await shadowIsNew(env, rowId, plan)) log(shadowRec(e, plan)); return { op, ok: true }; }
+    const r = await runOp(googleClient(env), c, rowId, plan, e.date);
     log({ action: ACTION[r.op], ok: r.ok, status: r.status, message: r.message });
     return { op: r.op, ok: r.ok };
   } catch (err) {
@@ -199,22 +245,40 @@ export async function sweepGcal(env) {
   const c = coda(env), logs = [];
   const log = (ev, r) => logs.push({ target: TARGET, via: 'sweep', rowId: ev && ev.rowId, ...r });
   try {
+    const sweepError = (message, status = 0) => log(null, { action: 'gcal-sweep', ok: false, status, message });
     const rr = await readAllRows(c.rowsUrl, c.auth);
-    if (!rr.ok) { warn({ sweep: 'row read failed', status: rr.resp && rr.resp.status }); return out; }
-    if (rr.truncated) log(null, { action: 'gcal-sweep', ok: false, status: 0, message: `Planning row read stopped at its page cap (${rr.items.length} rows): rows past it were not checked` });
+    if (!rr.ok) {
+      const status = (rr.resp && rr.resp.status) || 0;
+      warn({ sweep: 'row read failed', status });
+      sweepError(`Could not read the planning rows (Coda ${status}); nothing checked this run`, status);
+      return out;
+    }
+    if (rr.truncated) sweepError(`Planning row read stopped at its page cap (${rr.items.length} rows): rows past it were not checked`);
     const today = todayIn(env.EVENTBRITE_TZ);
-    const inWindow = rr.items.map((r) => gcalEventFromRow(r.id, r.values)).filter((e) => inSyncWindow(e, today));
-    out.checked = inWindow.length;
-    if (!inWindow.length) return out;
-    const readVenues = inWindow.some((e) => onCalendar(e) && e.venueName);
-    const venues = readVenues ? await loadVenues(c) : [];
-    const states = await Promise.all(inWindow.map((e) => readState(env, e.rowId)));
+    // Rows dated yesterday or later, plus rows whose stored date is (a date moved back or cleared).
+    const storedDate = new Map((await kvList(env, HASH_PREFIX)).map((k) => [k.rowId, k.metadata && k.metadata.date]));
+    const rows = rr.items.map((r) => ({ ev: gcalEventFromRow(r.id, r.values), updatedAt: r.updatedAt || '' }))
+      .filter(({ ev }) => inSyncWindow(ev, today) || inSyncWindow({ date: storedDate.get(ev.rowId) }, today));
+    out.checked = rows.length;
+    if (!rows.length) return out;
+    const tombed = new Set((await kvList(env, TOMB_PREFIX)).map((k) => k.rowId));
+    const readVenues = rows.some(({ ev }) => onCalendar(ev) && ev.venueName && inSyncWindow(ev, today));
+    let venues = [];
+    if (readVenues) {
+      try { venues = await loadVenues(c); } catch (err) { sweepError(`${errMsg(err)}; nothing changed this run`); return out; }
+    }
+    const [states, tombs] = await Promise.all([
+      Promise.all(rows.map(({ ev }) => readState(env, ev.rowId))),
+      Promise.all(rows.map(({ ev }) => (tombed.has(ev.rowId) ? readTomb(env, ev.rowId) : null))),
+    ]);
     const opts = gcalOpts(env), candidates = [];
-    inWindow.forEach((e, i) => {
-      const st = states[i], storedId = (st && st.id) || e.gcalEventId || '';
-      const full = onCalendar(e) ? withVenue(e, venues) : e;
-      const plan = gcalPlan(full, storedId, st && st.hash, opts);
-      if (plan.op !== 'none') candidates.push({ ev: full, plan, storedId });
+    rows.forEach(({ ev, updatedAt }, i) => {
+      const tomb = tombs[i];
+      const full = onCalendar(ev) && inSyncWindow(ev, today) ? withVenue(ev, venues) : ev;
+      // Re-approved: the row changed after the delete (a stale read predates it).
+      const reapproved = !!(tomb && updatedAt && tomb.at && updatedAt > tomb.at);
+      const plan = planGcalRow(full, states[i], { todayIso: today, opts, tomb, reapproved });
+      if (plan.op !== 'none') candidates.push({ ev: full, plan });
     });
 
     let cursor = null;
@@ -224,14 +288,14 @@ export async function sweepGcal(env) {
     const g = googleClient(env);
     g.calls = ROW_READ_CALLS + (readVenues ? 1 : 0) + 1;   // row pages, Venues, the log insert
     let done = 0;
-    for (const { ev, plan, storedId } of batch) {
-      if (mode === 'shadow') { log(ev, shadowRec(ev, plan)); done++; out.ops++; continue; }
-      // Worst case for one op: update 404 -> insert -> row PUT (3), a 401 retry (2), the token (1).
-      const worst = 3 + (g.retried ? 0 : 2) + (g.token ? 0 : 1);
+    for (const { ev, plan } of batch) {
+      if (mode === 'shadow') { if (await shadowIsNew(env, ev.rowId, plan)) log(ev, shadowRec(ev, plan)); done++; out.ops++; continue; }
+      // Worst case for one op (OP_WORST), a 401 retry (2), the token (1).
+      const worst = OP_WORST + (g.retried ? 0 : 2) + (g.token ? 0 : 1);
       if (g.calls + worst > CALL_LIMIT) { note({ sweep: 'call budget reached', done }); break; }
       done++; out.ops++;
       try {
-        const r = await runOp(g, c, ev.rowId, plan, storedId);
+        const r = await runOp(g, c, ev.rowId, plan, ev.date);
         log(ev, { action: ACTION[r.op], ok: r.ok, status: r.status, message: r.message });
       } catch (err) {
         log(ev, { action: ACTION[plan.op], ok: false, status: 0, message: g.tokenError ? `Google sign-in failed: ${g.tokenError}` : errMsg(err) });

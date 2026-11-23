@@ -1103,10 +1103,13 @@ export default {
       return json({ error: String((e && e.message) || e) }, 502, cors);
     }
   },
-  // Two crons ([triggers] in wrangler.toml), never in one invocation (50 outbound calls each):
-  // GCAL_CRON runs the gCal sweep, the other the Eventbrite sweep. Each is a no-op while its mode is off.
+  // Two crons ([triggers] in wrangler.toml), never in one invocation (50 outbound calls each).
+  // Each is a no-op while its mode is off; any other cron string runs nothing.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(event && event.cron === GCAL_CRON ? sweepGcal(env) : runSweep(env));
+    const cron = event && event.cron;
+    if (cron === EB_SWEEP_CRON) ctx.waitUntil(runSweep(env));
+    else if (cron === GCAL_CRON) ctx.waitUntil(sweepGcal(env));
+    else console.error('scheduled', JSON.stringify({ unknownCron: cron }));
   },
 };
 
@@ -1475,6 +1478,7 @@ const ebDelete = (env, id) => ebFetch(env, `/events/${id}/`, 'DELETE');         
 //     venue_id on the event.
 // Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
 const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
+const EB_SWEEP_CRON = '*/15 * * * *';         // the Eventbrite sweep's cron in wrangler.toml
 const VENUE_TYPES_TABLE = 'grid-idEVRQX7SL';  // Venue Types (the Venue Type lookup's table)
 async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibility, ebId, isCreate) {
   if (!name) {
