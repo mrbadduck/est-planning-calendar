@@ -253,9 +253,10 @@ Every listing has free General Admission tickets. Paid tickets and discount code
 Every approved event with a date goes on East Side Tribe's Google Calendar on its own, whether or not it's on Eventbrite. You don't add it yourself.
 
 - **When it shows up.** When you click [[Publish]], [[Cancel event…]] or [[Unpublish (back to private)]], the calendar follows right away. Other changes, including ones that came from Eventbrite, show up within about 15 minutes.
-- **What it says.** The calendar entry has the title, time, place and summary. Until the event is published, it says *Registration on Eventbrite coming soon*. After you publish, it shows the Eventbrite link.
+- **What it says.** The calendar entry has the title, time, place and summary. Until the event is published, it says *Registration on Eventbrite coming soon*. After you publish, it shows the Eventbrite link. If the event's Eventbrite listing is taken down, the calendar entry no longer mentions registration.
 - **Private addresses.** If [[Address on listing]] is [[Registrants only]], the calendar shows just the city and state, not the address.
 - **Cancelled events** leave the calendar. Cancelling an event whose date has already passed leaves it on the calendar.
+- **Deleted events** leave the calendar too, when you use [[Delete event]].
 - **Past events** stay as they were. Changing an event after its date has gone by doesn't change the calendar.
 
 Events with a date range or a whole month, and events that aren't approved yet, aren't on the calendar.

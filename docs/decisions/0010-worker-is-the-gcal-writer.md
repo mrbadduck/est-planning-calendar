@@ -23,7 +23,9 @@ to it once the cutover is done.
   from an earlier version, so a cleared date or venue really clears. An update Google no
   longer has is inserted again.
 - **Delete on cancel.** A row that is not approved, dated and exact leaves the calendar.
-  A delete the calendar no longer has counts as done.
+  A delete the calendar no longer has counts as done. Deleting a row removes its event
+  (nothing is written to the gone row); on a full planning read the sweep also removes an
+  event whose row is gone, as a backstop.
 - **Sync window: yesterday onward.** The sweep only looks at rows dated yesterday or later,
   so history is never touched. A past event stays as it was; a row whose date moves out of
   the window is deleted only if its last written date was still inside it.
@@ -33,16 +35,19 @@ to it once the cutover is done.
   A lead's Publish, Cancel or Unpublish updates its row right away; the sweep catches the rest.
 - **Delete tombstone.** After a delete the Worker remembers it for 15 minutes (Coda applies writes late, so the row may still read as approved) and does not re-insert unless the row changed afterwards or a lead acted on it.
 - **Modes (`GCAL_MODE`).** `off` does nothing (default; also when `GCAL_CALENDAR_ID` is
-  unset). `shadow` works out every change and records it in the Publish Log (target
-  `Google Calendar`) without calling Google. `live` calls Google. Shadow runs for a week so
-  the Worker's plan can be compared with what the Zap and the rule did. Shadow logging is de-duplicated: a row's op and body are logged once per day, not on every sweep.
+  unset). `shadow` works out every change and records it in the Publish Log (Target
+  `gCal`) without calling Google. `live` calls Google. Shadow runs for a week so
+  the Worker's plan can be compared with what the Zap and the rule did. Shadow logging is de-duplicated: a row's op and body are logged once per day, not on every sweep. Errors are too: the same action and status for a row is logged once a day (the console gets every one).
 
 ## Consequences
 
 - Every approved dated event reaches the calendar, on Eventbrite or not. The description
-  reads "Registration on Eventbrite coming soon" until published, then the Eventbrite link.
+  reads "Registration on Eventbrite coming soon" until published, then the Eventbrite link
+  (no registration line once its listing is removed from Eventbrite, unless an external
+  registration URL is set).
 - Registrants-only events show only the area as location.
 - Existing calendar events are linked first (`scripts/link-gcal-ids.mjs`), so the Worker
-  updates them instead of adding second ones.
+  updates them instead of adding second ones. Legacy events with no planning row stay as
+  they are until Phase C's backfill.
 - Edits made by hand on the calendar are overwritten on the next change to the row.
 - Deployment and cutover steps are in `docs/deployment.md` (Google Calendar sync).
