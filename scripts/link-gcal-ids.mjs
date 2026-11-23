@@ -22,6 +22,7 @@ import { PLANNING_COLS as P, LEGACY_COLS as L, LEGACY_EVENTS_TABLE } from '../pr
 const DOC = 'DYAz_wCVfv', PLANNING_TABLE = 'grid--gYIvdD-cE', BASE = 'https://coda.io/apis/v1';
 const EB_SYNC_TABLE = 'grid-sync-20456-Event', GCAL_SYNC_TABLE = 'grid-sync-1003-Event';
 const EST_CALENDAR = 'East Side Tribe Events';
+const GCAL_CALENDAR_COL = 'c-8xFzJF_lnM', GCAL_EVENT_ID_COL = 'c-c-75lRndWK';
 const DAY_MS = 86400000;
 
 const str = (v) => (v == null ? '' : Array.isArray(v) ? str(v[0]) : typeof v === 'object' ? String(v.name || v.url || '') : String(v)).trim();
@@ -108,6 +109,10 @@ async function pages(token, url) {
 const rowsOf = (token, table) => pages(token, `${BASE}/docs/${DOC}/tables/${table}/rows?useColumnNames=false&valueFormat=simpleWithArrays&limit=200`);
 const columnsOf = (token, table) => pages(token, `${BASE}/docs/${DOC}/tables/${table}/columns?limit=200`);
 const findCol = (cols, re) => (cols.find((c) => re.test(c.name)) || {}).id;
+/** Pure. A column by its stable id when the table has it, else by name (the existing fallback). */
+export function pickCol(cols, id, re) {
+  return cols.some((c) => c.id === id) ? id : findCol(cols, re);
+}
 
 // Rich cells (valueFormat=rich): text may be fenced in triple backticks; a reference is
 // {rowId, name, ...} or an array of them. Never match on a name.
@@ -142,7 +147,8 @@ export function resolveSyncRows(ebRows, gcRows, cols) {
 // A missing column is a hard failure (decision 0007), never a silent skip.
 async function readSyncTable(token, log) {
   const [ebCols, gcCols] = await Promise.all([columnsOf(token, EB_SYNC_TABLE), columnsOf(token, GCAL_SYNC_TABLE)]);
-  const cols = { ebId: findCol(ebCols, /^(eventbrite )?(event )?id$/i), lookup: findCol(ebCols, /^gcal event$/i), gcId: findCol(gcCols, /^(gcal |google )?(event )?id$/i), calendar: findCol(gcCols, /^calendar$/i) };
+  // Events GCAL: `gCal Calendar` (text, the calendar's name) and `gCal Event Id`, by id first.
+  const cols = { ebId: findCol(ebCols, /^(eventbrite )?(event )?id$/i), lookup: findCol(ebCols, /^gcal event$/i), gcId: pickCol(gcCols, GCAL_EVENT_ID_COL, /^(gcal |google )?(event )?id$/i), calendar: pickCol(gcCols, GCAL_CALENDAR_COL, /^gcal calendar$/i) };
   log(`Events EVENTBRITE: Eventbrite id = ${cols.ebId}, gCal Event = ${cols.lookup}; Events GCAL: event id = ${cols.gcId}, calendar = ${cols.calendar}`);
   const missing = Object.entries(cols).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) throw new Error(`Could not find the sync-table column(s) ${missing.join(', ')} by name; refusing to continue (dry run or --apply).`);

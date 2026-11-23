@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planLinks, resolveSyncRows, calendarIds, lookupIds, renderPlan } from '../../scripts/link-gcal-ids.mjs';
+import { planLinks, resolveSyncRows, calendarIds, lookupIds, renderPlan, pickCol } from '../../scripts/link-gcal-ids.mjs';
 
 const TODAY = '2026-11-22';
 const p = (rowId, ebId, date, extra = {}) => ({ rowId, title: `T ${rowId}`, date, ebId, gcalEventId: '', ...extra });
@@ -132,4 +132,25 @@ test('frozen: upcoming EST Events SRC rows with a gCal id and no planning row', 
   const r = planLinks({ planning, legacy, ebSync: [], todayIso: TODAY });
   assert.deepEqual(r.frozen, [{ rowId: 'l-potluck', name: 'L l-potluck', date: '2026-12-03', gcalEventId: 'g-l-potluck' }]);
   assert.match(renderPlan(r), /Frozen until Phase C[\s\S]*l-potluck/);
+});
+
+// ── the Events GCAL calendar column: `gCal Calendar` (text), not the `Calendar` lookup ──
+test('a table with both Calendar and gCal Calendar filters on the gCal Calendar text', () => {
+  const gcCols = [
+    { id: 'c-6i-WKoNKa8', name: 'Calendar' },
+    { id: 'c-8xFzJF_lnM', name: 'gCal Calendar' },
+    { id: 'c-c-75lRndWK', name: 'gCal Event Id' },
+  ];
+  const cols = { gcId: pickCol(gcCols, 'c-c-75lRndWK', /^(gcal |google )?(event )?id$/i), calendar: pickCol(gcCols, 'c-8xFzJF_lnM', /^gcal calendar$/i) };
+  assert.deepEqual(cols, { gcId: 'c-c-75lRndWK', calendar: 'c-8xFzJF_lnM' });
+  // The lookup cell says "Other" while the text column says the EST calendar: the row is kept.
+  const row = (id, eventId, lookupText, calText) => ({ id, values: { 'c-c-75lRndWK': '```' + eventId + '```', 'c-6i-WKoNKa8': { '@type': 'StructuredValue', name: lookupText }, 'c-8xFzJF_lnM': '```' + calText + '```' } });
+  const m = calendarIds([row('i-a', 'evA', 'Other', 'East Side Tribe Events'), row('i-b', 'evB', 'East Side Tribe Events', 'Eric personal')], { ...cols, calendar: 'c-8xFzJF_lnM' });
+  assert.deepEqual([...m], [['i-a', 'evA']]);
+});
+
+test('pickCol falls back to the name match when the id is absent', () => {
+  const cols = [{ id: 'x1', name: 'Calendar' }, { id: 'x2', name: 'gCal Calendar' }];
+  assert.equal(pickCol(cols, 'c-8xFzJF_lnM', /^gcal calendar$/i), 'x2');
+  assert.equal(pickCol([{ id: 'x1', name: 'Calendar' }], 'c-8xFzJF_lnM', /^gcal calendar$/i), undefined);
 });
