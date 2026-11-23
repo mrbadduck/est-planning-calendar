@@ -12,8 +12,8 @@ still open. Settled decisions are in `docs/decisions/`.
 - **Publish flow (PR #35, Nov 2026, not yet merged):** footer wizard, honest saves (D3),
   Details/Planning split, Free tickets, Preview at every stage.
 - **Registrant comms v1 (Sep 2026):** Attendees roster + copy/mailto.
-- **gather** (member sign-up app): code-complete, all 5 slices (Aug 2026); site not
-  created yet — see `docs/gather-deploy-runbook.md`.
+- **gather** (member sign-up app): all 5 slices (Aug 2026); live at
+  `https://gather.eastsidetribe.org` (Nov 2026) — see `docs/gather-deploy-runbook.md`.
 
 ## History of the phases
 

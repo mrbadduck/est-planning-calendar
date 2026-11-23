@@ -32,14 +32,20 @@ EVENTBRITE_AREA_REGION = "TN"               # coarse public region/state
 CODA_PUBLISH_LOG_TABLE = "grid-CJNl0A1OGZ"  # Publish Log table — append-only audit of publish attempts
 CODA_FEEDBACK_TABLE = "grid-pP5rwauO2j"     # Roadmap Feedback table — votable ideas board
 EB_SYNC_MODE = "off"                        # Eventbrite -> plan sync (webhook + 15-minute sweep): off | live
+GCAL_MODE = "off"                           # Google Calendar from the Worker (src/gcal-run.js): off | shadow (Publish Log only) | live
+GATHER_BASE = "https://gather.eastsidetribe.org"   # the gCal description's "Sign up to help" link
+# GCAL_CALENDAR_ID = "<id>@group.calendar.google.com"   # East Side Tribe Events; unset = gCal sync off
 
 # Secrets are NOT stored here. Set them once with:
 #   npx wrangler secret put CODA_API_TOKEN     # a READ+WRITE, doc-scoped token (Plan 2b)
 #   npx wrangler secret put EVENTBRITE_TOKEN   # Eventbrite private token (publish-out)
 #   npx wrangler secret put APP_KEY            # optional, unused in the phased plan
+#   npx wrangler secret put GOOGLE_SA_KEY      # Google service-account key JSON (Calendar "Make changes to events")
 #   npx wrangler secret put EB_WEBHOOK_SECRET  # path segment of POST /webhooks/eventbrite/<secret> (Eventbrite webhooks are unsigned)
 
 # Eventbrite sweep (runSweep in src/eb-sync-run.js) every 15 minutes, so events made
 # directly on Eventbrite import promptly (the webhook leaves new events to it).
+# Google Calendar sweep (sweepGcal, GCAL_CRON in src/gcal-run.js) at 3/18/33/48: its own
+# invocation, since each gets 50 outbound calls and the Eventbrite sweep uses up to 48.
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "3,18,33,48 * * * *"]

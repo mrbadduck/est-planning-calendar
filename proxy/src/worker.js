@@ -21,6 +21,7 @@
  *   PUT    /venues/:rowId  change a venue's address; clears its cached Eventbrite venue ids -> {requestId} | {requestId:null, unchanged:true} (same address: no write) — role-gated
  *   POST   /webhooks/eventbrite/:secret  Eventbrite webhook -> syncEbEvent in waitUntil (eb-sync-run.js); 404 on a wrong secret
  *   (cron) scheduled  Eventbrite sweep every 15 min (runSweep); both gated by EB_SYNC_MODE = off | live
+ *   (cron) GCAL_CRON  Google Calendar sweep (sweepGcal, gcal-run.js); publish/cancel/unpublish/delete call syncGcal in waitUntil. GCAL_MODE = off | shadow | live
  *
  * Config (see wrangler.toml and .dev.vars.example):
  *   CODA_API_TOKEN   (secret)  doc/table-scoped token, read+write
@@ -48,6 +49,7 @@ import {
 } from './gather.js';
 import { buildRoster } from './roster.js';
 import { ebWebhook, runSweep } from './eb-sync-run.js';
+import { syncGcal, sweepGcal, gcalEventFromRow, GCAL_CRON } from './gcal-run.js';
 import { mutationResult, rowToListingEvent, pushedValues, snapshotAfterPush, publishSuccessBody, descriptionToWrite, ticketPlan, previewModel, venueRefItem, effectiveAddressVisibility, ebGone, cancelPlan, isPublishedCell, snapshotStatusCells, deleteGate, resolveEbIds, mergeEbPending, ebPendingKey, EB_PENDING_TTL } from './publish.js';
 import '../../web/listing-readiness.js';   // attaches globalThis.ListingRules (shared with the app)
 import '../../web/venue-address.js';       // attaches globalThis.VenueAddress (shared with the app)
@@ -189,6 +191,8 @@ export default {
             }
             const w = await fetch(`${rowsUrl}/${encodeURIComponent(rowId)}`, { method: 'DELETE', headers: auth });
             if (w.ok) { await bustEventCaches(env); if (env.CACHE) { try { await env.CACHE.delete(ebPendingKey(rowId)); } catch (_) {} } }
+            // gCal: the row's calendar event goes too; the row is gone, so nothing is written to it.
+            if (w.ok && ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), status: 'deleted' }, rowGone: true }));
             await logPublish(env, base, docId, auth, { rowId: w.ok ? '' : rowId, actorId: id.personId, action: 'delete', ok: w.ok, status: w.status, ebId, message: w.ok ? `event deleted (eb: ${ebOutcome}; row ${rowId})` : `row delete failed (eb: ${ebOutcome})` });
             return pass(w, cors);
           }
@@ -666,6 +670,9 @@ export default {
           await notePending({ ebId, tcId: ticketClassId, lastPushAt });   // the conflict guard's baseline until the row applies
           const okMsg = [draftOnly ? 'draft synced (not published)' : '', ticketNote].filter(Boolean).join(' · ');
           await logPublish(env, base, docId, auth, { rowId, actorId: id.personId, action: draftOnly ? 'update' : 'publish', ok: true, status: pubStatus, ebId, ebUrl: eventbriteWebUrl(ebId), message: okMsg });
+          const gev = gcalEventFromRow(rowId, V);   // gCal: the event as just written (Coda applies it ~28 s later)
+          if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gev, addressVisibility: ev.addressVisibility,
+            venueAddress: venueRow ? venueRow.address : '', publishStatus: draftOnly ? 'Draft' : 'Published', eventbriteUrl: gev.eventbriteUrl || eventbriteWebUrl(ebId) } }));
           return json(publishSuccessBody({ ebId, url: eventbriteWebUrl(ebId), draftOnly, ticketNote, pushedJson, lastPushAt, requestId: lastRequestId }), 200, cors);
         } catch (err) {
           const msg = String((err && err.message) || err);
@@ -793,6 +800,7 @@ export default {
           ]);
           if (!w.ok) return pass(w, cors);
           await log({ ok: true, status: 200, ebUrl: eventbriteWebUrl(ebId), message: 'listing unpublished (back to private draft)' });
+          if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), publishStatus: 'Draft' } }));
           return json({ ok: true, publishStatus: 'Draft', requestId: lastRequestId }, 200, cors);
         }
 
@@ -827,6 +835,7 @@ export default {
         const w = await setRow(cells);
         if (!w.ok) return pass(w, cors);
         await log({ ok: true, status: 200, ebUrl: ebId ? eventbriteWebUrl(ebId) : '', message: `event cancelled (eb: ${ebOutcome})` });
+        if (ctx) ctx.waitUntil(syncGcal(env, rowId, { actorId: id.personId, ev: { ...gcalEventFromRow(rowId, V), status: 'cancelled' } }));
         return json({ ok: true, publishStatus: ebId ? 'Cancelled' : '', eventbrite: ebOutcome, requestId: lastRequestId }, 200, cors);
       }
       if (parts[0] === 'notes-doc' && request.method === 'POST') {
@@ -1096,9 +1105,13 @@ export default {
       return json({ error: String((e && e.message) || e) }, 502, cors);
     }
   },
-  // Eventbrite sweep every 15 minutes ([triggers] in wrangler.toml); runSweep is a no-op unless EB_SYNC_MODE = live.
+  // Two crons ([triggers] in wrangler.toml), never in one invocation (50 outbound calls each).
+  // Each is a no-op while its mode is off; any other cron string runs nothing.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runSweep(env));
+    const cron = event && event.cron;
+    if (cron === EB_SWEEP_CRON) ctx.waitUntil(runSweep(env));
+    else if (cron === GCAL_CRON) ctx.waitUntil(sweepGcal(env));
+    else console.error('scheduled', JSON.stringify({ unknownCron: cron }));
   },
 };
 
@@ -1467,6 +1480,7 @@ const ebDelete = (env, id) => ebFetch(env, `/events/${id}/`, 'DELETE');         
 //     venue_id on the event.
 // Returns null on success, or {error:<{ok,status,body}>} to let the caller fail().
 const EB_VENUES_TABLE = 'grid-foC40iAOaX';   // EST Venues SRC
+const EB_SWEEP_CRON = '*/15 * * * *';         // the Eventbrite sweep's cron in wrangler.toml
 const VENUE_TYPES_TABLE = 'grid-idEVRQX7SL';  // Venue Types (the Venue Type lookup's table)
 async function ensureEbVenue(env, base, docId, auth, name, found, addressVisibility, ebId, isCreate) {
   if (!name) {

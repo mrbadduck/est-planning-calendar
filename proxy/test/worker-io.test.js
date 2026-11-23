@@ -14,8 +14,8 @@ test('publishLogCells: defaults Target to Eventbrite and prefixes system actions
   assert.deepEqual(cell(cells, 'Actor'), []);
 });
 test('publishLogCells: rec.target fills Target; sweep prefix; actor keeps plain message', () => {
-  const g = publishLogCells({ action: 'create', ok: false, target: 'Google Calendar', via: 'sweep' }, 'now');
-  assert.equal(cell(g, 'Target'), 'Google Calendar');
+  const g = publishLogCells({ action: 'create', ok: false, target: 'gCal', via: 'sweep' }, 'now');
+  assert.equal(cell(g, 'Target'), 'gCal');
   assert.equal(cell(g, 'Result'), 'error');
   assert.ok(cell(g, 'Message').startsWith('[sweep] '));
   const a = publishLogCells({ action: 'publish', ok: true, actorId: 'i-1', rowId: 'r-1', message: 'hi' }, 'now');

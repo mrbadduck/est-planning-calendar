@@ -15,6 +15,7 @@ that supersedes it rather than editing history.
 | [0007](0007-no-silent-fallbacks.md) | D7: no silent fallbacks | Nov 2026 |
 | [0008](0008-coda-apply-latency.md) | Coda applies writes ~28 s after accepting them, whatever the doc size | Nov 2026 |
 | [0009](0009-eventbrite-edits-flow-into-plan.md) | Eventbrite edits flow into plan, field by field (supersedes 0006) | Nov 2026 |
+| [0010](0010-worker-is-the-gcal-writer.md) | The Worker is the only writer of Google Calendar: stored ids, full replace, delete on cancel, shadow mode | Nov 2026 |
 
 Smaller rules from PR #35 (D1 stable containers, D2 one `ctx`, D5 one shared rules
 module, D6 footer model, D8 no mid-push confirm) are in

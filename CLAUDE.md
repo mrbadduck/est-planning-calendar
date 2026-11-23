@@ -18,7 +18,7 @@ publishes approved events to Eventbrite.
 |------|------|-----------|
 | `web/` | The calendar app: `index.html` + `styles.css` + plain `<script>` files, vanilla JS, **no build step**. `web/listing-readiness.js` and `web/venue-address.js` are also bundled into the Worker | Netlify (`plan.eastsidetribe.org`) |
 | `web/help/` | In-app help: `guide.md`, `whats-new.md`, `help-lib.js` | Netlify (with `web/`) |
-| `gather/` | Member sign-up app (potluck/volunteer slots), buildless, code-complete | Netlify (`gather.eastsidetribe.org`, site not created yet) |
+| `gather/` | Member sign-up app (potluck/volunteer slots), buildless | Netlify (`gather.eastsidetribe.org`, live) |
 | `shared/` | Browser code both apps use; committed mirrors in `web/` + `gather/` (`scripts/sync-shared.sh`) | mirrored |
 | `proxy/` | Cloudflare Worker: holds the tokens, gates by role, publishes to Eventbrite | Cloudflare Workers (CI, on merge) |
 | `scripts/` | `check.sh` (the fast checks), `check-help.mjs` (help guard), `sync-shared.sh` | — |
