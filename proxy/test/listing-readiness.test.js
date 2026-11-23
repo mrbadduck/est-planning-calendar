@@ -312,11 +312,11 @@ test('footerModel published: Cancel event… says it takes the listing down', ()
   assert.equal(c.sub, 'Takes the listing down. Not possible once people register.');
 });
 
-test('footerModel slow pending: Still saving… with the Coda-is-slow tip (R21)', () => {
+test('footerModel slow pending (the fallback wait): Still saving… with the taking-longer tip (R21)', () => {
   const ev = { ...ready(), publicDescription: 'x' };
   const m = fm({ stage: 'onEventbrite', ev, pending: true, slow: true });
   assert.deepEqual(m.primary, { label: 'Still saving…', act: null, enabled: false, tone: 'primary',
-    tip: 'Coda is slow right now; your change is safe' });
+    tip: 'This is taking longer than usual; your change is safe' });
   // not pending: slow means nothing
   assert.equal(fm({ stage: 'onEventbrite', ev, slow: true }).primary.act, 'publish-eb');
   // sending wins
@@ -333,6 +333,9 @@ test('footerModel busy (a transition/cancel/delete in flight) holds the primary 
   assert.equal(fm({ stage: 'proposed', role: COUNCIL, busy: true, slow: true }).primary.label, 'Still saving…');
   // a named busy label never turns into Still saving…
   assert.equal(fm({ stage: 'draft', busy: 'Deleting…', slow: true }).primary.label, 'Deleting…');
+  // a new event's create label holds through the slow mark too
+  assert.deepEqual(fm({ stage: 'draft', busy: 'Creating… (about half a minute)', slow: true }).primary,
+    { label: 'Creating… (about half a minute)', act: null, enabled: false, tone: 'primary' });
   // read-only viewers see nothing in flight
   assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, busy: true }).primary, null);
 });

@@ -1,7 +1,7 @@
 /* state.js — per-device prefs, the `state` object, program-year dates, loadEvents,
    the _recent/_unsaved local-copy guards, refs settling and date bucketing.
    Owns: prefs, savePrefs, savedLayer, state, MONTHS, WD, pad, ymd, todayStr, markRecent, _unsaved, loadEvents, onRefsLoaded, relationsReady, _refsSettled, settleRefs, afterRefs, eventsByDate, monthKey, roughByMonth
-   Reads: _live (data.js, in relationsReady); editing (editor-tabs.js); _applying (save.js)
+   Reads: _live (data.js, in relationsReady); editing (editor-tabs.js); _applying, _confirming (save.js)
    Writes: _unconfirmed (save.js; deletes entries), state (declares it)
    Loaded after: pickers.js (file-map order; no load-time dependency beyond data.js) */
 
@@ -50,7 +50,9 @@ const _unsaved = new Map();
 async function loadEvents(){
   const [p,r] = await Promise.all([DB.listPlanning(), DB.listReferences()]);
   const now = Date.now();
-  for(const [id,rec] of [..._recent]) if(rec.until <= now && !((_applying.get(id)||0) > 0)) _recent.delete(id);   // held while a write to it is still applying
+  // Held while a write to it is still applying, or an overlaid one still confirming:
+  // a read that missed the overlay (stale rows) must not revert a change shown as saved.
+  for(const [id,rec] of [..._recent]) if(rec.until <= now && !((_applying.get(id)||0) > 0) && !_confirming.has(id)) _recent.delete(id);
   const local = id => (_unsaved.get(id)||{}).ev || (_recent.get(id)||{}).e;
   const planning = p.filter(ev => !(_recent.get(ev.id)||{}).deleted)   // hide just-deleted
                     .map(ev => local(ev.id) || ev);                      // keep just-edited / not yet saved

@@ -258,14 +258,17 @@ async function createFromForm(){
   const me=(state.identity && state.identity.name) || '';
   const e=Object.assign({}, {source:'planning', eventbriteUrl:'', gcalId:'', createdBy:me, editedBy:me}, f);
   e.id='tmp-'+Date.now();
-  _creating=true; applyLocal(e); rerender(); toast('Creating…','busy');
+  _creating=true; applyLocal(e); rerender(); toast('Creating… this takes about half a minute','busy');
   try{
     const saved=await DB.create(e);
     if(saved && saved.id && saved.id!==e.id){ applyLocal(e, true); e.id=saved.id; applyLocal(e); }  // swap temp → real id
-    // Not awaited: the workspace opens now, and its pill/footer read pendingFor(e.id)
-    // until Coda has applied the insert.
-    if(!String(e.id).startsWith('tmp-')) trackCreate(e.id, e._requestId);
-    markRecent(e.id, {e}); rerender(); toast('Created','ok'); scheduleReconcile();
+    // Not awaited: the event page opens now and stays editable (edits queue behind
+    // afterCreate); its panel reads Creating… (about half a minute) until Coda has
+    // applied the insert, and trackCreate toasts Created then.
+    const tmp=String(e.id).startsWith('tmp-');
+    if(!tmp) trackCreate(e.id, e._requestId);
+    markRecent(e.id, {e}); rerender(); scheduleReconcile();
+    toast(tmp ? 'Created' : 'Creating… this takes about half a minute', 'ok');   // (no row id: nothing to wait on)
     _creating=false;
     if(editing===seed){   // land in the workspace for the just-created event
       closeModal();

@@ -222,9 +222,10 @@ test('discard clears an error so nothing is retried', async () => {
   assert.equal(w.calls.length, 1);
 });
 
-// Honest saves (D3): the app's write is DB.update(...) then applied(requestId).
-// 'saved' must wait for the apply — and for every edit coalesced meanwhile.
-test('saved fires only after the applied promise resolves', async () => {
+// Honest saves (D3, 0012): 'saved' waits for the write's promise — the 202, then
+// applied(requestId) only when the Worker didn't overlay the write — and for every
+// edit coalesced meanwhile.
+test('not overlaid: saved fires only after the applied promise resolves', async () => {
   const states = [];
   const accepted = [], applies = [];
   const deferred = () => { let resolve; const p = new Promise(r => { resolve = r; }); return { p, resolve }; };
@@ -250,4 +251,37 @@ test('saved fires only after the applied promise resolves', async () => {
   applies[1].resolve(); await tick();
   assert.deepEqual(states.filter(s => s === 'saved'), ['saved']);
   assert.equal(q.status('e1'), 'idle');
+});
+
+test('overlaid: a write that resolves on the 202 fires saved at once', async () => {
+  const states = [];
+  let accept;
+  const write = () => new Promise(r => { accept = r; });   // the app resolves on the 202 when overlaid
+  const q = create({ write, onState: (id, st) => states.push(st) });
+  q.stage('e1', [{ column: 'Title', value: 'A' }]);
+  assert.equal(q.status('e1'), 'saving');
+  accept({ requestId: 'r1', overlaid: true }); await tick();
+  assert.deepEqual(states.filter(s => s === 'saved'), ['saved']);
+  assert.equal(q.status('e1'), 'idle');
+});
+
+// The background confirms of overlaid writes, per event: while any is unsettled the
+// event's actions go out with the unconfirmed flag and loadEvents holds _recent.
+test('tracker: has(id) while a tracked promise is unsettled, per event', async () => {
+  const { tracker } = globalThis.SaveQueue;
+  const t = tracker();
+  const d = () => { let resolve, reject; const p = new Promise((a, b) => { resolve = a; reject = b; }); return { p, resolve, reject }; };
+  const a = d(), b = d(), c = d();
+  assert.equal(t.has('e1'), false);
+  const ta = t.track('e1', a.p), tb = t.track('e1', b.p); t.track('e2', c.p);
+  assert.equal(t.has('e1'), true); assert.equal(t.count('e1'), 2); assert.equal(t.has('e2'), true);
+  a.resolve('ok'); assert.equal(await ta, 'ok');
+  assert.equal(t.has('e1'), true, 'one still unconfirmed');
+  b.reject(new Error('save not confirmed'));
+  await assert.rejects(tb, /save not confirmed/);   // track passes the outcome through
+  assert.equal(t.has('e1'), false); assert.equal(t.count('e1'), 0);
+  assert.equal(t.has('e2'), true, 'another event is unaffected');
+  c.resolve(); await tick();
+  assert.equal(t.has('e2'), false);
+  assert.equal(t.has(''), false);
 });

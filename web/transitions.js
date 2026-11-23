@@ -1,6 +1,6 @@
 /* transitions.js — lifecycle transitions (Propose/Approve/Reopen), Cancel, Delete, unpublish, and the Eventbrite-cancel bar (in the panel's #edBars).
    Owns: transitionTo, cancelEvent, deleteEditor, unpublishEvent, _ebBlock, clearEbBlock, paintEbBlock
-   Reads: editing, activeSection (editor-tabs.js); state, todayStr (state.js)
+   Reads: editing, activeSection (editor-tabs.js); state, todayStr (state.js); confirmLater, hasUnconfirmed (save.js; the flag goes with cancel/unpublish/delete)
    Writes: _form, _busy, _busyLabel, _authRetry, _unconfirmed (save.js); _unsaved (state.js; delete)
    Loaded after: status-panel.js (file-map order; no load-time dependency) */
 
@@ -24,7 +24,10 @@ async function transitionTo(status){
     await saveQueue.settle(ev.id).catch(err=>{ fieldsFailed=true; throw err; });
     await afterCreate(ev.id);
     const w=await DB.update(ev.id, [{column:'Status', value:cap(status)}]);
-    await applied(w && w.requestId, ev.id);     // Approve → Add to Eventbrite must see the new Status in Coda
+    // Approve → Add to Eventbrite reads the Status through the overlay: wait for the
+    // apply only when the write wasn't overlaid.
+    if(w && w.overlaid) confirmLater(w.requestId, ev.id, ()=>{ toast('The change didn’t confirm. Check again in a minute.','err'); scheduleReconcile(); });
+    else await applied(w && w.requestId, ev.id);
     if(status==='approved'){                    // the Approved step note, until the next read brings Coda's (display only, never written)
       ev.approvedBy=(state.identity && state.identity.name) || ev.approvedBy;
       ev.approvedAt=todayStr;
@@ -36,7 +39,7 @@ async function transitionTo(status){
     if(err && err.status===401) sessionExpired();
     else {
       const unconfirmed = !fieldsFailed && err && err.message==='save not confirmed';   // accepted, but Coda never said it applied
-      toast(fieldsFailed ? 'Your changes didn’t save, so the status wasn’t changed — try again' : unconfirmed ? 'Coda didn’t confirm the change. Check again in a minute.' : 'Update failed — reverted','err');
+      toast(fieldsFailed ? 'Your changes didn’t save, so the status wasn’t changed — try again' : unconfirmed ? 'The change didn’t confirm. Check again in a minute.' : 'Update failed — reverted','err');
       console.warn('transition failed:', err);
       if(unconfirmed) scheduleReconcile();
     }
@@ -58,9 +61,9 @@ async function cancelEvent(){
   ev.status='cancelled'; applyLocal(ev); rerender(); renderStatusPanel();   // in flight: the panel's button, no toast
   try{
     await saveQueue.settle(ev.id).catch(()=>{});   // queued edits land first; one that fails is reported, not a reason to stop
-    const res=await DB.cancelEventbrite(ev.id);
+    const res=await DB.cancelEventbrite(ev.id, hasUnconfirmed(ev.id));
     if(res && res.publishStatus) ev.publishStatus=res.publishStatus;
-    trackWorkerWrite(ev, res && res.requestId); scheduleReconcile(); clearEbBlock(ev.id);
+    trackWorkerWrite(ev, res && res.requestId, res && res.overlaid); scheduleReconcile(); clearEbBlock(ev.id);
     // The event is locked now, so a field edit that failed has nowhere to be retried.
     if(saveQueue.status(ev.id)==='error') dropFailedEdits(ev.id, 'Event cancelled, but your last change to it didn’t save');
     else toast('Event cancelled','ok');
@@ -68,7 +71,7 @@ async function cancelEvent(){
     Object.assign(ev, prev); applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
     else if(err && err.status===409 && err.needsEventbriteCancel){ hideToast(); showEbBlock(ev, err); }   // people registered: nothing changed
-    else toast((err&&err.message)||'Cancel failed','err');
+    else toast((err&&err.message)||'Cancel failed','err');   // (a 409 "still being saved" shows the Worker's words)
   }finally{
     _busy.delete(ev.id); _busyLabel.delete(ev.id); guardUnload();
     if(editing===ev) openEditor(ev, activeSection, 'none');
@@ -90,7 +93,7 @@ async function deleteEditor(){
   try{
     await drained;                             // …and a write already in flight finishes before the delete
     await afterCreate(id);                     // a just-created row: let its insert apply first
-    await DB.remove(id);
+    await DB.remove(id, hasUnconfirmed(id));
     _unconfirmed.delete(id);
     markRecent(id, { deleted:true });
     if(editing===ev) leaveEventPage('back');   // the event is gone: back to the calendar
@@ -98,7 +101,7 @@ async function deleteEditor(){
   }catch(err){
     applyLocal(ev); rerender();
     if(err && err.status===401) sessionExpired();
-    else { toast((err && (err.status===409 || err.status===502) && err.message) || 'Delete failed — restored','err'); console.warn('delete failed:', err); }   // the Worker's reason (cancel first / Eventbrite refused); the row is kept
+    else { toast((err && (err.status===409 || err.status===502) && err.message) || 'Delete failed — restored','err'); console.warn('delete failed:', err); }   // the Worker's reason (cancel first / still being saved / Eventbrite refused); the row is kept
   }finally{
     _busy.delete(id); _busyLabel.delete(id); guardUnload();
     if(editing===ev) openEditor(ev, activeSection, 'none');   // failed (success closed it): back to a live editor — its form was let go
@@ -114,11 +117,11 @@ async function unpublishEvent(){
   const id=ev.id;
   _busy.add(id); _busyLabel.set(id, 'Unpublishing…'); guardUnload(); renderStatusPanel();   // in flight: the panel's button (R21)
   try{
-    const res=await DB.unpublishEventbrite(id);
+    const res=await DB.unpublishEventbrite(id, hasUnconfirmed(id));
     ev.publishStatus=(res && res.publishStatus) || 'Draft';
     clearEbBlock(id);
     applyLocal(ev); rerender();
-    trackWorkerWrite(ev, res && res.requestId); scheduleReconcile();
+    trackWorkerWrite(ev, res && res.requestId, res && res.overlaid); scheduleReconcile();
     toast('Unpublished. It’s a private draft on Eventbrite again','ok');
     refreshEbStatus(ev);
   }catch(err){

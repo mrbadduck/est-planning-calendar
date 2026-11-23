@@ -125,7 +125,9 @@
   // unknown or not loaded yet: closed once the date (or end) has passed, else open.
   const LIVE_STATUS_TEXT = { live: 'registration open', started: 'happening now', ended: 'registration closed',
     completed: 'registration closed', canceled: 'canceled on Eventbrite' };
-  const SLOW_TIP = 'Coda is slow right now; your change is safe';
+  // Only the fallback wait goes slow: an overlaid edit is saved on the 202, so this
+  // shows when the overlay was off or unreachable and the app waits for Coda's apply.
+  const SLOW_TIP = 'This is taking longer than usual; your change is safe';
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
   // Shown when the listing was edited on Eventbrite since our last push (D8): the
@@ -300,7 +302,9 @@
     // In flight, the primary button is the one place that says so (R21): a push,
     // a transition/cancel/delete (`busy`: true → "Saving…", or its own label) or
     // queued edits (`pending`, only where there's an action to hold back). After
-    // CodaApplied's slow mark (`slow`), "Saving…" reads "Still saving…".
+    // CodaApplied's slow mark (`slow`: the fallback wait for Coda's apply, when a
+    // write wasn't overlaid), "Saving…" reads "Still saving…"; a named label
+    // ("Creating… (about half a minute)", "Deleting…") stays as it is.
     const busy = input.busy;
     out.busy = !!busy && canEdit;   // the renderer disables the secondary and ⋮ meanwhile
     if (sending && out.primary) out.primary = prim('Sending to Eventbrite…', null, false, 'primary');   // a push in flight

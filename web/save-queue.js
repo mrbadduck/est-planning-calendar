@@ -11,7 +11,8 @@
      'error' rather than retrying on its own;
    - events never share a slot.
    Only the cells handed to stage() are written — the app stages changedCells()
-   so a save never rewrites a column the user didn't touch. */
+   so a save never rewrites a column the user didn't touch.
+   tracker() counts unsettled promises per event (the app's _confirming). */
 (function (root) {
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -110,5 +111,18 @@
     return { stage, settle, discard, status };
   }
 
-  root.SaveQueue = { create, changedCells };
+  // Promises in flight per event: track(id, p) counts p until it settles and passes
+  // its outcome through; has(id) / count(id) answer while any is unsettled. The app
+  // keeps the background confirms of overlaid writes in one (_confirming, save.js).
+  function tracker() {
+    const n = new Map();   // id → unsettled count
+    const done = id => { const k = (n.get(id) || 0) - 1; if (k > 0) n.set(id, k); else n.delete(id); };
+    return {
+      track(id, p) { n.set(id, (n.get(id) || 0) + 1); return Promise.resolve(p).finally(() => done(id)); },
+      has: id => (n.get(id) || 0) > 0,
+      count: id => n.get(id) || 0,
+    };
+  }
+
+  root.SaveQueue = { create, changedCells, tracker };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

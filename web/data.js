@@ -304,35 +304,44 @@ const CodaSource = {
   },
   _wh(){ return { 'Content-Type':'application/json', 'Authorization':`Bearer ${state.idToken||''}` }; },
   async _fail(r){ let t=await r.text(); try{ t=JSON.parse(t).error||t; }catch(_){} const e=new Error(`save failed (${r.status})${t?': '+t:''}`); e.status=r.status; throw e; },
-  // Coda answers a write with 202 + requestId and applies it seconds later — the
-  // Worker passes that body through ({requestId, addedRowIds} for an insert,
-  // {requestId, id} for an update). applied(requestId) waits for the apply.
-  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; e._requestId=(j&&j.requestId)||''; }catch(_){} return e; },
+  // Coda answers a write with 202 + requestId and applies it seconds later. Worker
+  // writes return {requestId, overlaid} ({addedRowIds} too for an insert): overlaid
+  // means every read through the Worker already returns the write, so applied() runs
+  // in the background (confirmLater); not overlaid, the app waits for it. Creates
+  // always wait (trackCreate).
+  async create(e){ const r=await fetch(`${this.base}/rows`,{method:'POST',headers:this._wh(),body:JSON.stringify({rows:[{cells:eventToCodaCells(e)}]})}); if(!r.ok) await this._fail(r); try{ const j=await r.json(); const id=j&&j.addedRowIds&&j.addedRowIds[0]; if(id) e.id=id; e._requestId=(j&&j.requestId)||''; e._overlaid=!!(j&&j.overlaid); }catch(_){} return e; },
   // Writes ONLY the given cells — Coda leaves every other column of the row as it is.
-  async update(id, cells){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells}})}); if(!r.ok) await this._fail(r); const j=await r.json().catch(()=>null); return { requestId:(j&&j.requestId)||'' }; },
-  // Has Coda applied this write yet? Never throws on a non-2xx (a network error may —
-  // waitApplied retries it). 401/403 count as applied: the write was accepted with
-  // valid auth seconds ago, and an expired token mid-poll mustn't fail the save.
+  async update(id, cells){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'PUT',headers:this._wh(),body:JSON.stringify({row:{cells}})}); if(!r.ok) await this._fail(r); const j=await r.json().catch(()=>null); return { requestId:(j&&j.requestId)||'', overlaid:!!(j&&j.overlaid) }; },
+  // Has Coda applied this write yet? /mutation asks the write overlay first (no Coda
+  // call) and can answer failed (an unapplied entry 120 s old); on a miss it asks
+  // Coda. Never throws on a non-2xx (a network error may — waitApplied retries it).
+  // 401/403 count as applied: the write was accepted with valid auth seconds ago,
+  // and an expired token mid-poll mustn't fail the save.
   async mutationStatus(requestId){
     // A hung request throws on the timeout, and waitApplied retries it — so its overall deadline holds.
     const r=await fetch(`${this.base}/mutation/${encodeURIComponent(requestId)}`,{headers:this._wh(), signal:AbortSignal.timeout(15000)});
     if(r.status===401 || r.status===403) return { status:404 };
     if(!r.ok) return { status:r.status };
     const j=await r.json().catch(()=>({}));
-    return { status:r.status, completed: !!(j && j.completed) };
+    return { status:r.status, completed: !!(j && j.completed), failed: !!(j && j.failed) };
   },
-  // A refusal (409 cancel first, 502 Eventbrite wouldn't delete the draft) carries the Worker's own message.
-  async remove(id){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}`,{method:'DELETE',headers:this._wh()}); if(!r.ok){ const j=await r.json().catch(()=>({})); const e=new Error(j.error||`delete failed (${r.status})`); e.status=r.status; throw e; } },
+  // A refusal (409 cancel first, 409 your last update is still being saved, 502
+  // Eventbrite wouldn't delete the draft) carries the Worker's own message.
+  // unconfirmed: an overlaid write to this row is still confirming (the Worker
+  // refuses rather than act on a stale row when it can't reach the overlay).
+  async remove(id, unconfirmed){ const r=await fetch(`${this.base}/rows/${encodeURIComponent(id)}${unconfirmed?'?unconfirmed=1':''}`,{method:'DELETE',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`delete failed (${r.status})`); e.status=r.status; throw e; } return { requestId:(j&&j.requestId)||'', overlaid:!!(j&&j.overlaid) }; },
   async createNotesDoc(rowId){ const r=await fetch(`${this.base}/notes-doc`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); if(!r.ok) await this._fail(r); return true; },
-  async publishEventbrite(rowId, draftOnly, force){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; e.lastPushAt=j.lastPushAt||null; e.requestId=j.requestId||null; e.eventbriteId=j.eventbriteId?String(j.eventbriteId):''; throw e; } return j; },
+  // Publish / cancel / unpublish pass the Worker's body through, `overlaid` included.
+  // unconfirmed: as for remove — sent as `unconfirmed: true` in the body.
+  async publishEventbrite(rowId, draftOnly, force, unconfirmed){ const r=await fetch(`${this.base}/publish/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, draftOnly:!!draftOnly, force:!!force, ...(unconfirmed?{unconfirmed:true}:{})})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`publish failed (${r.status})`); e.status=r.status; e.conflict=!!j.conflict; e.checks=Array.isArray(j.checks)?j.checks:null; e.lastPushAt=j.lastPushAt||null; e.requestId=j.requestId||null; e.eventbriteId=j.eventbriteId?String(j.eventbriteId):''; e.overlaid=!!j.overlaid; throw e; } return j; },
   async ebPreview(rowId){ const r=await fetch(`${this.base}/eventbrite/preview?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); const j=await r.json().catch(()=>({})); if(r.status===404 && j && j.linked===false) return null; if(!r.ok){ const e=new Error(j.error||`preview failed (${r.status})`); e.status=r.status; throw e; } return j; },
   async ebStatus(rowId){ const r=await fetch(`${this.base}/eventbrite/status?rowId=${encodeURIComponent(rowId)}`,{headers:this._wh()}); if(!r.ok) return null; return r.json().catch(()=>null); },
   async refreshPeople(){ const r=await fetch(`${this.base}/admin/refresh-people`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`refresh failed (${r.status})`); e.status=r.status; throw e; } return j; },
   // Cancel / unpublish: a 409 {needsEventbriteCancel, registrants, error} means people registered,
   // so Eventbrite refuses (F7) and nothing changed.
-  async cancelEventbrite(rowId){ return this._ebTeardown('cancel', rowId); },
-  async unpublishEventbrite(rowId){ return this._ebTeardown('unpublish', rowId); },
-  async _ebTeardown(route, rowId){ const r=await fetch(`${this.base}/${route}/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`${route} failed (${r.status})`); e.status=r.status; e.needsEventbriteCancel=!!j.needsEventbriteCancel; e.registrants=Number(j.registrants)||0; throw e; } return j; },
+  async cancelEventbrite(rowId, unconfirmed){ return this._ebTeardown('cancel', rowId, unconfirmed); },
+  async unpublishEventbrite(rowId, unconfirmed){ return this._ebTeardown('unpublish', rowId, unconfirmed); },
+  async _ebTeardown(route, rowId, unconfirmed){ const r=await fetch(`${this.base}/${route}/eventbrite`,{method:'POST',headers:this._wh(),body:JSON.stringify({rowId, ...(unconfirmed?{unconfirmed:true}:{})})}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||`${route} failed (${r.status})`); e.status=r.status; e.needsEventbriteCancel=!!j.needsEventbriteCancel; e.registrants=Number(j.registrants)||0; throw e; } return j; },
   async listFeedback(context){ const q=context?`?context=${encodeURIComponent(context)}`:''; const r=await fetch(`${this.base}/feedback${q}`,{headers:{Authorization:`Bearer ${state.idToken||''}`}}); if(!r.ok) return []; return (await r.json()).items||[]; },
   async submitFeedback(idea, context){ const r=await fetch(`${this.base}/feedback`,{method:'POST',headers:this._wh(),body:JSON.stringify({idea,context})}); if(!r.ok) await this._fail(r); return true; },
   async voteFeedback(id){ const r=await fetch(`${this.base}/feedback/${encodeURIComponent(id)}/vote`,{method:'POST',headers:this._wh()}); const j=await r.json().catch(()=>({})); if(!r.ok){ const e=new Error(j.error||'vote failed'); e.status=r.status; throw e; } return j; },
