@@ -102,13 +102,13 @@ Program Leads and Tribal Council can add events.
 4. Add what you know: [[Program(s)]], [[Leads]], and under **Where**, a venue. Picking a program adds its leads for you. If a venue isn't listed, set **Venue type** to [[Any]] to search every venue, or type its name and add it: see [Add a venue or fix its address](#venues).
 5. Click [[Create]].
 
-The event opens as its own page, as a **Draft**. Nothing is public yet, so keep adding details whenever you like.
+The event opens as its own page, as a **Draft**. Creating it takes about half a minute: meanwhile the next-step button says [[Creating… (about half a minute)]], and a message tells you when it's created. You can keep adding details while it's being created. Nothing is public yet, so add them whenever you like.
 
 > **Tip:** Not sure of the date? Choose [[Whole month]] and pin it to a day later.
 
 ## Edit an event {#edit-details}
 
-Click an event to open it. It opens as its own page. To go back, click [[← Calendar]] at the top of the page or use your browser's Back button; the calendar is just as you left it. Your last change is saved on the way out.
+Click an event to open it. It opens as its own page. To go back, click [[← Calendar]] at the top of the page or use your browser's Back button; the calendar is just as you left it. Your last change is saved on the way out. On a computer, if you close or reload the page while a change is still saving, your browser asks before it leaves.
 
 The page has these tabs (on a phone, a row you can scroll sideways):
 
@@ -123,7 +123,7 @@ Under each tab's name, one line says what the tab is for. A dot on [[Listing]] m
 
 **Status & next step** shows on every tab: the event's steps, what's left, and one button for the next step. Its last line says whether the event is on Eventbrite (**Not on Eventbrite yet**, **Private draft** or **Public**; **Not on Eventbrite** once the date has passed), with [[Preview listing]], [[View on Eventbrite ↗]] once it's public, and the tickets on offer. On a narrower screen, the tabs run across the top, and on a phone this box sits above them. See [From draft to published](#lifecycle).
 
-**Changes save by themselves** when you move out of a field. Meanwhile the next-step button says **Saving…** (**Still saving…** when it's slow; a save can take half a minute), and it shows steps under way too, such as **Cancelling…**. When nothing says Saving, everything is saved. If [[Save failed — retry]] appears, click it to try again.
+**Changes save by themselves** when you move out of a field. A save takes from a moment to about half a minute. Meanwhile the next-step button says **Saving…**, or **Still saving…** if a save takes more than about 20 seconds (your change is safe), and it shows steps under way too, such as **Cancelling…**. When nothing says Saving, everything is saved. If [[Save failed — retry]] appears, click it to try again.
 
 **The icons beside each field name** show what's private and what goes on Eventbrite; see [Field icons](#field-markers). You can keep editing after approval, and the event doesn't need approving again.
 
@@ -321,9 +321,11 @@ The app never sends email itself. It comes from your own account.
 
 **I can't find an event.** Check the program year, and make sure [[Planning events]] isn't crossed out under **⚙** (on a phone, both are in the **☰** menu). Click **↻** to refresh, or on a phone, reload the page. Undated ideas sit under **date TBD** (Overview and List) or in the [[Ideas]] column (Calendar).
 
-**It says Saving… for a long time.** A save can take up to half a minute, and the next-step button says **Still saving…** when it's slow. Wait for it to turn back into the next step. If [[Save failed — retry]] appears, click it.
+**It says Saving… for a long time.** A save can take up to about half a minute, and the next-step button says **Still saving…** if it takes more than about 20 seconds. Your change is safe: wait for it to turn back into the next step. A new event takes about half a minute to create, and the button says [[Creating… (about half a minute)]] until it's done. If [[Save failed — retry]] appears, click it.
 
-**My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you left the event, make the change again.
+**It says my last update is still being saved.** A change you just made hasn't finished saving, so the step you clicked didn't go ahead. The message is *Your last update is still being saved. Try again in a few seconds.* Wait a few seconds and click it again.
+
+**My change didn't stick.** If the open event says [[Save failed — retry]], click it. If a message said a change didn't save after you left the event, make the change again. Rarely, a step that looked done doesn't confirm, and a message names the step and the event. For approving, proposing or reopening, open the event and try again. For adding to Eventbrite, updating, publishing, cancelling or unpublishing, the message says to check the event again in a minute before you try again: the step may already have gone through, on Eventbrite too if the event is there.
 
 **I can't click Add to Eventbrite or Publish.** Something it needs is missing. **Status & next step** lists what, and the field says **Needed for Eventbrite**; see [What Eventbrite needs](#publish).
 

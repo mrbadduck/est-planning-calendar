@@ -2,21 +2,23 @@
    Owns: PUSH_ACTS, EB_CONFLICT_NOTICE, _ebStatus, _pushChecks, _conflictShown, _pushing, _sending,
          _justChanged, ebConflict, ebCapacity, mergePushChecks, refreshEbStatus, dismissChangeNotice,
          _regFetch, prefetchRegistrants, emailRegistrants, emailAfterChange, pushToEventbrite
-   Reads: editing (editor-tabs.js); _ctx (editor.js); _unconfirmed (save.js)
+   Reads: editing (editor-tabs.js); _ctx (editor.js); _unconfirmed, hasUnconfirmed (save.js)
    Writes: _busy (save.js; add/delete)
    Loaded after: transitions.js (file-map order; no load-time dependency) */
 
 /* ---- Eventbrite push: Add to Eventbrite / Update draft / Publish / Update listing
-   (spec 5.3–5.6, D8). The Worker builds the listing from what Coda has, so every
-   edit must be applied first; it re-checks readiness and answers 409 {error,
+   (spec 5.3–5.6, D8). The Worker builds the listing from the row it reads (Coda's,
+   with overlaid writes merged in), so every edit must have reached it first (and,
+   when not overlaid, applied: settledForPush); it re-checks readiness and answers 409 {error,
    checks} or 409 {conflict} (Eventbrite edited since our last push). On success
    it returns the snapshot it stored (`pushed`, R15), which the app adopts as-is.
    Nothing from the live status is ever put into the form or written (D4). */
+// step: names the push in a late-failure toast (PageRules.lateFailMsg; {title} → “<title>”).
 const PUSH_ACTS = {
-  'add-eb':         { draftOnly:true,  ok:'Added to Eventbrite as a private draft' },
-  'update-eb':      { draftOnly:true,  ok:'Eventbrite draft updated' },
-  'publish-eb':     { draftOnly:false, ok:'Published. Registration is open' },
-  'update-listing': { draftOnly:false, ok:'Eventbrite listing updated' },
+  'add-eb':         { draftOnly:true,  ok:'Added to Eventbrite as a private draft', step:'Adding {title} to Eventbrite' },
+  'update-eb':      { draftOnly:true,  ok:'Eventbrite draft updated',               step:'Updating the draft of' },
+  'publish-eb':     { draftOnly:false, ok:'Published. Registration is open',        step:'Publishing' },
+  'update-listing': { draftOnly:false, ok:'Eventbrite listing updated',             step:'Updating the listing of' },
 };
 const EB_CONFLICT_NOTICE = ListingRules.EB_CONFLICT_NOTICE;   // one text for the card and the panel
 const _ebStatus=new Map();      // event id → { editedSincePush, sold, liveStatus } from GET /eventbrite/status (session-local)
@@ -126,10 +128,12 @@ async function emailAfterChange(){
     if(editing===ev) renderStatusPanel();
   }
 }
-// Wait until nothing for this event is queued, in flight or unapplied. Resolves
-// false when an edit failed or a create was never confirmed (nothing to wait for).
+// Wait until nothing for this event is queued or in flight, and (for a write that
+// wasn't overlaid, or a create) applied — pendingFor drops an overlaid write once its
+// request returns. Resolves false when an edit failed or a create was never
+// confirmed (nothing to wait for).
 async function settledForPush(id){
-  const deadline=Date.now()+150000;            // waitApplied gives up at 120 s
+  const deadline=Date.now()+150000;            // waitApplied gives up at 120 s (a fallback wait or a create)
   while(pendingFor(id)){
     if(_unconfirmed.has(id) || Date.now()>deadline) return false;
     await saveQueue.settle(id).catch(()=>{});
@@ -159,14 +163,14 @@ async function pushToEventbrite(act){
     }
     _sending.add(id); if(editing===ev) renderStatusPanel();   // the panel's button says Sending to Eventbrite… (R21), no busy toast
     let res;
-    try{ res=await DB.publishEventbrite(id, spec.draftOnly, force); }
+    try{ res=await DB.publishEventbrite(id, spec.draftOnly, force, hasUnconfirmed(id)); }
     catch(err){
       _sending.delete(id);
       if(err && err.status===401){ sessionExpired(); return; }
       // The Worker may have created the event (or written the row) before failing:
       // adopt its id so nothing re-creates it, and wait for that write to apply.
       if(err && err.eventbriteId && !ev.eventbriteId){ ev.eventbriteId=err.eventbriteId; applyLocal(ev); rerender(); }
-      if(err && (err.requestId || err.eventbriteId)) trackWorkerWrite(ev, err.requestId);
+      if(err && (err.requestId || err.eventbriteId)) trackWorkerWrite(ev, err.requestId, err.overlaid, spec.step);
       if(err && err.status===409 && err.checks && err.checks.length){
         _pushChecks.set(id, { draftOnly: spec.draftOnly, checks: err.checks });
         toast(err.checks[0].message || err.message,'err');
@@ -196,7 +200,7 @@ async function pushToEventbrite(act){
     _pushChecks.delete(id); _ebConflict.delete(id); _conflictShown.delete(id); clearEbBlock(id);
     const st=_ebStatus.get(id); if(st) st.editedSincePush=false;
     applyLocal(ev); rerender();
-    trackWorkerWrite(ev, res.requestId); scheduleReconcile();
+    trackWorkerWrite(ev, res.requestId, res.overlaid, spec.step); scheduleReconcile();
     let msg=spec.ok;
     if(act==='update-listing' && prevPushed && ev.pushed){
       const n=ListingRules.changeNotice(prevPushed, ev.pushed, ev);

@@ -216,6 +216,63 @@ put a second copy on the calendar. The link script's dry run lists the upcoming 
 
 **Switch off in an emergency:** `GCAL_MODE = "off"` and redeploy.
 
+## Write overlay (Durable Object, decision 0012)
+
+The Worker remembers its own Coda writes until Coda applies them, and merges them into its
+reads. It ships **off**; turning it on is a deliberate step.
+
+- **Binding and migration** (`proxy/wrangler.toml`): `[[durable_objects.bindings]]`
+  `name = "OVERLAY"`, `class_name = "WriteOverlay"` (exported from `src/worker.js`, defined in
+  `src/overlay-do.js`), and `[[migrations]] tag = "v1"`, `new_sqlite_classes = ["WriteOverlay"]`.
+  The first deploy with this creates the class; it makes no call to it while the switch is off.
+- **Var `OVERLAY_MODE`**: `off` (default) means no Durable Object call: writes answer
+  `overlaid: false`, reads are unchanged, `/mutation` asks Coda, and saves wait ~28 s as
+  before. `live` turns the overlay on.
+- **Migration tags and #40/#41.** Neither #40 (Eventbrite sync) nor #41 (Google Calendar)
+  declares a `[[migrations]]` block (checked 2026-11-23), so `v1` is the Worker's first tag.
+  Tags apply in order and an applied tag is never edited: whichever PR lands first, any later
+  Durable Object change adds the next tag (`v2`, `v3`, …) after the ones already deployed,
+  and a branch that also adds a tag renumbers on rebase.
+- **Free-plan limits (verify before the flip, from Cloudflare's current pricing page):**
+  SQLite-backed Durable Objects are on the Workers Free plan; about 100,000 Durable Object
+  requests a day, 13,000 GB-s of duration a day, 5 GB of stored data, and daily caps on rows
+  read and written (about 5 million and 100,000). EST's volume (one record call per write,
+  one read call per read, an alarm every 5 s only while something is pending) is far below
+  these. **Also verify** whether a Durable Object call counts toward the 50 subrequests an
+  invocation allows; until then, count each as one (the sync-runner follow-up in
+  `docs/roadmap.md` depends on the answer).
+
+**Before the flip** (Eric, after merge):
+1. `cd proxy && npx wrangler deploy --dry-run`: the bundle builds and the binding and
+   migration are listed.
+2. The read-only `/columns` check: every planning column the app or the Worker writes is a
+   plain (non-calculated) column, and its relations point at People, Programs, Venues or
+   Venue Types, the tables whose names the merge knows. **Done 2026-11-23** (read-only).
+   Repeat it if columns change in Coda before the flip.
+3. Set `OVERLAY_MODE = "live"` in `proxy/wrangler.toml` in a small PR; CI deploys it on merge.
+4. Make one edit by hand in plan. The button says **Saving…** for about a second, not half a
+   minute. Watch the Worker logs (`npx wrangler tail`): no `overlay:` lines (the overlay
+   logs only problems), and `GET /mutation/<requestId>` answering `completed: true` within
+   ~30 s. Check the Publish Log has no new error rows.
+5. Once `live` has held for a while, the "after the flip" help PR: tighten
+   `web/help/guide.md` (saves usually take a moment) and add the whats-new line (plan
+   `2026-11-23-write-through-overlay.md`, Deferred).
+
+**Switch off in an emergency:** set `OVERLAY_MODE = "off"` and redeploy. Nothing is lost:
+every write went to Coda first; the overlay only held copies.
+
+**Rollback (remove the class):** a plain revert can't remove a Durable Object class. First
+set `OVERLAY_MODE = "off"` and deploy. Then, in one commit, remove the `[[durable_objects.bindings]]` block, the
+`export { WriteOverlay } from './overlay-do.js';` line in `src/worker.js` (a deleted class
+can't still be exported), and add a migration that deletes the class (this also deletes its
+stored entries, which are copies), and deploy:
+
+    [[migrations]]
+    tag = "v2"
+    deleted_classes = ["WriteOverlay"]
+
+Keep the `v1` block above it. Use the next unused tag if `v2` is taken by then.
+
 ## Secrets checklist
 
 - Superhuman Docs token: **Worker secret only** (`CODA_API_TOKEN`) — never committed,

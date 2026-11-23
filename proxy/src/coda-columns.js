@@ -38,6 +38,10 @@ export const PLANNING_COLS = {
   volunteers:        'c-8_uS1RK9Qx', // Volunteers
   legacyRow:         'c-sUpvHhlGlI', // Linked EST Events SRC row (to be renamed "Legacy EST Events row")
   createdBy:         'c-ueS3RrH9ie', // Created by
+  editedBy:          'c-kcwcBPZYaH', // Edited by (Worker-written on every save)
+  approvedBy:        'c-FLp0tKwJg6', // Approved by (Worker-written on approve)
+  approvedAt:        'c-vWyqOKLgo1', // Approved at (Worker-written on approve)
+  venueType:         'c-pVQ7AT4ZI4', // Venue Type (relation -> Venue Types, grid-idEVRQX7SL)
   gcalEventId:       'c-4eceDYOmPM', // gCal Event ID (Worker-written: the Google Calendar event this row put on the calendar)
   gcalEventLookup:   'c-8OAz72OdB3', // gCal Event (legacy lookup -> Events GCAL row; read by scripts/link-gcal-ids.mjs only)
 };

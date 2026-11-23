@@ -41,6 +41,18 @@ test('400 rejects with status 400', async () => {
   assert.equal(h.calls.fetch, 1);
 });
 
+test('failed:true from the overlay rejects at once with save not confirmed', async () => {
+  const h = harness(() => ({ status: 200, completed: false, failed: true }));
+  await assert.rejects(h.run('req-1'), e => e.message === 'save not confirmed');
+  assert.equal(h.calls.fetch, 1);
+});
+
+test('failed:false keeps polling until completed', async () => {
+  const h = harness(n => ({ status: 200, completed: n >= 2, failed: false }));
+  await h.run('req-1');
+  assert.equal(h.calls.fetch, 2);
+});
+
 test('never completes: rejects at >=120000ms, onSlow called once', async () => {
   const h = harness(() => ({ status: 200, completed: false }));
   await assert.rejects(h.run('req-1'), e => e.message === 'save not confirmed' && e.status !== 400);

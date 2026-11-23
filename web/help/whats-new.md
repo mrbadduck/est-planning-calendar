@@ -5,6 +5,10 @@
   Not label-checked: history may name things that no longer exist.
 -->
 
+## 2026-11-23
+- **A new event says how long it takes.** After **Create**, the next-step button says **Creating… (about half a minute)** until the event is created, then a message says so. You can keep adding details meanwhile.
+- **Clearer messages when something doesn't confirm.** In the rare case a step that looked done doesn't confirm, the message names the step and the event. It tells you to open the event and try again, or, for adding to Eventbrite, updating, publishing, cancelling or unpublishing, to check it again in a minute. On a computer, if you close or reload the page while a change is still saving, your browser asks first.
+
 ## 2026-11-22
 - **Deleting an event takes it off the Google Calendar.** **Delete event** now removes the calendar entry too. And if an event's Eventbrite listing is taken down, its calendar entry stops saying *Registration on Eventbrite coming soon*.
 - **Approved events go on the Google Calendar by themselves.** Every approved event with a date appears on East Side Tribe's calendar, whether or not it's on Eventbrite. **Publish**, **Cancel event…** and **Unpublish (back to private)** update it right away; other changes, including ones that came from Eventbrite, take up to about 15 minutes. It says *Registration on Eventbrite coming soon* until you publish, then shows the Eventbrite link. A cancelled event leaves the calendar, and events whose date has passed are left as they are. If an event's address is **Registrants only**, the calendar shows just the city and state. See [Events on the Google Calendar](#google-calendar).

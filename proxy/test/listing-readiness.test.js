@@ -312,11 +312,11 @@ test('footerModel published: Cancel event… says it takes the listing down', ()
   assert.equal(c.sub, 'Takes the listing down. Not possible once people register.');
 });
 
-test('footerModel slow pending: Still saving… with the Coda-is-slow tip (R21)', () => {
+test('footerModel slow pending (the fallback wait): Still saving… with the taking-longer tip (R21)', () => {
   const ev = { ...ready(), publicDescription: 'x' };
   const m = fm({ stage: 'onEventbrite', ev, pending: true, slow: true });
   assert.deepEqual(m.primary, { label: 'Still saving…', act: null, enabled: false, tone: 'primary',
-    tip: 'Coda is slow right now; your change is safe' });
+    tip: 'Still saving — your change is safe' });
   // not pending: slow means nothing
   assert.equal(fm({ stage: 'onEventbrite', ev, slow: true }).primary.act, 'publish-eb');
   // sending wins
@@ -333,8 +333,20 @@ test('footerModel busy (a transition/cancel/delete in flight) holds the primary 
   assert.equal(fm({ stage: 'proposed', role: COUNCIL, busy: true, slow: true }).primary.label, 'Still saving…');
   // a named busy label never turns into Still saving…
   assert.equal(fm({ stage: 'draft', busy: 'Deleting…', slow: true }).primary.label, 'Deleting…');
+
   // read-only viewers see nothing in flight
   assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, busy: true }).primary, null);
+});
+
+test('footerModel creating: the primary reads the create label, through the slow mark, and ⋮ stays live', () => {
+  const m = fm({ stage: 'draft', creating: 'Creating… (about half a minute)', slow: true });
+  assert.deepEqual(m.primary, { label: 'Creating… (about half a minute)', act: null, enabled: false, tone: 'primary' });
+  assert.equal(m.busy, false);   // Delete in ⋮ stays live (it waits on the insert itself)
+  assert.ok(acts(m).includes('delete'));
+  // a transition/cancel/delete in flight wins over the create label
+  assert.equal(fm({ stage: 'draft', creating: 'Creating… (about half a minute)', busy: 'Deleting…' }).primary.label, 'Deleting…');
+  // read-only viewers see nothing in flight
+  assert.equal(fm({ stage: 'draft', role: { canEdit: false, canApprove: false }, creating: 'Creating… (about half a minute)' }).primary, null);
 });
 
 test('footerModel busy marks the footer busy (secondary and ⋮ get disabled); idle and sending-only do not', () => {
