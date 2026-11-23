@@ -87,3 +87,23 @@ test('tableOf and codaSites', () => {
   assert.equal(tableOf('u.toString()'), null);
   assert.equal(codaSites('export async function readAllRows(rowsUrl, auth) {}').length, 0);   // a definition, not a call
 });
+
+test('method: in double quotes or backticks is a write; GET in any quotes is a read', () => {
+  const at = (m) => `await fetch(\`\${base}/docs/\${docId}/tables/\${tableId}/rows/\${id}\`, { method: ${m}, headers: auth });`;
+  assert.equal(codaSites(at('"PUT"'))[0].kind, 'write');
+  assert.equal(codaSites(at('`DELETE`'))[0].kind, 'write');
+  assert.equal(codaSites(at("'POST'"))[0].kind, 'write');
+  assert.equal(codaSites(at('request.method'))[0].kind, 'write');
+  assert.equal(codaSites(at('"GET"'))[0].kind, 'read');
+  assert.equal(codaSites(at('`GET`'))[0].kind, 'read');
+  assert.match(codaPathProblems({ 'proxy/src/x.js': at('"PUT"') })[0], /a direct Coda write of tableId/);
+});
+
+test('an allowlist entry must match exactly its count of calls', () => {
+  const call = "await fetch(slotsUrl, { method: 'POST', headers: auth });";
+  const allow = [{ file: 'proxy/src/x.js', match: 'fetch(slotsUrl', reason: 'PR B: POST /slots', count: 1 }];
+  assert.deepEqual(codaPathProblems({ 'proxy/src/x.js': call }, { allow, allowFiles: {} }), []);
+  const p = codaPathProblems({ 'proxy/src/x.js': call + '\n' + call }, { allow, allowFiles: {} });
+  assert.deepEqual(p, ['scripts/check-coda-paths.mjs: ALLOW entry "PR B: POST /slots" (proxy/src/x.js) matches 2 calls, expected 1; route the new call through the helpers or update the count with a reason']);
+  for (const a of ALLOW) assert.ok(Number.isInteger(a.count) && a.count >= 1, a.reason);
+});

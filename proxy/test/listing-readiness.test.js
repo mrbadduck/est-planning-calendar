@@ -316,7 +316,7 @@ test('footerModel slow pending (the fallback wait): Still saving… with the tak
   const ev = { ...ready(), publicDescription: 'x' };
   const m = fm({ stage: 'onEventbrite', ev, pending: true, slow: true });
   assert.deepEqual(m.primary, { label: 'Still saving…', act: null, enabled: false, tone: 'primary',
-    tip: 'This is taking longer than usual; your change is safe' });
+    tip: 'Still saving — your change is safe' });
   // not pending: slow means nothing
   assert.equal(fm({ stage: 'onEventbrite', ev, slow: true }).primary.act, 'publish-eb');
   // sending wins

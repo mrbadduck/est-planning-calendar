@@ -13,9 +13,12 @@
 //   node scripts/check-coda-paths.mjs    exit 0 ok, 1 problems (run by scripts/check.sh)
 //
 // What it sees: the first argument of fetch( / readAllRows( when it is a template with
-// /tables/${X}/rows, or a rows-url variable (rowsUrl, venuesUrl, …). It doesn't follow
-// a URL built elsewhere (new URL(x), a bare `url`): codaWrite's own fetch(url, …) is
-// one of those, by design. Unit-tested in proxy/test/check-coda-paths.test.js.
+// /tables/${X}/rows, or a rows-url variable (rowsUrl, venuesUrl, …). A call is a write
+// when its options carry `method:` other than GET, in any quote style.
+// Blind spot (accepted): it doesn't follow a URL built elsewhere and passed in a variable
+// (`new URL(x)` then fetch(u.toString()), or a bare `url`). codaWrite's own
+// fetch(url, …) is one of those, by design; so is eb-sync-run.js's rowsForEb (its file is
+// allowlisted). Review such calls by hand. Unit-tested in proxy/test/check-coda-paths.test.js.
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,36 +40,37 @@ export const ALLOW_FILES = {
   'proxy/src/eb-sync-run.js': 'deferred: sync runners still write directly, see roadmap',
   'proxy/src/gcal-run.js': 'deferred: sync runners still write directly, see roadmap',
 };
-// Single sites: `match` is a substring of the call (from its name to its closing paren).
+// Single sites: `match` is a substring of the call (from its name to its closing paren);
+// `count` is how many calls it must match, so a new call can't hide behind an old entry.
 export const ALLOW = [
   // Reads the overlay is merged into.
   { file: 'proxy/src/overlay-routes.js', match: 'fetch(`${base}/docs/${docId}/tables/${tableId}/rows/${encodeURIComponent(rowId)}?useColumnNames=true',
-    reason: 'readPlanningRow: the read overlayRead merges into' },
+    reason: 'readPlanningRow: the read overlayRead merges into', count: 1 },
   { file: 'proxy/src/worker.js', match: 'readAllRows(rowsUrl, auth)',
-    reason: '/rows: the snapshot planningList merges the overlay into' },
+    reason: '/rows: the snapshot planningList merges the overlay into', count: 1 },
   // Permanent.
   { file: 'proxy/src/worker.js', match: 'fetch(btnUrl',
-    reason: 'the notes-doc button: Coda runs the button and writes the doc URL, so nothing is overlaid' },
+    reason: 'the notes-doc button: Coda runs the button and writes the doc URL, so nothing is overlaid', count: 1 },
   { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${table}/rows`',
-    reason: 'findOrCreatePerson writes People: not a guarded table' },
+    reason: 'findOrCreatePerson writes People: not a guarded table', count: 1 },
   // PR B (Task 7 removes these).
-  { file: 'proxy/src/worker-io.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`', reason: 'PR B: /ref/venues (fetchRefItems)' },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}?', reason: 'PR B: GET /venues/:id' },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(venuesUrl', reason: 'PR B: POST /venues duplicate-name read' },
-  { file: 'proxy/src/worker.js', match: "fetch(venuesUrl, { method: 'POST'", reason: 'PR B: POST /venues (Add venue)' },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: \'PUT\'', reason: 'PR B: PUT /venues/:id (Save address)' },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`', reason: 'PR B: the publish route\'s Venues read' },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`', reason: 'PR B: ensureEbVenue caches the Eventbrite venue id' },
-  { file: 'proxy/src/worker.js', match: 'rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich', reason: 'PR B: the roster and the gather event reads (one planning row, rich)' },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`', reason: 'PR B: slots reads (roster, /slots, buildMyClaims)' },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`', reason: 'PR B: claims reads (roster, /slots, buildMyClaims)' },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: \'POST\'', reason: 'PR B: POST /claims' },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${claimsUrl}/', reason: 'PR B: /claims/:id ownership read, PUT and DELETE' },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${slotsUrl}/', reason: 'PR B: /slots/:id PUT and DELETE' },
-  { file: 'proxy/src/worker.js', match: "fetch(slotsUrl, { method: 'POST'", reason: 'PR B: POST /slots' },
-  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows/${encodeURIComponent(slotId)}?', reason: 'PR B: bustRosterForSlot reads the slot' },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${t}/rows`', reason: 'PR B: the gather snapshot (buildMemberEvents)' },
-  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true })', reason: 'PR B: buildMyClaims reads the planning table' },
+  { file: 'proxy/src/worker-io.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${REF_TABLES[name]}/rows`', reason: 'PR B: /ref/venues (fetchRefItems)', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}?', reason: 'PR B: GET /venues/:id', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(venuesUrl', reason: 'PR B: POST /venues duplicate-name read', count: 1 },
+  { file: 'proxy/src/worker.js', match: "fetch(venuesUrl, { method: 'POST'", reason: 'PR B: POST /venues (Add venue)', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'fetch(`${venuesUrl}/${encodeURIComponent(vRowId)}`, { method: \'PUT\'', reason: 'PR B: PUT /venues/:id (Save address)', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows`', reason: 'PR B: the publish route\'s Venues read', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${EB_VENUES_TABLE}/rows/${encodeURIComponent(found.id)}`', reason: 'PR B: ensureEbVenue caches the Eventbrite venue id', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'rows/${encodeURIComponent(rowId)}?useColumnNames=false&valueFormat=rich', reason: 'PR B: the roster and the gather event reads (one planning row, rich)', count: 2 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows`', reason: 'PR B: slots reads (roster, /slots, buildMyClaims)', count: 3 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`', reason: 'PR B: claims reads (roster, /slots, buildMyClaims)', count: 3 },
+  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${env.CODA_CLAIMS_TABLE}/rows`, { method: \'POST\'', reason: 'PR B: POST /claims', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'fetch(`${claimsUrl}/', reason: 'PR B: /claims/:id ownership read, PUT and DELETE', count: 3 },
+  { file: 'proxy/src/worker.js', match: 'fetch(`${slotsUrl}/', reason: 'PR B: /slots/:id PUT and DELETE', count: 2 },
+  { file: 'proxy/src/worker.js', match: "fetch(slotsUrl, { method: 'POST'", reason: 'PR B: POST /slots', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'fetch(`${base}/docs/${docId}/tables/${env.CODA_SLOTS_TABLE}/rows/${encodeURIComponent(slotId)}?', reason: 'PR B: bustRosterForSlot reads the slot', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${t}/rows`', reason: 'PR B: the gather snapshot (buildMemberEvents)', count: 1 },
+  { file: 'proxy/src/worker.js', match: 'readAllRows(`${base}/docs/${docId}/tables/${tableId}/rows`, auth, { rich: true })', reason: 'PR B: buildMyClaims reads the planning table', count: 1 },
 ];
 
 // Blank out comments, keeping newlines (line numbers survive). `//` starts a comment
@@ -104,7 +108,7 @@ export function codaSites(src) {
     const arg = (comma < 0 ? args : s.slice(m.index + m[0].length, comma)).trim();
     const table = tableOf(arg);
     if (!table) continue;
-    const write = m[1] === 'fetch' && /method:\s*(?!'GET')['\w]/.test(args);
+    const write = m[1] === 'fetch' && /method:\s*(?!['"`]GET['"`])['"`\w]/.test(args);
     out.push({ line: s.slice(0, m.index).split('\n').length, kind: write ? 'write' : 'read', table, text });
   }
   return out;
@@ -112,20 +116,22 @@ export function codaSites(src) {
 
 // files: {path: source}. Problems as strings; [] when clean.
 export function codaPathProblems(files, { allow = ALLOW, allowFiles = ALLOW_FILES } = {}) {
-  const problems = [], used = new Set();
+  const problems = [], used = new Map();   // ALLOW index -> calls matched
   for (const [path, src] of Object.entries(files)) {
     if (allowFiles[path]) continue;
     for (const site of codaSites(src)) {
       if (OTHER.has(site.table)) continue;
       const hit = allow.findIndex((a) => a.file === path && site.text.includes(a.match));
-      if (hit >= 0) { used.add(hit); continue; }
+      if (hit >= 0) { used.set(hit, (used.get(hit) || 0) + 1); continue; }
       const what = GUARDED.has(site.table) ? `a direct Coda ${site.kind} of ${site.table}` : `a Coda ${site.kind} of an unclassified table (${site.table})`;
       problems.push(`${path}:${site.line}: ${what}. Go through ${site.kind === 'write' ? 'codaWrite' : 'overlayRead'} (proxy/src/worker-io.js), or add it to ALLOW in scripts/check-coda-paths.mjs with a reason`);
     }
   }
   allow.forEach((a, i) => {
-    if (!used.has(i) && Object.prototype.hasOwnProperty.call(files, a.file))
-      problems.push(`scripts/check-coda-paths.mjs: ALLOW entry "${a.reason}" (${a.file}) matches nothing; remove it`);
+    if (!Object.prototype.hasOwnProperty.call(files, a.file)) return;
+    const n = used.get(i) || 0, want = a.count == null ? 1 : a.count;
+    if (!n) problems.push(`scripts/check-coda-paths.mjs: ALLOW entry "${a.reason}" (${a.file}) matches nothing; remove it`);
+    else if (n !== want) problems.push(`scripts/check-coda-paths.mjs: ALLOW entry "${a.reason}" (${a.file}) matches ${n} calls, expected ${want}; route the new call through the helpers or update the count with a reason`);
   });
   return problems;
 }

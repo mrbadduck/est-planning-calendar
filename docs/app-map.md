@@ -221,8 +221,8 @@ Before `util.js` (pure helpers; the ones marked **[node-tested]** have a test in
   **Creating… (about half a minute)**, `CREATING_LABEL`, then the “*title*” created toast).
   Saving shows only in the panel's primary button: **Saving…** while anything is pending
   (`pendingFor`: queued, in flight, or not overlaid and not yet applied), **Still saving…**
-  after CodaApplied's 20 s slow mark (foreground waits only; `SLOW_TIP` *This is taking
-  longer than usual; your change is safe*). A step under way (`_busy` + `_busyLabel`:
+  after CodaApplied's 20 s slow mark (foreground waits only; `SLOW_TIP` *Still saving — your
+  change is safe*). A step under way (`_busy` + `_busyLabel`:
   Propose/Approve/Reopen/Cancel/Delete/Unpublish/push) shows there too, with the
   secondary and ⋮ disabled, and no busy toast. The `#saveStatus` pill shows only
   **Save failed — retry** (click to retry); when nothing says Saving, it's saved.
@@ -402,7 +402,7 @@ role-gated writes that inject person attribution. Points at `EST Planning Events
 SQLite-backed Durable Object (binding `OVERLAY`, `idFromName('overlay')`) holding each
 Worker write's cells as written (column name or id plus `keying`) until Coda applies them;
 its alarm polls `mutationStatus` every 5 s (10 requestIds a run), marks `applied` or, at
-120 s, `failed`, and deletes everything 5.5 min after. `proxy/src/overlay.js` is the pure
+120 s, `failed`, and deletes each entry 5.5 min after it applied (or, unapplied, was written). `proxy/src/overlay.js` is the pure
 merge (`mergeRows`: keying, relation names from the KV caches, time/date/rich shapes, the
 age rule, `stale`). `proxy/src/worker-io.js` holds the seam: `overlayOn`, `codaWrite`,
 `passWrite`, `overlayRead`, `overlayStatus`, `planningColMap` (the planning table's

@@ -725,5 +725,13 @@ ruling; it overrides anything here it contradicts).
 - **Sync runners read through the overlay, and the markers retire** (`ebpending:`,
   `eb-row:importing`, calendar tombstones; `SWEEP_MAX_EVENTS` and the budget comments revisited
   in the same step). Home: a `docs/roadmap.md` "Next" item (written in Task 6).
+- **The "after the flip" help PR** (once `OVERLAY_MODE = live` has held for a while). Help in
+  PR A is worded to hold with the overlay off, so it can't yet say saves are fast. Then:
+  tighten `web/help/guide.md:126` and `:324` (a change usually saves in a moment; **Still
+  saving…** means it's slow), and add a dated whats-new line, for example: "**Saving is
+  quicker.** A change usually saves in a moment, and **Still saving…** shows only when one is
+  slow. This replaces the half-minute wait in *Honest saving* (2026-11-15); *Quieter saving*
+  (2026-11-16) gave the **Saving…** / **Still saving…** wording, which stays." Home: this
+  section and `docs/deployment.md` (before the flip, step 5).
 - **Verify whether Durable Object calls count toward the 50-subrequest limit** before that
   follow-up, and record the answer in `docs/deployment.md`. Home: the same roadmap "Next" item.

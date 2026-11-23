@@ -6,9 +6,8 @@
 -->
 
 ## 2026-11-23
-- **Saving can be quicker.** A change now takes from a moment to about half a minute to save. The next-step button says **Saving…** meanwhile, and **Still saving…** only when it's slower than usual; your change is safe either way. This replaces the timings in *Honest saving* (2026-11-15) and *Quieter saving* (2026-11-16), which said a save waits up to half a minute.
 - **A new event says how long it takes.** After **Create**, the next-step button says **Creating… (about half a minute)** until the event is created, then a message says so. You can keep adding details meanwhile.
-- **Clearer messages when something doesn't confirm.** In the rare case a step that looked done doesn't confirm, the message names the step and the event. It tells you to open the event and try again, or, for a step on Eventbrite, to check it again in a minute. If you close or reload the page while a change is still saving, your browser asks first.
+- **Clearer messages when something doesn't confirm.** In the rare case a step that looked done doesn't confirm, the message names the step and the event. It tells you to open the event and try again, or, for adding to Eventbrite, updating, publishing, cancelling or unpublishing, to check it again in a minute. On a computer, if you close or reload the page while a change is still saving, your browser asks first.
 
 ## 2026-11-22
 - **Deleting an event takes it off the Google Calendar.** **Delete event** now removes the calendar entry too. And if an event's Eventbrite listing is taken down, its calendar entry stops saying *Registration on Eventbrite coming soon*.

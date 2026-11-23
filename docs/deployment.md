@@ -254,13 +254,18 @@ reads. It ships **off**; turning it on is a deliberate step.
    minute. Watch the Worker logs (`npx wrangler tail`): no `overlay:` lines (the overlay
    logs only problems), and `GET /mutation/<requestId>` answering `completed: true` within
    ~30 s. Check the Publish Log has no new error rows.
+5. Once `live` has held for a while, the "after the flip" help PR: tighten
+   `web/help/guide.md` (saves usually take a moment) and add the whats-new line (plan
+   `2026-11-23-write-through-overlay.md`, Deferred).
 
 **Switch off in an emergency:** set `OVERLAY_MODE = "off"` and redeploy. Nothing is lost:
 every write went to Coda first; the overlay only held copies.
 
 **Rollback (remove the class):** a plain revert can't remove a Durable Object class. First
-set `OVERLAY_MODE = "off"` and deploy. Then deploy with the binding removed and a new
-migration that deletes the class (this also deletes its stored entries, which are copies):
+set `OVERLAY_MODE = "off"` and deploy. Then, in one commit, remove the `[[durable_objects.bindings]]` block, the
+`export { WriteOverlay } from './overlay-do.js';` line in `src/worker.js` (a deleted class
+can't still be exported), and add a migration that deletes the class (this also deletes its
+stored entries, which are copies), and deploy:
 
     [[migrations]]
     tag = "v2"

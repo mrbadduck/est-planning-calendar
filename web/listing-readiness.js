@@ -127,7 +127,7 @@
     completed: 'registration closed', canceled: 'canceled on Eventbrite' };
   // Only the fallback wait goes slow: an overlaid edit is saved on the 202, so this
   // shows when the overlay was off or unreachable and the app waits for Coda's apply.
-  const SLOW_TIP = 'This is taking longer than usual; your change is safe';
+  const SLOW_TIP = 'Still saving — your change is safe';
   const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
   // Shown when the listing was edited on Eventbrite since our last push (D8): the

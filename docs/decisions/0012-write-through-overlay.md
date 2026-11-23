@@ -56,7 +56,10 @@ after), and lays those writes over the reads it serves. Coda keeps the data
   (`ALARM_EVERY_MS`) and asks Coda's `mutationStatus` about up to 10 requestIds
   (`POLLS_PER_ALARM`), oldest first: `completed` → `applied`; still not applied at 120 s →
   `failed`. Every entry is deleted `KEEP_MS` (5 min + 30 s, `swrGet`'s 5 min hard limit plus
-  the margin) after it applied or, unapplied, after it was written. Nothing outlives ~5.5 min.
+  the margin) after it applied or, unapplied, after it was written. An entry Coda applies
+  late (up to 120 s after the write) can therefore live up to ~7.5 min after the write, but
+  never more than 5.5 min after it applied, and it merges only into snapshots taken before
+  `appliedAt + 30 s`.
   The alarm busts no cache and writes no Publish Log record.
 - **One failure channel.** `GET /mutation/:id` asks the DO first (no Coda call):
   `applied` → `{completed: true}`, `pending` → `{completed: false}`, `failed` →
@@ -111,8 +114,9 @@ for unconfirmed or lost writes.
 - Coda-side readers (Coda's own UI, formulas, pack syncs) and the sync runners still see
   writes ~28 s late. Writes people make directly in Coda aren't the Worker's, so the overlay
   doesn't know them.
-- Every app-facing route adds one DO call per write and one per read, plus the planning
-  column map's hourly `/columns` call. Count each DO call as one of the 50 outbound calls an
+- In PR A only the planning routes and `/mutation` call the DO (and none do with
+  `OVERLAY_MODE = "off"`): one call per write and one per read, plus the planning column
+  map's hourly `/columns` call; PR B adds gather, slots, claims, the roster and venues. Count each DO call as one of the 50 outbound calls an
   invocation allows until it is verified whether they count (`docs/deployment.md`).
 - Gather, claims, slots, the roster and venues read and write through the helpers in PR B;
   until then rule 7 allowlists them ("PR B").

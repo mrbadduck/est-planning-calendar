@@ -1,12 +1,13 @@
-# 0005 — "Saved" means every read through the Worker returns the write (D3)
+# 0005 — "Saved" means the Worker's planning reads return the write (D3)
 
 **Date:** Nov 2026 (PR #35) · **Status:** amended by [0012](0012-write-through-overlay.md)
 (2026-11-23)
 
 ## Decision
 
-The app shows a change as saved only once every read through the Worker returns it, never
-merely because Coda accepted it (HTTP 202). That means one of two things:
+The app shows a change as saved only once reads through the Worker's planning routes return
+it, never merely because Coda accepted it (HTTP 202); gather and the roster follow in PR B.
+That means one of two things:
 
 - **Overlaid:** Coda accepted the write and the Worker's write overlay holds it
   ([0012](0012-write-through-overlay.md); the response says `overlaid: true`). The save
