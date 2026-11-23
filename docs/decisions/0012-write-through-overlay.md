@@ -86,7 +86,11 @@ after), and lays those writes over the reads it serves. Coda keeps the data
   hasn't created, and the overlay is not a write queue. A new event's panel button reads
   **Creating… (about half a minute)** until the insert applies, then the app says
   “*title*” created. The event stays editable: edits queue behind the insert (`afterCreate`).
-- **Add venue still waits**: a new venue has to be created before an event can use it.
+- **Add venue still waits to be used**: a new venue has to be created before an event can use
+  it. Since 2026-11-23 the dialog closes once the Worker returns the venue's id and the venue
+  shows on its event with a spinner and *Adding venue… this takes about half a minute*; the
+  event's Venue cell is written, and Edit address and Clear open up, only once Coda applies the
+  insert. The same pattern covers a gather sign-up still being created (shown, Remove waits).
   **Save address** is a plain edit of the venue row, so it is saved once overlaid.
 - **A sign-up still being saved can't be edited or removed yet.** Coda answers "not found"
   to a write on a claim it hasn't created, so the Worker answers 409 *Your sign-up is still

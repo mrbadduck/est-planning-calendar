@@ -151,9 +151,9 @@ Program Leads and Tribal Council can add a venue and fix a venue's address under
 ### Add a venue
 1. Under **Where**, type the venue's name. If no venue has that name, the last choice is **+ Add … as a venue** (with your name in it). Click it, and a window opens.
 2. Fill in the name, type, street, unit, city, state and ZIP. Only a private home can go without a street.
-3. Click [[Add venue]]. It says **Adding venue…** while it saves, which can take about half a minute: a new venue has to be created before an event can use it. Then **Venue added** shows, and the venue is picked on your event.
+3. Click [[Add venue]]. The window closes and the venue shows under **Where** with a spinning circle and [[Adding venue… this takes about half a minute]]: a new venue has to be created before an event can use it. Meanwhile you can keep working on the event, but you can't edit the venue's address or clear it. Then **Venue added** shows, and the venue is picked on your event. If it takes longer than usual, it says [[Still adding — this is taking longer than usual]].
 
-The venue is saved for everyone, so the next event there can just pick it. [[Cancel]] (or Esc) closes the window without adding anything. While it's saving, the window stays open until it's done.
+The venue is saved for everyone, so the next event there can just pick it. [[Cancel]] (or Esc) closes the window without adding anything. If the venue still isn't created after a couple of minutes, a message says *Coda didn’t confirm the new venue yet. Try Add venue again in a minute.* and the venue goes back to how it was. Add it again with the same details: it won't be added twice.
 
 ### Fix an address
 Once a venue is picked, its address shows under **Where**. Click [[Edit address]] (or [[Add address]] if it says **No street address yet**). A window opens: change the address and click [[Save address]].

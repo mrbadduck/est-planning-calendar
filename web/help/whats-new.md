@@ -6,6 +6,7 @@
 -->
 
 ## 2026-11-23
+- **Adding a venue doesn't hold you up.** After **Add venue**, the window closes at once and the venue shows on your event with *Adding venue… this takes about half a minute*. You can keep working on the event meanwhile; the venue's address and clearing it wait until it's created, then **Venue added** shows.
 - **A new event says how long it takes.** After **Create**, the next-step button says **Creating… (about half a minute)** until the event is created, then a message says so. You can keep adding details meanwhile.
 - **Clearer messages when something doesn't confirm.** In the rare case a step that looked done doesn't confirm, the message names the step and the event. It tells you to open the event and try again, or, for adding to Eventbrite, updating, publishing, cancelling or unpublishing, to check it again in a minute. On a computer, if you close or reload the page while a change is still saving, your browser asks first.
 
