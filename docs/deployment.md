@@ -146,6 +146,48 @@ Then a **one-push smoke test**: push one event from plan, wait ~60 s, and check 
 **Switch off in an emergency:** set `EB_SYNC_MODE = "off"` and redeploy. (Optionally delete the
 webhook in Eventbrite too; the Worker ignores it while off.)
 
+## Google Calendar sync (Worker, 15-minute sweep)
+
+The Worker puts every approved, dated event on the *East Side Tribe Events* calendar and keeps
+it current (decision 0010). It ships **off**.
+
+**1. Service account** (EST-owned, not a personal login):
+1. In Google Cloud (an EST-owned project), enable the Google Calendar API.
+2. Create a service account (for example `est-planning-gcal`), then add a JSON key and download it.
+3. In Google Calendar, open *East Side Tribe Events* > Settings and sharing > Share with specific
+   people, add the service account's email, and give it **Make changes to events**.
+4. From the same page, copy the **Calendar ID**.
+
+**2. Secret and var:**
+- `cd proxy && npx wrangler secret put GOOGLE_SA_KEY` (paste the whole JSON key).
+- `GCAL_CALENDAR_ID` in `proxy/wrangler.toml` = the Calendar ID. Unset counts as `off`.
+
+**3. `GCAL_MODE`** (`proxy/wrangler.toml`):
+- `off` (default): nothing happens.
+- `shadow`: the Worker works out each add, update and remove and records it in the Publish Log
+  (target `Google Calendar`). It never calls Google Calendar.
+- `live`: it calls Google Calendar.
+
+**Cron:** `3,18,33,48 * * * *`, its own invocation, at most 15 changes per run.
+
+**Cutover order** (plan Task 13):
+1. Set up the service account and `GOOGLE_SA_KEY` above; merge with `GCAL_MODE=off`.
+2. **Link existing calendar events** so the Worker updates them rather than adding second ones.
+   Run before `shadow`: `node scripts/link-gcal-ids.mjs` (dry run, GET only), read the table, then
+   `node scripts/link-gcal-ids.mjs --apply`. It copies each event's id onto the planning row's
+   `gCal Event ID` from `EST Events SRC` or the Events EVENTBRITE sync table, matched by Eventbrite
+   id, for events dated yesterday or later. It refuses `--apply` while two sources disagree.
+   Unmatched rows are listed for Eric to link by hand, or the Worker inserts them. Token from
+   `proxy/.dev.vars`, never printed. Coda applies writes ~28 s later.
+3. `GCAL_MODE=shadow` for a week. Each day, compare the Publish Log `Google Calendar` rows with
+   what the Zap and the rule did.
+4. In one sitting: turn off the Zapier Zap "New Event EB→GCal" and delete its Eventbrite webhook;
+   turn off the Coda rule "Daily Event Freshen Up"; set `GCAL_MODE=live`; wait for the next cron
+   run (or trigger it); delete the 4 orphan calendar events from the audit by hand.
+5. Next day: every approved upcoming event in plan has exactly one calendar event.
+
+**Switch off in an emergency:** `GCAL_MODE = "off"` and redeploy.
+
 ## Secrets checklist
 
 - Superhuman Docs token: **Worker secret only** (`CODA_API_TOKEN`) — never committed,
@@ -155,6 +197,7 @@ webhook in Eventbrite too; the Worker ignores it while off.)
   ship in the app / Worker var (public); the **allowlist** and the read+write Coda
   token live in the Worker.
 - `EB_WEBHOOK_SECRET`: Worker secret (see Eventbrite sync above).
+- `GOOGLE_SA_KEY`: Worker secret, the calendar service account's JSON key (see Google Calendar sync above).
 - `CLOUDFLARE_API_TOKEN`: GitHub repo secret (for CI proxy deploys only).
 - The legacy optional `APP_KEY` shared-secret path is superseded by the phased model
   above and is not used for the standalone deploy.

@@ -80,6 +80,11 @@ the sixth step the current one.
 | imported event | `ev.origin === 'Eventbrite'` | An event made directly on Eventbrite that the Worker copied into planning. Shows "Imported from Eventbrite" where the creator's name would be. |
 | flow-in | Worker, spec §5.3; decision 0009 | A change made on Eventbrite copied onto the planning row, field by field. Plan's unpushed edits win. |
 | Last from Eventbrite | Coda `Last from Eventbrite` → `ev.lastFromEb` `{at, fields}` | JSON written by the Worker on each flow-in. The panel says "Updated from Eventbrite: …" while `at` is later than `Last EB push at` (`PageRules.updatedFromEbLine`). |
+| **gCal Event ID** | Coda `gCal Event ID` (`PLANNING_COLS.gcalEventId`) | `ev.gcalEventId` | The Google Calendar event a row put on the calendar. Written only by the Worker (and `scripts/link-gcal-ids.mjs` once, before the cutover). |
+| **sync window** | `inSyncWindow` (`proxy/src/gcal.js`) | Rows dated yesterday or later. The calendar sweep looks only at these, so past events are never touched (0010). |
+| **GCAL_MODE** | Worker var | `off` / `shadow` / `live`. |
+| **shadow mode** | `GCAL_MODE=shadow` | The Worker works out each calendar change and logs it to the Publish Log (target `Google Calendar`) without calling Google. Used for a week before going live. |
+| calendar sweep | `sweepGcal`, `GCAL_CRON` | The 15-minute run that brings the calendar in step with every row in the sync window. Publish, Cancel and Unpublish sync their own row at once. |
 
 ## Saving
 
